@@ -1,0 +1,37 @@
+
+Scene{
+	id: scene1
+	position_x: pick("Select room origin")
+  position_y: pick
+  layer: "A_AUX"
+  layer_color: "gray"
+
+Row {
+	spacing: 3000
+	Repeater{
+		count:8
+		Line{
+			start:[0,0]
+			end:[0,24000]
+		}
+	}
+}
+Column{
+	spacing: 3000
+	Repeater{
+		count:8
+		Line{
+			start:[0,0]
+			end:[24000,0]
+		}
+	}
+}
+Component DoorSet(count: 3, spacing: 900mm) {
+  Row {
+    spacing: spacing
+    Repeater { count: count
+      Door { width: 800mm; height: 2100mm; layer: "A-DOOR" }
+    }
+  }
+}
+}

@@ -1,0 +1,56 @@
+// corridor.acml
+
+Component DoorSet {
+    param count:      3
+    param spacing:    900mm
+    param door_width: 800mm
+
+    Row {
+        spacing: spacing
+        Repeater { count: count
+            Door {
+                width:  door_width
+                height: 2100mm
+                layer:  "A-DOOR"
+            }
+        }
+    }
+}
+
+Scene {
+    id:         scene1
+    position_x: 0mm
+    position_y: 0mm
+    layer:      "A-WALL"
+
+    Wall {
+        id:     back_wall
+        width:  6000mm
+        height: 150mm
+        layer:  "A-WALL"
+    }
+
+    Wall {
+        width:      6000mm
+        height:     150mm
+        position_y: 3000mm
+        layer:      "A-WALL"
+    }
+
+    DoorSet {
+        count:      3
+        spacing:    1200mm
+        door_width: 800mm
+        position_x: 200mm
+        position_y: back_wall.bounds.height
+        layer:      "A-DOOR"
+    }
+
+    Door {
+        width:      1000mm
+        height:     2100mm
+        position_x: 4800mm
+        position_y: back_wall.bounds.height
+        layer:      "A-DOOR"
+    }
+}

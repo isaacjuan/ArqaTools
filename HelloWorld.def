@@ -1,0 +1,7 @@
+; HelloWorld.def - Module definition file for ObjectARX plugin
+
+LIBRARY     "HelloWorld.arx"
+
+EXPORTS
+    acrxEntryPoint          PRIVATE
+    acrxGetApiVersion       PRIVATE

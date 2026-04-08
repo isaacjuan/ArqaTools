@@ -1,0 +1,67 @@
+
+Scene{
+	id: scene1
+	position_x: pick("Select room origin")
+  position_y: pick
+  layer: "A_STAIR"
+  layer_color: "green"
+
+Container{
+	position_x: 0
+	position_y: 0
+	Config {
+		id: cfg
+		tread: 280
+		riser: 170
+		steps: 8
+	}
+
+	Repeater {
+		count: cfg.steps
+		Container{
+			position_x: index * cfg.tread
+			position_y: index * cfg.riser 
+			Line{
+				start:[0, 0]
+				end:[0, cfg.riser-20]
+			}
+			Rectangle {
+				id: escalon
+				position_x: -20
+				position_y: cfg.riser -20
+				width:  cfg.tread + 40
+				height: 20
+				Text{
+					position: [30, 50]
+					content: ""+(index+1)
+					height: 30
+				}
+			}
+		}
+	}
+	
+	Repeater {
+		count: cfg.steps -1
+		Container{
+			position_x: (index * cfg.tread * -1) + ((cfg.steps-2) * cfg.tread)
+			position_y: index * cfg.riser + cfg.steps * cfg.riser
+			Line{
+				start:[cfg.tread, 0]
+				end:[cfg.tread, cfg.riser-20]
+			}
+			Rectangle {
+				position_x: -20
+				position_y: cfg.riser -20
+				width:  cfg.tread + 40
+				height: 20
+				Text{
+					position: [cfg.tread, 50]
+					content: ""+(index+1+cfg.steps)
+					height: 30
+				}
+			}
+		}
+	}
+}
+
+}

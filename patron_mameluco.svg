@@ -1,0 +1,26 @@
+  <!-- Marco rectangular -->
+  <rect x="10" y="10" width="580" height="580" fill="none" stroke="black" stroke-width="2"/>
+
+  <!-- Estrella central de 8 puntas -->
+  <polygon points="300,200 340,240 380,200 340,160 300,120 260,160 220,200 260,240"
+           fill="none" stroke="blue" stroke-width="2"/>
+
+  <!-- Rombos diagonales (ángulos 45°) -->
+  <polygon points="300,200 340,240 300,280 260,240"
+           fill="none" stroke="red" stroke-width="1.5"/>
+  <polygon points="300,200 340,160 300,120 260,160"
+           fill="none" stroke="red" stroke-width="1.5"/>
+
+  <!-- Repetición modular en cuadrícula -->
+  <g stroke="blue" fill="none" stroke-width="1.5">
+    <!-- Estrella arriba izquierda -->
+    <polygon points="100,100 140,140 180,100 140,60 100,20 60,60 20,100 60,140"/>
+    <!-- Estrella arriba derecha -->
+    <polygon points="500,100 540,140 580,100 540,60 500,20 460,60 420,100 460,140"/>
+    <!-- Estrella abajo izquierda -->
+    <polygon points="100,500 140,540 180,500 140,460 100,420 60,460 20,500 60,540"/>
+    <!-- Estrella abajo derecha -->
+    <polygon points="500,500 540,540 580,500 540,460 500,420 460,460 420,500 460,540"/>
+  </g>
+</svg>
+

@@ -1,0 +1,32 @@
+# Build output
+x64/
+Debug/
+Release/
+*.arx
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+*.iobj
+*.ipdb
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+ipch/
+
+# Compiled resources
+*.res
+*.sbr
+*.bsc
+
+# PDF / documents (personal references)
+*.pdf
+*.docx
+
+# Local config (paths are in User.props)
+# User.props is intentionally tracked (without secrets)

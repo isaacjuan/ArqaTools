@@ -1,0 +1,120 @@
+
+Scene{
+	id: scene1
+	position_x: pick("Select room origin")
+  position_y: pick
+  layer: "A_TEST"
+  layer_color: "red"
+
+// ── Ejemplo 2: Repeater con Model ────────────────────────────────────────────
+Model {
+    id: win_specs
+    Item { width: 1200; height: 300  }
+    Item { width: 1100; height: 1200 }
+    Item { width: 1000;  height: 400  }
+    Item { width: 1200; height: 300  }
+    Item { width: 1200; height: 1200 }
+    Item { width: 900;  height: 400  }
+}
+
+Row {
+    id: ventanas
+    spacing: 400
+    position_y: 3300
+	layer:"A_WINDOWS"
+	layer_color: "cyan"
+    Repeater {
+        model: win_specs
+        Rectangle {
+            width:  model_data.width
+            height: model_data.height
+        }
+    }
+}
+Row {
+    id: puertas
+    spacing: 1400
+    position_y: 0
+
+    Repeater {
+        count: 6
+        Rectangle {
+            width:  850
+            height: 2100-(20*index)
+			Circle{
+				radius: 70
+				position_x: 80
+				position_y: 1100
+			}
+        }
+    }
+}
+Column {
+	id: col1
+	spacing: 80
+	position_x: -1000
+	position_y: 0
+	Repeater{
+		count:20
+		Rectangle{
+			width: 600
+			height: 200
+			Rectangle{
+				width: 60
+				height: 20
+			}
+			Line {
+				id: linea1
+				start: [60, 20]
+				end: [600, 20]
+				rotation: 45deg
+			}
+			Text{
+				id:mylabel
+				content: "rec-"+index
+				height: 25
+				position:[300,100]
+			}
+			Line {
+				id: linea2
+				position_x: 20
+				position_y: 20
+				llength: 400
+				rotation: 15*index
+			}
+		}
+	}
+}
+Container{
+	position_x: 3000
+		position_y: 1000
+	Config {
+		id: cfg
+		tread: 280
+		riser: 175
+		steps: 8
+	}
+
+	Repeater {
+		count: cfg.steps
+
+		Rectangle {
+			position_x: index * cfg.tread
+			position_y: index * cfg.riser
+			width:  cfg.tread
+			height: 20
+		}
+	}
+}
+
+Repeater {
+  count: 12
+
+  Line {
+    position_x: 500 * cos(30 * index)
+    position_y: 500 * sin(30 * index)
+    length: 200
+    rotation: 30 * index
+  }
+}
+}

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(msbuild HelloWorldAcad2025.sln -p:Configuration=\"Release 2025\" -p:Platform=x64 -nologo -v:minimal)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" HelloWorldAcad2025.sln -p:Configuration=\"Release 2025\" -p:Platform=x64 -nologo -v:minimal)",
+      "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\jissi\\\\Sync\\\\HelloWorldAcad2025 && \"\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\"\" HelloWorldAcad2025.sln /p:Configuration=\"\"Release 2025\"\" /p:Platform=x64 /nologo /v:minimal 2>&1\")",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe'' ''C:\\\\Users\\\\jissi\\\\Sync\\\\HelloWorldAcad2025\\\\HelloWorldAcad2025.sln'' /p:Configuration=''Release 2025'' /p:Platform=x64 /nologo /v:minimal 2>&1\")",
+      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Program Files\\\\Microsoft Visual Studio'' -Recurse -Filter ''MSBuild.exe'' 2>$null | Select-Object -First 5 FullName\")",
+      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Program Files\\\\Microsoft Visual Studio'' -Recurse -Filter ''MSBuild.exe'' | Select-Object -First 5 FullName\")",
+      "Bash(powershell.exe -Command \"& ''C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Professional\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe'' ''C:\\\\Users\\\\jissi\\\\Sync\\\\HelloWorldAcad2025\\\\HelloWorldAcad2025.sln'' ''/p:Configuration=Release 2025'' /p:Platform=x64 /nologo /v:minimal 2>&1\")",
+      "Bash(powershell.exe -NonInteractive -Command \"& ''C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Professional\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe'' ''C:\\\\Users\\\\jissi\\\\Sync\\\\HelloWorldAcad2025\\\\HelloWorld.sln'' ''/p:Configuration=Release 2025'' /p:Platform=x64 /nologo /v:minimal\")"
+    ]
+  }
+}

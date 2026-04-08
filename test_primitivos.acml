@@ -1,0 +1,60 @@
+// test_primitivos.acml — prueba Phase 3
+
+Line {
+  id: linea1
+  start: [0, 0]
+  end: [1000, 500]
+}
+
+Circle {
+  id: circulo1
+  center: [2000, 0]
+  radius: 300
+}
+
+Rectangle {
+  id: rect1
+  position_x: 3000
+  position_y: 0
+  width: 800
+  height: 600
+  Circle {
+		id: circulo2
+		center: [20, 0]
+		radius: 200
+	}
+}
+
+Text {
+  id: texto1
+  content: "ACML Phase 3"
+  position: [1500, 800]
+  height: 150
+}
+
+Polyline {
+  id: poli1
+  closed: true
+  points: [[500, -500], [1500, -500], [1500, -1500], [500, -1500]]
+}
+
+Row {
+    id: fila
+    spacing: 200
+
+    Rectangle { width: 800; height: 600 }
+    Rectangle { width: 1000; height: 600 }
+    Rectangle { width: 800; height: 600 }
+    Rectangle { width: 600; height: 600 }
+}
+
+// Columna de 3 círculos apilados
+Column {
+    id: pila
+    spacing: 450
+    position_x: 5000
+
+    Circle { radius: 300 }
+    Circle { radius: 200 }
+    Circle { radius: 400 }
+}

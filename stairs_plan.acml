@@ -1,0 +1,82 @@
+import "C:/Users/jissi/Sync/HelloWorldAcad2025/biblioteca.acml"
+
+Scene{
+	id: scene1
+	position_x: pick("Select room origin")
+	position_y: pick
+	layer: "A_CIRCULACION"
+	layer_color: "magenta"
+
+	Container{
+		id: cont
+		ancho_escalones: cfg.huella * cfg.escalones / 2 -(cfg.huella/2)
+		ancho_total : (cfg.huella * cfg.escalones / 2) + cfg.ancho
+		alto_total : cfg.ancho * 2 + cfg.ojo
+		rotation: cfg.rotacion
+		Polyline {
+			id:     stair_outline
+			closed: false
+			points: [
+				[   0,    0],
+				[   cont.ancho_total, 0],
+				[   cont.ancho_total, cont.alto_total],
+				[   0,  cont.alto_total]
+			]
+		}
+		
+		Row{
+			spacing: cfg.huella
+			Repeater{
+				count: cfg.escalones / 2 + 1
+				Container{
+				Line{
+					start:[0,0]
+					end:[0, cfg.ancho]
+				}
+				Line{
+					start:[0, cfg.ojo + cfg.ancho]
+					end:[0, cfg.ancho * 2 + cfg.ojo]
+				}
+				}
+			}
+		}
+		Polyline {
+			id:     stair_ojo
+			closed: false
+			points: [
+				[   0,    cfg.ancho],
+				[   cont.ancho_escalones, cfg.ancho],
+				[   cont.ancho_escalones, cfg.ancho + cfg.ojo],
+				[   0,  cfg.ancho + cfg.ojo]
+			]
+		}
+		Polyline {
+			id:     stair_dir
+			closed: false
+			points: [
+				[   0,    cfg.ancho / 2],
+				[   cont.ancho_escalones + cfg.ancho / 2, cfg.ancho / 2],
+				[   cont.ancho_escalones + cfg.ancho / 2, cfg.ancho + cfg.ojo+ cfg.ancho / 2],
+				[   0,  cfg.ancho + cfg.ojo+ cfg.ancho / 2]
+			]
+		}
+		Polyline {
+			id: flecha
+			closed: true
+			start:[0,  cfg.ancho + cfg.ojo+ cfg.ancho / 2]
+			segments: [
+				[ cfg.huella, 60  ],
+				[ cfg.huella/2, -30]
+			]
+		}
+		Polyline {
+			id: flecha2
+			closed: true
+			start:[0,  cfg.ancho + cfg.ojo+ cfg.ancho / 2]
+			segments: [
+				[ cfg.huella, -60  ],
+				[ cfg.huella/2, 30]
+			]
+		}
+	}
+}

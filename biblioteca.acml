@@ -1,0 +1,10 @@
+// biblioteca.acml
+Config {
+		id:cfg
+		huella: 280
+		chuella: 170
+		escalones: 15
+		ancho: 900
+		ojo:100
+		rotacion:0
+}

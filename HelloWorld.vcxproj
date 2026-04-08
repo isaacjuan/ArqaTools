@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug 2025|x64">
+      <Configuration>Debug 2025</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release 2025|x64">
+      <Configuration>Release 2025</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{12345678-1234-1234-1234-123456789ABC}</ProjectGuid>
+    <RootNamespace>HelloWorld</RootNamespace>
+    <Keyword>MFCProj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="$(Configuration.ToLower().Contains('2025'))">
+    <Year>2025</Year>
+  </PropertyGroup>
+  
+  <PropertyGroup Condition="$(Year)==2025" Label="Configuration">
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseOfMfc>Dynamic</UseOfMfc>
+  </PropertyGroup>
+  
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  <Import Project="User.props" />
+  
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.30319.1</_ProjectFileVersion>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <LinkIncremental>false</LinkIncremental>
+    <TargetExt>.arx</TargetExt>
+    <TargetName>HelloWorld</TargetName>
+    <EmbedManifest>false</EmbedManifest>
+    <GenerateManifest>false</GenerateManifest>
+    <OutDir Condition="$(Configuration.ToLower().Contains('debug'))">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <OutDir Condition="$(Configuration.ToLower().Contains('release'))">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+  
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>StdAfx.h</PrecompiledHeaderFile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <WarningLevel>Level3</WarningLevel>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <AdditionalIncludeDirectories>$(ICAD14)\icarx\inc;$(ICAD14)\icarx\inc-x64;$(ICAD14ODA);$(ICAD14ODA)\KernelBase\Include;$(ICAD14ODA)\Kernel\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WINVER=0x0A00;_WIN32_WINNT=0x0A00;_ACAD2025;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>_AFXDLL;_ACAD2025;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(ICAD14)\icarx\lib-x64;$(ICAD14)\ObjectARX\lib\windows-x64-vc143dbg;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>IcArx.lib;IcArxGe.lib;IcArxUi.lib;IcArxBridge.lib;accore.lib;acgeoment.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>HelloWorld.def</ModuleDefinitionFile>
+      <IgnoreSpecificDefaultLibraries>nafxcw.lib;nafxcwd.lib;MSVCRT.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <DataExecutionPrevention></DataExecutionPrevention>
+    </Link>
+  </ItemDefinitionGroup>
+  
+  <ItemDefinitionGroup Condition="$(Configuration.ToLower().Contains('debug'))">
+    <Link>
+      <AdditionalDependencies>IcRxd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <BrowseInformation>true</BrowseInformation>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  
+  <ItemDefinitionGroup Condition="$(Configuration.ToLower().Contains('release'))">
+    <Link>
+      <AdditionalDependencies>IcRx.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  
+  <ItemGroup>
+    <ClCompile Include="HelloWorld.cpp" />
+    <ClCompile Include="PolylineTools.cpp" />
+    <ClCompile Include="AlignTools.cpp" />
+    <ClCompile Include="ArabesqueTools.cpp" />
+    <ClCompile Include="SeqNumTools.cpp" />
+    <ClCompile Include="DistributeTools.cpp" />
+    <ClCompile Include="TextTools.cpp" />
+    <ClCompile Include="AreaTools.cpp" />
+    <ClCompile Include="MeasureFormat.cpp" />
+    <ClCompile Include="CadInfra.cpp" />
+    <ClCompile Include="ReactorPersistence.cpp" />
+    <ClCompile Include="AITools.cpp" />
+    <ClCompile Include="LayerTools.cpp" />
+    <ClCompile Include="CommonTools.cpp" />
+    <ClCompile Include="AcmlLexer.cpp" />
+    <ClCompile Include="AcmlParser.cpp" />
+    <ClCompile Include="AcmlSemantic.cpp" />
+    <ClCompile Include="AcmlGenerator.cpp" />
+    <ClCompile Include="AcmlTools.cpp" />
+    <ClCompile Include="StdAfx.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="HelloWorld.h" />
+    <ClInclude Include="CommonTools.h" />
+    <ClInclude Include="PolylineTools.h" />
+    <ClInclude Include="AlignTools.h" />
+    <ClInclude Include="ArabesqueTools.h" />
+    <ClInclude Include="SeqNumTools.h" />
+    <ClInclude Include="DistributeTools.h" />
+    <ClInclude Include="TextTools.h" />
+    <ClInclude Include="AreaTools.h" />
+    <ClInclude Include="MeasureFormat.h" />
+    <ClInclude Include="CadInfra.h" />
+    <ClInclude Include="ReactorPersistence.h" />
+    <ClInclude Include="AITools.h" />
+    <ClInclude Include="LayerTools.h" />
+    <ClInclude Include="AcmlLexer.h" />
+    <ClInclude Include="AcmlAst.h" />
+    <ClInclude Include="AcmlParser.h" />
+    <ClInclude Include="AcmlSemantic.h" />
+    <ClInclude Include="AcmlGenerator.h" />
+    <ClInclude Include="AcmlTools.h" />
+    <ClInclude Include="StdAfx.h" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <None Include="HelloWorld.def" />
+  </ItemGroup>
+  
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  
+</Project>

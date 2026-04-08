@@ -1,0 +1,53 @@
+// ── Ejemplo 1: Repeater simple con count ─────────────────────────────────────
+Row {
+    id: bollards
+    spacing: 1500
+
+    Repeater {
+        count: 5
+        Circle {
+            radius: 100
+            position_y: index * 500    // cada círculo baja un poco
+        }
+    }
+}
+
+// ── Ejemplo 2: Repeater con Model ────────────────────────────────────────────
+Model {
+    id: win_specs
+    Item { width: 1200; height: 300  }
+    Item { width: 1800; height: 1200 }
+    Item { width: 900;  height: 400  }
+}
+
+Row {
+    id: ventanas
+    spacing: 400
+    position_y: 5000
+
+    Repeater {
+        model: win_specs
+        Rectangle {
+            width:  model_data.width
+            height: model_data.height
+        }
+    }
+}
+
+// ── Ejemplo 3: Grilla con Repeater anidado ────────────────────────────────────
+Column {
+    id: grilla
+    spacing: 400
+    position_x: -1000
+
+    Repeater {
+        count: 3
+        Row {
+            spacing: 300
+            Repeater {
+                count: 4
+                Rectangle { width: 600; height: 400 }
+            }
+        }
+    }
+}

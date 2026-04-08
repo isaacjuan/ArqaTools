@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <OARX2025>C:\Users\jissi\hsbcad Dropbox\AcaSDK\ObjectARX 2025</OARX2025>
+    <ICAD14>C:\SST\Simpson\IntelliCAD\Source\IntelliCAD\api</ICAD14>
+    <ICAD14Libs>C:\SST\Simpson\IntelliCAD\Source\Build\VC.v143\Pro.Debug64</ICAD14Libs>
+    <ICAD14ODA>C:\SST\Simpson\IntelliCAD\Source\IntelliCAD\api\icrx\OpenDesignSDK</ICAD14ODA>
+  </PropertyGroup>
+</Project>
