@@ -1,9 +1,9 @@
 @echo off
-REM Build script for HelloWorld AutoCAD 2025 plugin
+REM Build script for ArqaTools AutoCAD 2025 plugin
 REM This script sets up the Visual Studio environment and builds the project
 
 echo ==========================================
-echo Building HelloWorld AutoCAD 2025 Plugin
+echo Building ArqaTools AutoCAD 2025 Plugin
 echo ==========================================
 echo.
 
@@ -25,7 +25,7 @@ echo Building project...
 echo.
 
 REM Build the solution (use /t:Rebuild to force full rebuild and update timestamps)
-msbuild HelloWorld.sln /t:Rebuild /p:Configuration="Debug 2025" /p:Platform=x64 /v:m
+msbuild ArqaTools.sln /t:Rebuild /p:Configuration="Debug 2025" /p:Platform=x64 /v:m
 
 if errorlevel 1 (
     echo.
@@ -39,10 +39,10 @@ echo ==========================================
 echo Build completed successfully!
 echo ==========================================
 echo.
-echo Copying HelloWorld.arx to deployment locations...
+echo Copying ArqaTools.arx to deployment locations...
 
 REM Copy the compiled plugin to Documents folder (might fail if locked)
-copy /Y "x64\Debug 2025\HelloWorld.arx" "%USERPROFILE%\Documents\"
+copy /Y "x64\Debug 2025\ArqaTools.arx" "%USERPROFILE%\Documents\"
 if errorlevel 1 (
     echo WARNING: Could not copy to Documents folder (file may be locked)
 ) else (
@@ -54,7 +54,7 @@ if not exist "%USERPROFILE%\Documents\acadPlugins\" (
     mkdir "%USERPROFILE%\Documents\acadPlugins"
 )
 
-copy /Y "x64\Debug 2025\HelloWorld.arx" "%USERPROFILE%\Documents\acadPlugins\"
+copy /Y "x64\Debug 2025\ArqaTools.arx" "%USERPROFILE%\Documents\acadPlugins\"
 if errorlevel 1 (
     echo WARNING: Could not copy to acadPlugins folder (file may be locked)
 ) else (
@@ -63,19 +63,19 @@ if errorlevel 1 (
 
 REM Copy LSP file to both locations
 echo.
-echo Copying ReloadHelloWorld.lsp...
-copy /Y "ReloadHelloWorld.lsp" "%USERPROFILE%\Documents\"
-copy /Y "ReloadHelloWorld.lsp" "%USERPROFILE%\Documents\acadPlugins\"
+echo Copying ReloadArqaTools.lsp...
+copy /Y "ReloadArqaTools.lsp" "%USERPROFILE%\Documents\"
+copy /Y "ReloadArqaTools.lsp" "%USERPROFILE%\Documents\acadPlugins\"
 
 echo.
-echo Plugin copied to: %USERPROFILE%\Documents\acadPlugins\HelloWorld.arx
+echo Plugin copied to: %USERPROFILE%\Documents\acadPlugins\ArqaTools.arx
 echo.
-echo Plugin copied to: %USERPROFILE%\Documents\HelloWorld.arx
+echo Plugin copied to: %USERPROFILE%\Documents\ArqaTools.arx
 echo.
 echo LSP copied to both locations
 echo.
 echo You can now load it in AutoCAD with: NETLOAD
-echo Or use APPLOAD to add ReloadHelloWorld.lsp to Startup Suite
+echo Or use APPLOAD to add ReloadArqaTools.lsp to Startup Suite
 echo Then use RELOADHW command for quick reloading
 echo.
 pause

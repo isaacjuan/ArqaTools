@@ -1,13 +1,13 @@
 @echo off
-REM Copy HelloWorld.arx and ReloadHelloWorld.lsp to Documents folders
+REM Copy ArqaTools.arx and ReloadArqaTools.lsp to Documents folders
 
-set SOURCE_ARX="c:\HSBCAD\HelloWorldAcad2025\x64\Debug 2025\HelloWorld.arx"
-set SOURCE_LSP="c:\HSBCAD\HelloWorldAcad2025\ReloadHelloWorld.lsp"
+set SOURCE_ARX="c:\HSBCAD\ArqaToolsAcad2025\x64\Debug 2025\ArqaTools.arx"
+set SOURCE_LSP="c:\HSBCAD\ArqaToolsAcad2025\ReloadArqaTools.lsp"
 set DEST_ACADPLUGINS="%USERPROFILE%\Documents\acadplugins"
 set DEST_DOCS="%USERPROFILE%\Documents"
 
 echo ==========================================
-echo Deploying HelloWorld Plugin Files
+echo Deploying ArqaTools Plugin Files
 echo ==========================================
 echo.
 
@@ -18,8 +18,8 @@ if not exist %DEST_ACADPLUGINS% (
 )
 
 REM Copy ARX to acadplugins
-echo Copying HelloWorld.arx to acadplugins...
-copy /Y %SOURCE_ARX% "%DEST_ACADPLUGINS%\HelloWorld.arx"
+echo Copying ArqaTools.arx to acadplugins...
+copy /Y %SOURCE_ARX% "%DEST_ACADPLUGINS%\ArqaTools.arx"
 
 if %ERRORLEVEL% EQU 0 (
     echo SUCCESS: ARX copied to acadplugins
@@ -31,8 +31,8 @@ if %ERRORLEVEL% EQU 0 (
 echo.
 
 REM Copy ARX to Documents
-echo Copying HelloWorld.arx to Documents...
-copy /Y %SOURCE_ARX% "%DEST_DOCS%\HelloWorld.arx"
+echo Copying ArqaTools.arx to Documents...
+copy /Y %SOURCE_ARX% "%DEST_DOCS%\ArqaTools.arx"
 
 if %ERRORLEVEL% EQU 0 (
     echo SUCCESS: ARX copied to Documents
@@ -43,8 +43,8 @@ if %ERRORLEVEL% EQU 0 (
 echo.
 
 REM Copy LSP to both locations
-echo Copying ReloadHelloWorld.lsp to acadplugins...
-copy /Y %SOURCE_LSP% "%DEST_ACADPLUGINS%\ReloadHelloWorld.lsp"
+echo Copying ReloadArqaTools.lsp to acadplugins...
+copy /Y %SOURCE_LSP% "%DEST_ACADPLUGINS%\ReloadArqaTools.lsp"
 
 if %ERRORLEVEL% EQU 0 (
     echo SUCCESS: LSP copied to acadplugins
@@ -54,8 +54,8 @@ if %ERRORLEVEL% EQU 0 (
 
 echo.
 
-echo Copying ReloadHelloWorld.lsp to Documents...
-copy /Y %SOURCE_LSP% "%DEST_DOCS%\ReloadHelloWorld.lsp"
+echo Copying ReloadArqaTools.lsp to Documents...
+copy /Y %SOURCE_LSP% "%DEST_DOCS%\ReloadArqaTools.lsp"
 
 if %ERRORLEVEL% EQU 0 (
     echo SUCCESS: LSP copied to Documents
@@ -74,7 +74,7 @@ echo   %DEST_DOCS%
 echo.
 echo To use the reload command:
 echo   1. Type APPLOAD in AutoCAD
-echo   2. Add ReloadHelloWorld.lsp to Startup Suite
+echo   2. Add ReloadArqaTools.lsp to Startup Suite
 echo   3. Use RELOADHW command to reload the plugin
 echo.
 pause

@@ -1,19 +1,19 @@
-;; ReloadHelloWorld.lsp
-;; Quick reload command for HelloWorld.arx plugin
+;; ReloadArqaTools.lsp
+;; Quick reload command for ArqaTools.arx plugin
 ;; Load this file in AutoCAD Startup Suite for automatic loading
 
 ;; Configuration - Set your project path here
-(setq *hw-project-path* "c:\\HSBCAD\\HelloWorldAcad2025")
+(setq *hw-project-path* "c:\\HSBCAD\\ArqaToolsAcad2025")
 
 (defun C:RELOADHW ( / arx-name arx-path1 arx-path2 arx-path loaded-path)
-  (setq arx-name "HelloWorld.arx")
+  (setq arx-name "ArqaTools.arx")
   
   ;; Define possible plugin locations
   ;; Prefer Documents location (arx-path2) since it updates during build even when loaded
-  (setq arx-path1 (strcat (getenv "USERPROFILE") "\\Documents\\HelloWorld.arx"))
-  (setq arx-path2 (strcat (getenv "USERPROFILE") "\\Documents\\acadPlugins\\HelloWorld.arx"))
+  (setq arx-path1 (strcat (getenv "USERPROFILE") "\\Documents\\ArqaTools.arx"))
+  (setq arx-path2 (strcat (getenv "USERPROFILE") "\\Documents\\acadPlugins\\ArqaTools.arx"))
   
-  (princ "\n=== Reload HelloWorld Plugin ===")
+  (princ "\n=== Reload ArqaTools Plugin ===")
   
   ;; Check if plugin is currently loaded
   (setq loaded-path nil)
@@ -28,13 +28,13 @@
       )
       
       ;; Unload the plugin
-      (princ "\nUnloading HelloWorld.arx...")
+      (princ "\nUnloading ArqaTools.arx...")
       (if (arxunload arx-name T)  ;; T forces unload
         (princ " Done.")
         (princ " FAILED!")
       )
     )
-    (princ "\nHelloWorld.arx not currently loaded.")
+    (princ "\nArqaTools.arx not currently loaded.")
   )
   
   ;; Determine which path to load from
@@ -116,14 +116,14 @@
       (princ (strcat "\nLoading from: " loaded-path))
       (if (arxload loaded-path)
         (progn
-          (princ "\nHelloWorld.arx reloaded successfully!")
+          (princ "\nArqaTools.arx reloaded successfully!")
           (command "HWVERSION")
         )
-        (princ "\nERROR: Failed to load HelloWorld.arx")
+        (princ "\nERROR: Failed to load ArqaTools.arx")
       )
     )
     (progn
-      (princ "\nERROR: Cannot find HelloWorld.arx in:")
+      (princ "\nERROR: Cannot find ArqaTools.arx in:")
       (princ (strcat "\n  " arx-path1))
       (princ (strcat "\n  " arx-path2))
       (princ "\nPlease check the plugin location.")
@@ -133,22 +133,22 @@
   (princ)
 )
 
-;; UNLOADHW - Just unload HelloWorld.arx
+;; UNLOADHW - Just unload ArqaTools.arx
 (defun C:UNLOADHW ( / arx-name)
-  (setq arx-name "HelloWorld.arx")
+  (setq arx-name "ArqaTools.arx")
   
-  (princ "\n=== Unload HelloWorld Plugin ===")
+  (princ "\n=== Unload ArqaTools Plugin ===")
   
   ;; Check if plugin is currently loaded
   (if (member arx-name (arx))
     (progn
-      (princ "\nUnloading HelloWorld.arx...")
+      (princ "\nUnloading ArqaTools.arx...")
       (if (arxunload arx-name T)  ;; T forces unload
-        (princ " Done.\nHelloWorld.arx unloaded successfully!")
-        (princ " FAILED!\nERROR: Could not unload HelloWorld.arx")
+        (princ " Done.\nArqaTools.arx unloaded successfully!")
+        (princ " FAILED!\nERROR: Could not unload ArqaTools.arx")
       )
     )
-    (princ "\nHelloWorld.arx is not currently loaded.")
+    (princ "\nArqaTools.arx is not currently loaded.")
   )
   
   (princ)
@@ -156,20 +156,20 @@
 
 ;; RELOADHWBUILD - Unload, Build, and Reload
 (defun C:RELOADHWBUILD ( / arx-name build-bat arx-path1 arx-path2 loaded-path)
-  (setq arx-name "HelloWorld.arx")
+  (setq arx-name "ArqaTools.arx")
   (setq build-bat (strcat *hw-project-path* "\\Build.bat"))
   
   ;; Define possible plugin locations - prefer Documents (arx-path1)
-  (setq arx-path1 (strcat (getenv "USERPROFILE") "\\Documents\\HelloWorld.arx"))
-  (setq arx-path2 (strcat (getenv "USERPROFILE") "\\Documents\\acadPlugins\\HelloWorld.arx"))
+  (setq arx-path1 (strcat (getenv "USERPROFILE") "\\Documents\\ArqaTools.arx"))
+  (setq arx-path2 (strcat (getenv "USERPROFILE") "\\Documents\\acadPlugins\\ArqaTools.arx"))
   
-  (princ "\n=== Build and Reload HelloWorld Plugin ===")
+  (princ "\n=== Build and Reload ArqaTools Plugin ===")
   
   ;; Check if Build.bat exists
   (if (not (findfile build-bat))
     (progn
       (princ (strcat "\nERROR: Cannot find Build.bat at: " build-bat))
-      (princ "\nPlease update *hw-project-path* in ReloadHelloWorld.lsp")
+      (princ "\nPlease update *hw-project-path* in ReloadArqaTools.lsp")
       (princ)
       (exit)
     )
@@ -271,14 +271,14 @@
       (princ (strcat "\nLoading from: " loaded-path))
       (if (arxload loaded-path)
         (progn
-          (princ "\n\nHelloWorld.arx reloaded successfully!")
+          (princ "\n\nArqaTools.arx reloaded successfully!")
           (command "HWVERSION")
         )
-        (princ "\n\nERROR: Failed to load HelloWorld.arx")
+        (princ "\n\nERROR: Failed to load ArqaTools.arx")
       )
     )
     (progn
-      (princ "\nERROR: Cannot find HelloWorld.arx")
+      (princ "\nERROR: Cannot find ArqaTools.arx")
       (princ (strcat "\n  Searched: " arx-path1))
       (princ (strcat "\n  Searched: " arx-path2))
     )
@@ -289,16 +289,16 @@
 
 ;; Alternative command with explicit path parameter
 (defun C:RELOADHWPATH ( / arx-path user-path)
-  (princ "\n=== Reload HelloWorld with Custom Path ===")
-  (setq user-path (getfiled "Select HelloWorld.arx" "" "arx" 0))
+  (princ "\n=== Reload ArqaTools with Custom Path ===")
+  (setq user-path (getfiled "Select ArqaTools.arx" "" "arx" 0))
   
   (if user-path
     (progn
       ;; Unload if loaded
-      (if (member "HelloWorld.arx" (arx))
+      (if (member "ArqaTools.arx" (arx))
         (progn
           (princ "\nUnloading current version...")
-          (arxunload "HelloWorld.arx" T)
+          (arxunload "ArqaTools.arx" T)
         )
       )
       
@@ -306,10 +306,10 @@
       (princ (strcat "\nLoading from: " user-path))
       (if (arxload user-path)
         (progn
-          (princ "\nHelloWorld.arx loaded successfully!")
+          (princ "\nArqaTools.arx loaded successfully!")
           (command "HWVERSION")
         )
-        (princ "\nERROR: Failed to load HelloWorld.arx")
+        (princ "\nERROR: Failed to load ArqaTools.arx")
       )
     )
     (princ "\nCancelled.")
@@ -317,14 +317,14 @@
   (princ)
 )
 
-;; Auto-load HelloWorld.arx on startup (optional - uncomment to enable)
+;; Auto-load ArqaTools.arx on startup (optional - uncomment to enable)
 ;; (defun S::STARTUP ()
-;;   (if (not (member "HelloWorld.arx" (arx)))
+;;   (if (not (member "ArqaTools.arx" (arx)))
 ;;     (progn
-;;       (setq hw-path (strcat (getenv "USERPROFILE") "\\Documents\\acadPlugins\\HelloWorld.arx"))
+;;       (setq hw-path (strcat (getenv "USERPROFILE") "\\Documents\\acadPlugins\\ArqaTools.arx"))
 ;;       (if (findfile hw-path)
 ;;         (progn
-;;           (princ "\nAuto-loading HelloWorld.arx...")
+;;           (princ "\nAuto-loading ArqaTools.arx...")
 ;;           (arxload hw-path)
 ;;         )
 ;;       )
@@ -332,9 +332,9 @@
 ;;   )
 ;; )
 
-(princ "\n=== HelloWorld Reload Commands Loaded ===")
-(princ "\nType RELOADHW to reload HelloWorld.arx")
-(princ "\nType UNLOADHW to unload HelloWorld.arx (without reloading)")
+(princ "\n=== ArqaTools Reload Commands Loaded ===")
+(princ "\nType RELOADHW to reload ArqaTools.arx")
+(princ "\nType UNLOADHW to unload ArqaTools.arx (without reloading)")
 (princ "\nType RELOADHWBUILD to rebuild and reload (unload -> build -> reload)")
 (princ "\nType RELOADHWPATH to reload from custom location")
 (princ "\n")

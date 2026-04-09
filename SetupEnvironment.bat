@@ -1,5 +1,5 @@
 @echo off
-REM SetupEnvironment.bat - Configure ObjectARX environment variables for HelloWorld project
+REM SetupEnvironment.bat - Configure ObjectARX environment variables for ArqaTools project
 REM This matches the beamapp project structure
 
 echo ========================================
@@ -38,7 +38,7 @@ echo ========================================
 echo Environment Setup Complete!
 echo ========================================
 echo.
-echo You can now build the HelloWorld project in Visual Studio.
+echo You can now build the ArqaTools project in Visual Studio.
 echo.
 echo Required Environment Variables:
 echo   OARX2025 = %OARX2025%
