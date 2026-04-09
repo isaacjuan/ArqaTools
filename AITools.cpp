@@ -1,4 +1,4 @@
-#include "StdAfx.h"
+﻿#include "StdAfx.h"
 #include "AITools.h"
 #include <winhttp.h>
 #include <sstream>
@@ -10,7 +10,7 @@
 namespace AITools
 {
     // Store token in registry for persistence
-    const wchar_t* REGISTRY_KEY = L"Software\\HelloWorldPlugin";
+    const wchar_t* REGISTRY_KEY = L"Software\\ArqaToolsPlugin";
     const wchar_t* TOKEN_VALUE = L"GitHubToken";
     const wchar_t* ENDPOINT_VALUE = L"APIEndpoint";
     const wchar_t* MODEL_VALUE = L"AIModel";
@@ -1001,7 +1001,7 @@ namespace AITools
     CString GetCustomCommandsKnowledgeBase()
     {
         CString kb;
-        kb = _T("Available CUSTOM HelloWorld Plugin commands:\n");
+        kb = _T("Available CUSTOM ArqaTools Plugin commands:\n");
         kb += _T("- HELLO: Creates a red circle with cross at specified point\n");
         kb += _T("- DRAWBOX: Creates a 3D wireframe box\n");
         kb += _T("- BOOLPOLY: Boolean operations on polylines (union/subtract/intersect)\n");
@@ -1066,7 +1066,7 @@ namespace AITools
         CString customKB = GetCustomCommandsKnowledgeBase();
         CString aiPrompt;
         aiPrompt.Format(
-            _T("You are an AutoCAD command generator with knowledge of custom HelloWorld plugin commands. ")
+            _T("You are an AutoCAD command generator with knowledge of custom ArqaTools plugin commands. ")
             _T("Convert the following natural language instruction into AutoCAD commands.\n\n")
             _T("User wants to: %s\n\n")
             _T("Available STANDARD AutoCAD commands:\n")

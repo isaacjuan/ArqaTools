@@ -1,4 +1,4 @@
-// CommonTools.h - Shared utilities for all HelloWorld plugin modules
+﻿// CommonTools.h - Shared utilities for all ArqaTools plugin modules
 //
 // Provides:
 //   - GetModelSpace()           : open model space for writing

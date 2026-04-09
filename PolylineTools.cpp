@@ -1,7 +1,7 @@
 // PolylineTools.cpp - Polyline and Boolean Operations Implementation
 
 #include "StdAfx.h"
-#include "HelloWorld.h"
+#include "ArqaTools.h"
 #include "PolylineTools.h"
 #include "CommonTools.h"
 #include "dbregion.h"

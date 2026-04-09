@@ -1,4 +1,4 @@
-// StdAfx.h - Precompiled header for HelloWorld plugin
+﻿// StdAfx.h - Precompiled header for ArqaTools plugin
 
 #if !defined(AFX_STDAFX_H__INCLUDED_)
 #define AFX_STDAFX_H__INCLUDED_

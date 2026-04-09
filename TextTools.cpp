@@ -1,7 +1,7 @@
 // TextTools.cpp - Text Manipulation Tools Implementation
 
 #include "StdAfx.h"
-#include "HelloWorld.h"
+#include "ArqaTools.h"
 #include "TextTools.h"
 #include "CommonTools.h"
 #include "dbmtext.h"

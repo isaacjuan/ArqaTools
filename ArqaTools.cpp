@@ -1,4 +1,4 @@
-// HelloWorld.cpp - Modern AutoCAD 2025 ObjectARX Plugin using OMF
+// ArqaTools.cpp - Modern AutoCAD 2025 ObjectARX Plugin using OMF
 // Demonstrates ObjectARX Module Framework (OMF) with AcRxArxApp
 //
 // Commands:
@@ -7,19 +7,34 @@
 //   BOOLPOLY - Boolean operations on polylines (union/intersection/subtract)
 
 #include "StdAfx.h"
-#include "HelloWorld.h"
+#include "ArqaTools.h"
 
 #ifdef _DEBUG
 #include <crtdbg.h>
-namespace {
-struct SuppressAsserts
+static bool g_assertsSuppressed = false;
+
+static void suppressAssertsCommand()
 {
-    SuppressAsserts() { m_prev = _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG); }
-    ~SuppressAsserts() { _CrtSetReportMode(_CRT_ASSERT, m_prev); }
-private:
-    int m_prev;
-};
-static SuppressAsserts g_suppressAsserts;
+    if (!g_assertsSuppressed)
+    {
+        _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+        g_assertsSuppressed = true;
+        acutPrintf(_T("\nAsserts suppressed (output to debugger only).\n"));
+    }
+    else
+        acutPrintf(_T("\nAsserts already suppressed.\n"));
+}
+
+static void unsuppressAssertsCommand()
+{
+    if (g_assertsSuppressed)
+    {
+        _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_WNDW);
+        g_assertsSuppressed = false;
+        acutPrintf(_T("\nAsserts restored (dialog enabled).\n"));
+    }
+    else
+        acutPrintf(_T("\nAsserts are not suppressed.\n"));
 }
 #endif
 #include "CommonTools.h"
@@ -52,20 +67,20 @@ const TCHAR* GetVersionString()
 {
     static TCHAR versionBuffer[256];
     _stprintf_s(versionBuffer, 256, _T("v%d.%d - Build: %s %s"), 
-                HELLOWORLD_VERSION_MAJOR, 
-                HELLOWORLD_VERSION_MINOR,
-                _T(HELLOWORLD_BUILD_DATE),
-                _T(HELLOWORLD_BUILD_TIME));
+                ARQATOOLS_VERSION_MAJOR, 
+                ARQATOOLS_VERSION_MINOR,
+                _T(ARQATOOLS_BUILD_DATE),
+                _T(ARQATOOLS_BUILD_TIME));
     return versionBuffer;
 }
 
 // Constructor
-CHelloWorldApp::CHelloWorldApp() : AcRxArxApp() 
+CArqaToolsApp::CArqaToolsApp() : AcRxArxApp() 
 {
 }
 
 // Initialize application
-AcRx::AppRetCode CHelloWorldApp::On_kInitAppMsg(void* pAppData)
+AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
 {
     AcRx::AppRetCode retCode = AcRxArxApp::On_kInitAppMsg(pAppData);
 
@@ -74,8 +89,8 @@ AcRx::AppRetCode CHelloWorldApp::On_kInitAppMsg(void* pAppData)
         // Core
         { _T("HELLO"),            helloWorldCommand           },
         { _T("DRAWBOX"),          drawBoxCommand              },
-        { _T("HWHELP"),           hwHelpCommand               },
-        { _T("HWVERSION"),        versionCommand              },
+        { _T("ARQAHELP"),           arqaHelpCommand               },
+        { _T("ARQAVERSION"),        versionCommand              },
         { _T("RELOAD"),           reloadCommand               },
         // Polyline / Boolean
         { _T("BOOLPOLY"),         booleanPolyCommand          },
@@ -150,36 +165,41 @@ AcRx::AppRetCode CHelloWorldApp::On_kInitAppMsg(void* pAppData)
     };
 
     for (const auto& cmd : kCommands)
-        acedRegCmds->addCommand(_T("HELLOWORLD_COMMANDS"), cmd.name, cmd.name, ACRX_CMD_MODAL, cmd.func);
+        acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), cmd.name, cmd.name, ACRX_CMD_MODAL, cmd.func);
+
+#ifdef _DEBUG
+    acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), _T("SUPPRESSASSERTS"),   _T("SUPPRESSASSERTS"),   ACRX_CMD_MODAL, suppressAssertsCommand);
+    acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), _T("UNSUPPRESSASSERTS"), _T("UNSUPPRESSASSERTS"), ACRX_CMD_MODAL, unsuppressAssertsCommand);
+#endif
 
     InitAreaToolsPersistence();
 
-    acutPrintf(_T("\n=== HelloWorld 2025 Plugin Loaded ===\n"));
+    acutPrintf(_T("\n=== ArqaTools 2025 Plugin Loaded ===\n"));
     acutPrintf(_T("%s\n"), GetVersionString());
-    acutPrintf(_T("Type HWHELP to see all available commands\n"));
+    acutPrintf(_T("Type ARQAHELP to see all available commands\n"));
     return retCode;
 }
 
 // Unload application
-AcRx::AppRetCode CHelloWorldApp::On_kUnloadAppMsg(void* pAppData)
+AcRx::AppRetCode CArqaToolsApp::On_kUnloadAppMsg(void* pAppData)
 {
     AcRx::AppRetCode retCode = AcRxArxApp::On_kUnloadAppMsg(pAppData);
 
     UninitAreaToolsPersistence();
-    acedRegCmds->removeGroup(_T("HELLOWORLD_COMMANDS"));
-    acutPrintf(_T("\nHelloWorld plugin unloaded.\n"));
+    acedRegCmds->removeGroup(_T("ARQATOOLS_COMMANDS"));
+    acutPrintf(_T("\nArqaTools plugin unloaded.\n"));
     
     return retCode;
 }
 
 // Register server components
-void CHelloWorldApp::RegisterServerComponents()
+void CArqaToolsApp::RegisterServerComponents()
 {
     // Register any custom objects, services, etc. here
 }
 
 // OMF entry point
-IMPLEMENT_ARX_ENTRYPOINT(CHelloWorldApp)
+IMPLEMENT_ARX_ENTRYPOINT(CArqaToolsApp)
 
 // Helper function: Add entity to model space with color
 static Acad::ErrorStatus AddEntityToModelSpace(AcDbEntity* pEntity, int colorIndex, AcDbBlockTableRecord* pModelSpace)
@@ -246,7 +266,7 @@ static Acad::ErrorStatus DrawCircleWithCross(const AcGePoint3d& center, double r
 }
 
 // Command implementation
-void CHelloWorldApp::helloWorldCommand()
+void CArqaToolsApp::helloWorldCommand()
 {
     DisplayWelcomeMessage();
 
@@ -325,7 +345,7 @@ static Acad::ErrorStatus DrawBox(const AcGePoint3d& corner, double width, double
 }
 
 // DRAWBOX command implementation
-void CHelloWorldApp::drawBoxCommand()
+void CArqaToolsApp::drawBoxCommand()
 {
     acutPrintf(_T("\n==========================================\n"));
     acutPrintf(_T("   Draw Box Command                     \n"));
@@ -361,109 +381,109 @@ void CHelloWorldApp::drawBoxCommand()
 }
 
 // BOOLPOLY command implementation
-void CHelloWorldApp::booleanPolyCommand()
+void CArqaToolsApp::booleanPolyCommand()
 {
     PolylineTools::booleanPolyCommand();
 }
 
 // SUBPOLY command - Subtract second polyline from first
-void CHelloWorldApp::subtractPolyCommand()
+void CArqaToolsApp::subtractPolyCommand()
 {
     PolylineTools::subtractPolyCommand();
 }
 
 // INPOLY command - Intersection of two polylines
-void CHelloWorldApp::intersectPolyCommand()
+void CArqaToolsApp::intersectPolyCommand()
 {
     PolylineTools::intersectPolyCommand();
 }
 
 // UNIONPOLY command - Union of two polylines
-void CHelloWorldApp::unionPolyCommand()
+void CArqaToolsApp::unionPolyCommand()
 {
     PolylineTools::unionPolyCommand();
 }
 
 // REG2POLY command - Convert region to polyline
-void CHelloWorldApp::regionToPolyCommand()
+void CArqaToolsApp::regionToPolyCommand()
 {
     PolylineTools::regionToPolyCommand();
 }
 
 
 // ALX command - Align to X coordinate
-void CHelloWorldApp::alignXCommand()
+void CArqaToolsApp::alignXCommand()
 {
     AlignTools::alignXCommand();
 }
 
 // ALY command - Align to Y coordinate
-void CHelloWorldApp::alignYCommand()
+void CArqaToolsApp::alignYCommand()
 {
     AlignTools::alignYCommand();
 }
 
 // ALZ command - Align to Z coordinate
-void CHelloWorldApp::alignZCommand()
+void CArqaToolsApp::alignZCommand()
 {
     AlignTools::alignZCommand();
 }
 
 // SEQNUM command - Create sequence of numbers at specified points
-void CHelloWorldApp::sequenceNumberCommand()
+void CArqaToolsApp::sequenceNumberCommand()
 {
     SeqNumTools::sequenceNumberCommand();
 }
 
 // DISTLINE command - Distribute objects evenly along a line
-void CHelloWorldApp::distributeLinearCommand()
+void CArqaToolsApp::distributeLinearCommand()
 {
     DistributeTools::distributeLinearCommand();
 }
 
-void CHelloWorldApp::distributeCopyLinearCommand()
+void CArqaToolsApp::distributeCopyLinearCommand()
 {
     DistributeTools::distributeCopyLinearCommand();
 }
 
-void CHelloWorldApp::distributeCopyBetweenCommand()
+void CArqaToolsApp::distributeCopyBetweenCommand()
 {
     DistributeTools::distributeCopyBetweenCommand();
 }
 
-void CHelloWorldApp::distributeCopyEqualCommand()
+void CArqaToolsApp::distributeCopyEqualCommand()
 {
     DistributeTools::distributeCopyEqualCommand();
 }
 
 // COPYTEXT command - Copy text content from one object to others
-void CHelloWorldApp::copyTextCommand()
+void CArqaToolsApp::copyTextCommand()
 {
     TextTools::copyTextCommand();
 }
 
 // COPYSTYLE command - Copy text style properties from one object to others
-void CHelloWorldApp::copyStyleCommand()
+void CArqaToolsApp::copyStyleCommand()
 {
     TextTools::copyStyleCommand();
 }
 
 // COPYTEXTFULL command - Copy text style AND dimensions (height)
-void CHelloWorldApp::copyTextFullCommand()
+void CArqaToolsApp::copyTextFullCommand()
 {
     TextTools::copyTextFullCommand();
 }
 
 // COPYDIMSTYLE command - Copy dimension style from one dimension to others
-void CHelloWorldApp::copyDimStyleCommand()
+void CArqaToolsApp::copyDimStyleCommand()
 {
     TextTools::copyDimStyleCommand();
 }
 
 // RELOAD command - Unload and reload the plugin
-void CHelloWorldApp::reloadCommand()
+void CArqaToolsApp::reloadCommand()
 {
-    acutPrintf(_T("\n=== Reload HelloWorld Plugin ===\n"));
+    acutPrintf(_T("\n=== Reload ArqaTools Plugin ===\n"));
     
     // Get the path to the currently loaded ARX file
     TCHAR arxPath[MAX_PATH];
@@ -471,16 +491,16 @@ void CHelloWorldApp::reloadCommand()
     
     // Get the module handle for this DLL
     if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                          (LPCTSTR)&CHelloWorldApp::reloadCommand, &hModule))
+                          (LPCTSTR)&CArqaToolsApp::reloadCommand, &hModule))
     {
         if (GetModuleFileName(hModule, arxPath, MAX_PATH) > 0)
         {
             acutPrintf(_T("Plugin path: %s\n\n"), arxPath);
             acutPrintf(_T("NOTE: Cannot unload ARX while command is running.\n"));
             acutPrintf(_T("Copy and paste this LISP command after RELOAD completes:\n\n"));
-            acutPrintf(_T("(progn (arxunload \"HelloWorld.arx\") (arxload \"%s\"))\n\n"), arxPath);
+            acutPrintf(_T("(progn (arxunload \"ArqaTools.arx\") (arxload \"%s\"))\n\n"), arxPath);
             acutPrintf(_T("Or use these commands:\n"));
-            acutPrintf(_T("  ARX UNLOAD HelloWorld.arx\n"));
+            acutPrintf(_T("  ARX UNLOAD ArqaTools.arx\n"));
             acutPrintf(_T("  NETLOAD %s\n"), arxPath);
         }
         else
@@ -495,10 +515,10 @@ void CHelloWorldApp::reloadCommand()
 }
 
 // VERSION command - Display version and build information
-void CHelloWorldApp::versionCommand()
+void CArqaToolsApp::versionCommand()
 {
     acutPrintf(_T("\n====================================\n"));
-    acutPrintf(_T("  HelloWorld AutoCAD 2025 Plugin\n"));
+    acutPrintf(_T("  ArqaTools AutoCAD 2025 Plugin\n"));
     acutPrintf(_T("====================================\n"));
     acutPrintf(_T("%s\n"), GetVersionString());
     
@@ -536,112 +556,112 @@ void CHelloWorldApp::versionCommand()
 }
 
 // PLACEMID command - Move object to midpoint between two points
-void CHelloWorldApp::placeMidCommand()
+void CArqaToolsApp::placeMidCommand()
 {
     AlignTools::placeMidCommand();
 }
 
 // ROOMTAG command
-void CHelloWorldApp::roomTagCommand()
+void CArqaToolsApp::roomTagCommand()
 {
     ::roomTagCommand();
 }
 
 // PERIMETER command
-void CHelloWorldApp::perimeterCommand()
+void CArqaToolsApp::perimeterCommand()
 {
     ::perimeterCommand();
 }
 
 // LINEARLENGTH command
-void CHelloWorldApp::linearLengthCommand()
+void CArqaToolsApp::linearLengthCommand()
 {
     ::linearLengthCommand();
 }
 
 // COUNTBLOCKS command
-void CHelloWorldApp::countBlocksCommand()
+void CArqaToolsApp::countBlocksCommand()
 {
     ::countBlocksCommand();
 }
 
 // SCALETEXT command
-void CHelloWorldApp::scaleTextCommand()
+void CArqaToolsApp::scaleTextCommand()
 {
     TextTools::scaleTextCommand();
 }
 
 // SPLITLINE command
-void CHelloWorldApp::splitLineCommand()
+void CArqaToolsApp::splitLineCommand()
 {
     ::splitLineCommand();
 }
 
 // SPLITPOLI command
-void CHelloWorldApp::splitPoliCommand()
+void CArqaToolsApp::splitPoliCommand()
 {
     ::splitPoliCommand();
 }
 
 // TAGALL command
-void CHelloWorldApp::tagAllCommand()
+void CArqaToolsApp::tagAllCommand()
 {
     ::tagAllCommand();
 }
 
 // DISTTOLINE command
-void CHelloWorldApp::alignToLineCommand()
+void CArqaToolsApp::alignToLineCommand()
 {
     DistributeTools::alignToLineCommand();
 }
 
 // ARABESQUE command
-void CHelloWorldApp::arabesqueCommand()
+void CArqaToolsApp::arabesqueCommand()
 {
     ArabesqueTools::arabesqueCommand();
 }
 
 // HOJANAZARI command
-void CHelloWorldApp::hojaNazariCommand()
+void CArqaToolsApp::hojaNazariCommand()
 {
     ArabesqueTools::hojaNazariCommand();
 }
 
 // ARABESCORL command
-void CHelloWorldApp::arabescoRlCommand()
+void CArqaToolsApp::arabescoRlCommand()
 {
     ArabesqueTools::arabescoRlCommand();
 }
 
 // ARABESCOTOROSOL command
-void CHelloWorldApp::arabescotoroSolCommand()
+void CArqaToolsApp::arabescotoroSolCommand()
 {
     ArabesqueTools::arabescotoroSolCommand();
 }
 
 // ARABESCOHIPSOL command
-void CHelloWorldApp::arabescohipSolCommand()
+void CArqaToolsApp::arabescohipSolCommand()
 {
     ArabesqueTools::arabescohipSolCommand();
 }
 
 // MATCHLAYER command
-void CHelloWorldApp::matchLayerCommand()
+void CArqaToolsApp::matchLayerCommand()
 {
     LayerTools::matchLayerCommand();
 }
 
 // FREEZELAYER command
-void CHelloWorldApp::freezeLayerCommand()
+void CArqaToolsApp::freezeLayerCommand()
 {
     LayerTools::freezeLayerCommand();
 }
 
-// HWHELP command - Display all available commands
-void CHelloWorldApp::hwHelpCommand()
+// ARQAHELP command - Display all available commands
+void CArqaToolsApp::arqaHelpCommand()
 {
     acutPrintf(_T("\n====================================\n"));
-    acutPrintf(_T("  HelloWorld Plugin Commands\n"));
+    acutPrintf(_T("  ArqaTools Plugin Commands\n"));
     acutPrintf(_T("====================================\n"));
     
     acutPrintf(_T("\n--- DRAWING COMMANDS ---\n"));
@@ -726,17 +746,17 @@ void CHelloWorldApp::hwHelpCommand()
     acutPrintf(_T("AILISTMODELS- List available models (Gemini only)\n"));
     
     acutPrintf(_T("\n--- PLUGIN MANAGEMENT ---\n"));
-    acutPrintf(_T("HWVERSION   - Display plugin version and build info\n"));
-    acutPrintf(_T("HWHELP      - Display this help (all commands)\n"));
+    acutPrintf(_T("ARQAVERSION   - Display plugin version and build info\n"));
+    acutPrintf(_T("ARQAHELP      - Display this help (all commands)\n"));
     acutPrintf(_T("RELOAD      - Show reload instructions\n"));
     
-    acutPrintf(_T("\n--- LISP COMMANDS (from ReloadHelloWorld.lsp) ---\n"));
+    acutPrintf(_T("\n--- LISP COMMANDS (from ReloadArqaTools.lsp) ---\n"));
     acutPrintf(_T("RELOADHW      - Unload and reload plugin\n"));
     acutPrintf(_T("RELOADHWBUILD - Rebuild and reload plugin\n"));
     acutPrintf(_T("UNLOADHW      - Unload plugin only\n"));
     acutPrintf(_T("RELOADHWPATH  - Reload from custom path\n"));
     
     acutPrintf(_T("\n====================================\n"));
-    acutPrintf(_T("Type HWVERSION for build information\n"));
+    acutPrintf(_T("Type ARQAVERSION for build information\n"));
     acutPrintf(_T("====================================\n"));
 }

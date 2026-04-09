@@ -1,0 +1,7 @@
+; ArqaTools.def - Module definition file for ObjectARX plugin
+
+LIBRARY     "ArqaTools.arx"
+
+EXPORTS
+    acrxEntryPoint          PRIVATE
+    acrxGetApiVersion       PRIVATE

@@ -1,14 +1,14 @@
-// HelloWorld.h - Header for HelloWorld AutoCAD plugin using OMF
+// ArqaTools.h - Header for ArqaTools AutoCAD plugin using OMF
 
 #pragma once
 
 // ============================================================================
 // VERSION INFORMATION
 // ============================================================================
-#define HELLOWORLD_VERSION_MAJOR 1
-#define HELLOWORLD_VERSION_MINOR 0
-#define HELLOWORLD_BUILD_DATE __DATE__
-#define HELLOWORLD_BUILD_TIME __TIME__
+#define ARQATOOLS_VERSION_MAJOR 1
+#define ARQATOOLS_VERSION_MINOR 0
+#define ARQATOOLS_BUILD_DATE __DATE__
+#define ARQATOOLS_BUILD_TIME __TIME__
 
 // Helper to get full version string
 const TCHAR* GetVersionString();
@@ -17,10 +17,10 @@ const TCHAR* GetVersionString();
 class AcDbBlockTableRecord;
 
 // OMF Module class declaration
-class CHelloWorldApp : public AcRxArxApp
+class CArqaToolsApp : public AcRxArxApp
 {
 public:
-    CHelloWorldApp();
+    CArqaToolsApp();
 
     virtual AcRx::AppRetCode On_kInitAppMsg(void* pAppData) override;
     virtual AcRx::AppRetCode On_kUnloadAppMsg(void* pAppData) override;
@@ -47,7 +47,7 @@ public:
     static void copyDimStyleCommand();
     static void reloadCommand();
     static void versionCommand();
-    static void hwHelpCommand();
+    static void arqaHelpCommand();
     static void placeMidCommand();
     static void roomTagCommand();
     static void perimeterCommand();

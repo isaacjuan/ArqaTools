@@ -1,7 +1,7 @@
 // AlignTools.cpp - Object Alignment Tools Implementation
 
 #include "StdAfx.h"
-#include "HelloWorld.h"
+#include "ArqaTools.h"
 #include "AlignTools.h"
 #include "CommonTools.h"
 #include "dbmtext.h"

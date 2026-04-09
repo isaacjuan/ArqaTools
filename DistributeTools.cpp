@@ -1,7 +1,7 @@
 // DistributeTools.cpp - Object Distribution Tools Implementation
 
 #include "StdAfx.h"
-#include "HelloWorld.h"
+#include "ArqaTools.h"
 #include "DistributeTools.h"
 #include "CommonTools.h"
 

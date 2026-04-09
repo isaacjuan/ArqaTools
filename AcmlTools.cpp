@@ -1,4 +1,4 @@
-// AcmlTools.cpp — ACML interpreter command implementations
+﻿// AcmlTools.cpp — ACML interpreter command implementations
 //
 // Phase 2: ACMLLEX tokenizes and dumps the stream.
 //          ACMLCHECK lexes + parses and reports errors + AST summary.
@@ -22,10 +22,10 @@ namespace
 {
     // -------------------------------------------------------------------------
     // Registry persistence for the ACML recent-files list.
-    // Key: HKCU\Software\HelloWorldAcad\ACML
+    // Key: HKCU\Software\ArqaTools\ACML
     // Values: RecentFile0 … RecentFile(kMaxHistory-1)  (REG_SZ)
     // -------------------------------------------------------------------------
-    static const TCHAR* kRegKey = _T("Software\\HelloWorldAcad\\ACML");
+    static const TCHAR* kRegKey = _T("Software\\ArqaToolsAcad\\ACML");
     constexpr int kMaxHistory = 5;
 
     void saveHistory(const std::vector<CString>& history)

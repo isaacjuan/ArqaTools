@@ -1,4 +1,4 @@
-// CommonTools.cpp - Shared utilities for all HelloWorld plugin modules
+﻿// CommonTools.cpp - Shared utilities for all ArqaTools plugin modules
 
 #include "StdAfx.h"
 #include "CommonTools.h"

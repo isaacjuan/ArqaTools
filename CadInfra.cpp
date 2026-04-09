@@ -14,11 +14,11 @@ namespace CadInfra
 {
 
 // ── App name constants ───────────────────────────────────────────────────────
-const TCHAR* const AREA_APP_NAME  = _T("HELLOWORLD_AREA");
-const TCHAR* const PERIM_APP_NAME = _T("HELLOWORLD_PERIM");
-const TCHAR* const ROOM_APP_NAME  = _T("HELLOWORLD_ROOM");
-const TCHAR* const SUM_APP_NAME   = _T("HELLOWORLD_SUM");
-const TCHAR* const LL_APP_NAME    = _T("HELLOWORLD_LL");
+const TCHAR* const AREA_APP_NAME  = _T("ARQATOOLS_AREA");
+const TCHAR* const PERIM_APP_NAME = _T("ARQATOOLS_PERIM");
+const TCHAR* const ROOM_APP_NAME  = _T("ARQATOOLS_ROOM");
+const TCHAR* const SUM_APP_NAME   = _T("ARQATOOLS_SUM");
+const TCHAR* const LL_APP_NAME    = _T("ARQATOOLS_LL");
 
 // ── Color / lineweight utilities ─────────────────────────────────────────────
 

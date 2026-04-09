@@ -14,7 +14,7 @@
   
   <PropertyGroup Label="Globals">
     <ProjectGuid>{12345678-1234-1234-1234-123456789ABC}</ProjectGuid>
-    <RootNamespace>HelloWorld</RootNamespace>
+    <RootNamespace>ArqaTools</RootNamespace>
     <Keyword>MFCProj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <CharacterSet>Unicode</CharacterSet>
@@ -43,7 +43,7 @@
     <IntDir>$(Platform)\$(Configuration)\</IntDir>
     <LinkIncremental>false</LinkIncremental>
     <TargetExt>.arx</TargetExt>
-    <TargetName>HelloWorld</TargetName>
+    <TargetName>ArqaTools</TargetName>
     <EmbedManifest>false</EmbedManifest>
     <GenerateManifest>false</GenerateManifest>
     <OutDir Condition="$(Configuration.ToLower().Contains('debug'))">$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
@@ -71,7 +71,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(ICAD14)\icarx\lib-x64;$(ICAD14)\ObjectARX\lib\windows-x64-vc143dbg;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>IcArx.lib;IcArxGe.lib;IcArxUi.lib;IcArxBridge.lib;accore.lib;acgeoment.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <ModuleDefinitionFile>HelloWorld.def</ModuleDefinitionFile>
+      <ModuleDefinitionFile>ArqaTools.def</ModuleDefinitionFile>
       <IgnoreSpecificDefaultLibraries>nafxcw.lib;nafxcwd.lib;MSVCRT.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <DataExecutionPrevention></DataExecutionPrevention>
     </Link>
@@ -108,7 +108,7 @@
   </ItemDefinitionGroup>
   
   <ItemGroup>
-    <ClCompile Include="HelloWorld.cpp" />
+    <ClCompile Include="ArqaTools.cpp" />
     <ClCompile Include="PolylineTools.cpp" />
     <ClCompile Include="AlignTools.cpp" />
     <ClCompile Include="ArabesqueTools.cpp" />
@@ -133,7 +133,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ClInclude Include="HelloWorld.h" />
+    <ClInclude Include="ArqaTools.h" />
     <ClInclude Include="CommonTools.h" />
     <ClInclude Include="PolylineTools.h" />
     <ClInclude Include="AlignTools.h" />
@@ -157,7 +157,7 @@
   </ItemGroup>
   
   <ItemGroup>
-    <None Include="HelloWorld.def" />
+    <None Include="ArqaTools.def" />
   </ItemGroup>
   
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
