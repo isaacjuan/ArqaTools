@@ -65,4 +65,7 @@ public:
     static void arabescoRlCommand();
     static void arabescotoroSolCommand();
     static void arabescohipSolCommand();
+    static void goldenRectCommand();
+    static void goldenRectInCommand();
+    static void goldenRectInWCommand();
 };

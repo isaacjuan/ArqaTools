@@ -12,17 +12,24 @@
 //-----------------------------------------------------------------------------
 #define STRICT
 
-#ifndef VC_EXTRALEAN
-#define VC_EXTRALEAN			//----- Exclude rarely-used stuff from Windows headers
-#endif
-
-#pragma warning(suppress: 4467)
-#include <afxwin.h>
-#include <afxext.h>
-#include <afxcmn.h>
+// ATL configuration — must be defined before any ATL/MFC headers
+#define _ATL_APARTMENT_THREADED
+#define _ATL_CSTRING_EXPLICIT_CONSTRUCTORS
+#define _ATL_ALL_WARNINGS
 
 #define _USE_MATH_DEFINES
 #include <cmath>
+#include <map>
+
+// MFC core — must come before atlbase.h so MFC module state is initialized
+#include <afxwin.h>     // MFC core and standard components
+#include <afxext.h>     // MFC extensions
+#include <afxcmn.h>     // MFC common controls (CListCtrl, CToolTipCtrl, CHeaderCtrl, CTabCtrl)
+#include <afxrich.h>    // MFC rich edit (CRichEditCtrl)
+
+#include <atlbase.h>
+#include <atlcom.h>
+#include <atlstr.h>
 
 // ObjectARX headers for AutoCAD 2025
 #include "rxobject.h"

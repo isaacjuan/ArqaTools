@@ -117,7 +117,7 @@
       (if (arxload loaded-path)
         (progn
           (princ "\nArqaTools.arx reloaded successfully!")
-          (command "HWVERSION")
+          (command "ATVERSION")
         )
         (princ "\nERROR: Failed to load ArqaTools.arx")
       )
@@ -272,7 +272,7 @@
       (if (arxload loaded-path)
         (progn
           (princ "\n\nArqaTools.arx reloaded successfully!")
-          (command "HWVERSION")
+          (command "ATVERSION")
         )
         (princ "\n\nERROR: Failed to load ArqaTools.arx")
       )
@@ -307,7 +307,7 @@
       (if (arxload user-path)
         (progn
           (princ "\nArqaTools.arx loaded successfully!")
-          (command "HWVERSION")
+          (command "ATVERSION")
         )
         (princ "\nERROR: Failed to load ArqaTools.arx")
       )

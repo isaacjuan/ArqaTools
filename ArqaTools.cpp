@@ -9,6 +9,11 @@
 #include "StdAfx.h"
 #include "ArqaTools.h"
 
+// CAtlMfcModule: ATL module for MFC+ATL mixed DLLs — does NOT override DllMain,
+// so MFC's DllMain correctly initializes afxCurrentResourceHandle.
+class CArqaToolsAtlModule : public CAtlMfcModule {};
+CArqaToolsAtlModule _AtlModule;
+
 #ifdef _DEBUG
 #include <crtdbg.h>
 static bool g_assertsSuppressed = false;
@@ -48,6 +53,8 @@ static void unsuppressAssertsCommand()
 #include "LayerTools.h"
 #include "ArabesqueTools.h"
 #include "AcmlTools.h"
+#include "CategorizeTools.h"
+#include "GoldenRectTools.h"
 #include "dbregion.h"
 #include "dbgroup.h"
 
@@ -57,6 +64,7 @@ using namespace AITools;
 using namespace LayerTools;
 using namespace TextTools;
 using namespace ArabesqueTools;
+using namespace GoldenRectTools;
 
 // ============================================================================
 // VERSION INFORMATION
@@ -87,96 +95,102 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
     static const struct { const TCHAR* name; AcRxFunctionPtr func; } kCommands[] =
     {
         // Core
-        { _T("HELLO"),            helloWorldCommand           },
-        { _T("DRAWBOX"),          drawBoxCommand              },
-        { _T("ARQAHELP"),           arqaHelpCommand               },
-        { _T("ARQAVERSION"),        versionCommand              },
-        { _T("RELOAD"),           reloadCommand               },
+        { _T("ATHELLO"),            helloWorldCommand           },
+        { _T("ATDRAWBOX"),          drawBoxCommand              },
+        { _T("ATHELP"),             arqaHelpCommand             },
+        { _T("ATVERSION"),          versionCommand              },
+        { _T("ATRELOAD"),           reloadCommand               },
         // Polyline / Boolean
-        { _T("BOOLPOLY"),         booleanPolyCommand          },
-        { _T("SUBPOLY"),          subtractPolyCommand         },
-        { _T("INPOLY"),           intersectPolyCommand        },
-        { _T("UNIONPOLY"),        unionPolyCommand            },
-        { _T("REG2POLY"),         regionToPolyCommand         },
+        { _T("ATBOOLPOLY"),         booleanPolyCommand          },
+        { _T("ATSUBPOLY"),          subtractPolyCommand         },
+        { _T("ATINPOLY"),           intersectPolyCommand        },
+        { _T("ATUNIONPOLY"),        unionPolyCommand            },
+        { _T("ATREG2POLY"),         regionToPolyCommand         },
         // Align / Move / Copy
-        { _T("ALX"),              alignXCommand               },
-        { _T("ALY"),              alignYCommand               },
-        { _T("ALZ"),              alignZCommand               },
-        { _T("MX"),               moveXCommand                },
-        { _T("MY"),               moveYCommand                },
-        { _T("MZ"),               moveZCommand                },
-        { _T("CX"),               copyXCommand                },
-        { _T("CY"),               copyYCommand                },
-        { _T("CZ"),               copyZCommand                },
-        { _T("PLACEMID"),         placeMidCommand             },
+        { _T("ATALX"),              alignXCommand               },
+        { _T("ATALY"),              alignYCommand               },
+        { _T("ATALZ"),              alignZCommand               },
+        { _T("ATMX"),               moveXCommand                },
+        { _T("ATMY"),               moveYCommand                },
+        { _T("ATMZ"),               moveZCommand                },
+        { _T("ATCX"),               copyXCommand                },
+        { _T("ATCY"),               copyYCommand                },
+        { _T("ATCZ"),               copyZCommand                },
+        { _T("ATPLACEMID"),         placeMidCommand             },
         // Distribute
-        { _T("DISTLINE"),         distributeLinearCommand     },
-        { _T("DISTBETWEEN"),      distributeBetweenCommand    },
-        { _T("DISTEQUAL"),        distributeEqualCommand      },
-        { _T("DISTCOPYLINE"),     distributeCopyLinearCommand },
-        { _T("DISTCOPYBETWEEN"),  distributeCopyBetweenCommand},
-        { _T("DISTCOPYEQUAL"),    distributeCopyEqualCommand  },
-        { _T("DISTTOLINE"),       alignToLineCommand          },
+        { _T("ATDISTLINE"),         distributeLinearCommand     },
+        { _T("ATDISTBETWEEN"),      distributeBetweenCommand    },
+        { _T("ATDISTEQUAL"),        distributeEqualCommand      },
+        { _T("ATDISTCOPYLINE"),     distributeCopyLinearCommand },
+        { _T("ATDISTCOPYBETWEEN"),  distributeCopyBetweenCommand},
+        { _T("ATDISTCOPYEQUAL"),    distributeCopyEqualCommand  },
+        { _T("ATDISTTOLINE"),       alignToLineCommand          },
         // Sequence / Text
-        { _T("SEQNUM"),           sequenceNumberCommand       },
-        { _T("COPYTEXT"),         copyTextCommand             },
-        { _T("COPYSTYLE"),        copyStyleCommand            },
-        { _T("COPYTEXTFULL"),     copyTextFullCommand         },
-        { _T("COPYDIMSTYLE"),     copyDimStyleCommand         },
-        { _T("SUMTEXT"),          sumTextCommand              },
-        { _T("SCALETEXT"),        scaleTextCommand            },
+        { _T("ATSEQNUM"),           sequenceNumberCommand       },
+        { _T("ATCOPYTEXT"),         copyTextCommand             },
+        { _T("ATCOPYSTYLE"),        copyStyleCommand            },
+        { _T("ATCOPYTEXTFULL"),     copyTextFullCommand         },
+        { _T("ATCOPYDIMSTYLE"),     copyDimStyleCommand         },
+        { _T("ATSUMTEXT"),          sumTextCommand              },
+        { _T("ATSCALETEXT"),        scaleTextCommand            },
         // Area / Measurement
-        { _T("INSERTAREA"),       insertAreaCommand           },
-        { _T("SUMLENGTH"),        sumLengthCommand            },
-        { _T("ROOMTAG"),          roomTagCommand              },
-        { _T("PERIMETER"),        perimeterCommand            },
-        { _T("LINEARLENGTH"),     linearLengthCommand         },
-        { _T("COUNTBLOCKS"),      countBlocksCommand          },
-        { _T("SPLITLINE"),        splitLineCommand            },
-        { _T("SPLITPOLI"),        splitPoliCommand            },
-        { _T("TAGALL"),           tagAllCommand               },
+        { _T("ATINSERTAREA"),       insertAreaCommand           },
+        { _T("ATSUMLENGTH"),        sumLengthCommand            },
+        { _T("ATROOMTAG"),          roomTagCommand              },
+        { _T("ATPERIMETER"),        perimeterCommand            },
+        { _T("ATLINEARLENGTH"),     linearLengthCommand         },
+        { _T("ATCOUNTBLOCKS"),      countBlocksCommand          },
+        { _T("ATSPLITLINE"),        splitLineCommand            },
+        { _T("ATSPLITPOLI"),        splitPoliCommand            },
+        { _T("ATTAGALL"),           tagAllCommand               },
         // Layers
-        { _T("CHGTOLAYER"),       changeToCurrentLayerCommand },
-        { _T("NL"),               newLayerCommand             },
-        { _T("MATCHLAYER"),       matchLayerCommand           },
-        { _T("FREEZELAYER"),      freezeLayerCommand          },
+        { _T("ATCHGTOLAYER"),       changeToCurrentLayerCommand },
+        { _T("ATNL"),               newLayerCommand             },
+        { _T("ATMATCHLAYER"),       matchLayerCommand           },
+        { _T("ATFREEZELAYER"),      freezeLayerCommand          },
         // AI
-        { _T("AIASK"),            aiAskCommand                },
-        { _T("AISETTOKEN"),       aiSetTokenCommand           },
-        { _T("AISETENDPOINT"),    aiSetEndpointCommand        },
-        { _T("AISETMODEL"),       aiSetModelCommand           },
-        { _T("AITEST"),           aiTestCommand               },
-        { _T("AILISTMODELS"),     aiListModelsCommand         },
-        { _T("AIDRAW"),           aiDrawCommand               },
-        { _T("AIHELP"),           aiHelpCommand               },
-        { _T("AILISP"),           aiLispCommand               },
-        { _T("AIFIX"),            aiFixCommand                },
-        { _T("AICLEAR"),          aiClearHistoryCommand       },
+        { _T("ATAIASK"),            aiAskCommand                },
+        { _T("ATAISETTOKEN"),       aiSetTokenCommand           },
+        { _T("ATAISETENDPOINT"),    aiSetEndpointCommand        },
+        { _T("ATAISETMODEL"),       aiSetModelCommand           },
+        { _T("ATAITEST"),           aiTestCommand               },
+        { _T("ATAILISTMODELS"),     aiListModelsCommand         },
+        { _T("ATAIDRAW"),           aiDrawCommand               },
+        { _T("ATAIHELP"),           aiHelpCommand               },
+        { _T("ATAILISP"),           aiLispCommand               },
+        { _T("ATAIFIX"),            aiFixCommand                },
+        { _T("ATAICLEAR"),          aiClearHistoryCommand       },
         // Arabesque
-        { _T("ARABESQUE"),        arabesqueCommand                },
-        { _T("HOJANAZARI"),       hojaNazariCommand               },
-        { _T("ARABESCORL"),       arabescoRlCommand               },
-        { _T("ARABESCOTOROSOL"),  arabescotoroSolCommand          },
-        { _T("ARABESCOHIPSOL"),   arabescohipSolCommand           },
+        { _T("ATARABESQUE"),        arabesqueCommand            },
+        { _T("ATHOJANAZARI"),       hojaNazariCommand           },
+        { _T("ATARABESCORL"),       arabescoRlCommand           },
+        { _T("ATARABESCOTOROSOL"),  arabescotoroSolCommand      },
+        { _T("ATARABESCOHIPSOL"),   arabescohipSolCommand       },
+        // Golden rect
+        { _T("ATGOLDENRECT"),       goldenRectCommand           },
+        { _T("ATGOLDENRECTIN"),     goldenRectInCommand         },
+        { _T("ATGOLDENRECTINW"),    goldenRectInWCommand        },
         // ACML interpreter
-        { _T("ACML"),             AcmlTools::acmlRunCommand       },
-        { _T("ACMLCHECK"),        AcmlTools::acmlCheckCommand     },
-        { _T("ACMLLEX"),          AcmlTools::acmlLexCommand       },
+        { _T("ATACML"),             AcmlTools::acmlRunCommand       },
+        { _T("ATACMLCHECK"),        AcmlTools::acmlCheckCommand     },
+        { _T("ATACMLLEX"),          AcmlTools::acmlLexCommand       },
+        // Database
+        { _T("ATCATENTITIES"),      CategorizeTools::catEntitiesCommand  },
     };
 
     for (const auto& cmd : kCommands)
         acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), cmd.name, cmd.name, ACRX_CMD_MODAL, cmd.func);
 
 #ifdef _DEBUG
-    acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), _T("SUPPRESSASSERTS"),   _T("SUPPRESSASSERTS"),   ACRX_CMD_MODAL, suppressAssertsCommand);
-    acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), _T("UNSUPPRESSASSERTS"), _T("UNSUPPRESSASSERTS"), ACRX_CMD_MODAL, unsuppressAssertsCommand);
+    acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), _T("ATSUPPRESSASSERTS"),   _T("ATSUPPRESSASSERTS"),   ACRX_CMD_MODAL, suppressAssertsCommand);
+    acedRegCmds->addCommand(_T("ARQATOOLS_COMMANDS"), _T("ATUNSUPPRESSASSERTS"), _T("ATUNSUPPRESSASSERTS"), ACRX_CMD_MODAL, unsuppressAssertsCommand);
 #endif
 
     InitAreaToolsPersistence();
 
     acutPrintf(_T("\n=== ArqaTools 2025 Plugin Loaded ===\n"));
     acutPrintf(_T("%s\n"), GetVersionString());
-    acutPrintf(_T("Type ARQAHELP to see all available commands\n"));
+    acutPrintf(_T("Type ATHELP to see all available commands\n"));
     return retCode;
 }
 
@@ -198,7 +212,7 @@ void CArqaToolsApp::RegisterServerComponents()
     // Register any custom objects, services, etc. here
 }
 
-// OMF entry point
+// OMF entry point — DllMain is provided by mfc140(u/ud).lib (UseOfMfc=Dynamic)
 IMPLEMENT_ARX_ENTRYPOINT(CArqaToolsApp)
 
 // Helper function: Add entity to model space with color
@@ -657,7 +671,25 @@ void CArqaToolsApp::freezeLayerCommand()
     LayerTools::freezeLayerCommand();
 }
 
-// ARQAHELP command - Display all available commands
+// ATGOLDENRECT command
+void CArqaToolsApp::goldenRectCommand()
+{
+    GoldenRectTools::goldenRectCommand();
+}
+
+// ATGOLDENRECTIN command
+void CArqaToolsApp::goldenRectInCommand()
+{
+    GoldenRectTools::goldenRectInCommand();
+}
+
+// ATGOLDENRECTINW command
+void CArqaToolsApp::goldenRectInWCommand()
+{
+    GoldenRectTools::goldenRectInWCommand();
+}
+
+// ATHELP command - Display all available commands
 void CArqaToolsApp::arqaHelpCommand()
 {
     acutPrintf(_T("\n====================================\n"));
@@ -665,90 +697,103 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("====================================\n"));
     
     acutPrintf(_T("\n--- DRAWING COMMANDS ---\n"));
-    acutPrintf(_T("HELLO       - Create red circle with cross\n"));
-    acutPrintf(_T("DRAWBOX     - Create 3D wireframe box\n"));
+    acutPrintf(_T("ATHELLO     - Create red circle with cross\n"));
+    acutPrintf(_T("ATDRAWBOX   - Create 3D wireframe box\n"));
     
     acutPrintf(_T("\n--- POLYLINE BOOLEAN OPERATIONS ---\n"));
-    acutPrintf(_T("BOOLPOLY    - Boolean operations menu (union/subtract/intersect)\n"));
-    acutPrintf(_T("UNIONPOLY   - Union of two polylines\n"));
-    acutPrintf(_T("SUBPOLY     - Subtract second polyline from first\n"));
-    acutPrintf(_T("INPOLY      - Intersection of two polylines\n"));
-    acutPrintf(_T("REG2POLY    - Convert region to polyline\n"));
+    acutPrintf(_T("ATBOOLPOLY  - Boolean operations menu (union/subtract/intersect)\n"));
+    acutPrintf(_T("ATUNIONPOLY - Union of two polylines\n"));
+    acutPrintf(_T("ATSUBPOLY   - Subtract second polyline from first\n"));
+    acutPrintf(_T("ATINPOLY    - Intersection of two polylines\n"));
+    acutPrintf(_T("ATREG2POLY  - Convert region to polyline\n"));
     
     acutPrintf(_T("\n--- ALIGNMENT COMMANDS ---\n"));
-    acutPrintf(_T("ALX         - Align objects by X coordinate\n"));
-    acutPrintf(_T("ALY         - Align objects by Y coordinate\n"));
-    acutPrintf(_T("ALZ         - Align objects by Z coordinate\n"));
-    acutPrintf(_T("PLACEMID    - Place object at midpoint between two points\n"));
+    acutPrintf(_T("ATALX       - Align objects by X coordinate\n"));
+    acutPrintf(_T("ATALY       - Align objects by Y coordinate\n"));
+    acutPrintf(_T("ATALZ       - Align objects by Z coordinate\n"));
+    acutPrintf(_T("ATPLACEMID  - Place object at midpoint between two points\n"));
     
     acutPrintf(_T("\n--- RESTRICTED MOVEMENT ---\n"));
-    acutPrintf(_T("MX          - Move objects in X direction only\n"));
-    acutPrintf(_T("MY          - Move objects in Y direction only\n"));
-    acutPrintf(_T("MZ          - Move objects in Z direction only\n"));
+    acutPrintf(_T("ATMX        - Move objects in X direction only\n"));
+    acutPrintf(_T("ATMY        - Move objects in Y direction only\n"));
+    acutPrintf(_T("ATMZ        - Move objects in Z direction only\n"));
     
     acutPrintf(_T("\n--- RESTRICTED COPY ---\n"));
-    acutPrintf(_T("CX          - Copy objects in X direction only\n"));
-    acutPrintf(_T("CY          - Copy objects in Y direction only\n"));
-    acutPrintf(_T("CZ          - Copy objects in Z direction only\n"));
+    acutPrintf(_T("ATCX        - Copy objects in X direction only\n"));
+    acutPrintf(_T("ATCY        - Copy objects in Y direction only\n"));
+    acutPrintf(_T("ATCZ        - Copy objects in Z direction only\n"));
     
     acutPrintf(_T("\n--- LAYER TOOLS ---\n"));
-    acutPrintf(_T("NL          - Quick new layer (create and set as current)\n"));
-    acutPrintf(_T("CHGTOLAYER  - Change selected objects to current layer\n"));
-    acutPrintf(_T("MATCHLAYER  - Change objects to the layer of a source object\n"));
-    acutPrintf(_T("FREEZELAYER - Freeze layer by selecting an object on it\n"));
+    acutPrintf(_T("ATNL        - Quick new layer (create and set as current)\n"));
+    acutPrintf(_T("ATCHGTOLAYER- Change selected objects to current layer\n"));
+    acutPrintf(_T("ATMATCHLAYER- Change objects to the layer of a source object\n"));
+    acutPrintf(_T("ATFREEZELAYER- Freeze layer by selecting an object on it\n"));
     
     acutPrintf(_T("\n--- DISTRIBUTION & NUMBERING ---\n"));
-    acutPrintf(_T("DISTLINE       - Distribute objects evenly along a line\n"));
-    acutPrintf(_T("DISTBETWEEN    - Distribute objects between two points (excludes endpoints)\n"));
-    acutPrintf(_T("DISTEQUAL      - Distribute with equal spacing (half-space at ends)\n"));
-    acutPrintf(_T("DISTCOPYLINE   - Copy one object N times along a line (endpoints included)\n"));
-    acutPrintf(_T("DISTCOPYBETWEEN- Copy one object N times between two points\n"));
-    acutPrintf(_T("DISTCOPYEQUAL  - Copy one object N times with equal spacing\n"));
-    acutPrintf(_T("DISTTOLINE     - Copy N objects distributed along a picked line entity\n"));
-    acutPrintf(_T("SEQNUM         - Add sequential numbers to selected objects\n"));
+    acutPrintf(_T("ATDISTLINE      - Distribute objects evenly along a line\n"));
+    acutPrintf(_T("ATDISTBETWEEN   - Distribute objects between two points (excludes endpoints)\n"));
+    acutPrintf(_T("ATDISTEQUAL     - Distribute with equal spacing (half-space at ends)\n"));
+    acutPrintf(_T("ATDISTCOPYLINE  - Copy one object N times along a line (endpoints included)\n"));
+    acutPrintf(_T("ATDISTCOPYBETWEEN - Copy one object N times between two points\n"));
+    acutPrintf(_T("ATDISTCOPYEQUAL - Copy one object N times with equal spacing\n"));
+    acutPrintf(_T("ATDISTTOLINE    - Copy N objects distributed along a picked line entity\n"));
+    acutPrintf(_T("ATSEQNUM        - Add sequential numbers to selected objects\n"));
     
     acutPrintf(_T("\n--- TEXT MANIPULATION ---\n"));
-    acutPrintf(_T("COPYTEXT    - Copy text content from one text to others\n"));
-    acutPrintf(_T("COPYSTYLE   - Copy text style properties (not height)\n"));
-    acutPrintf(_T("COPYTEXTFULL- Copy text style AND dimensions (height)\n"));
-    acutPrintf(_T("COPYDIMSTYLE- Copy dimension style from one dim to others\n"));
-    acutPrintf(_T("SUMTEXT     - Sum numeric values from selected text objects\n"));
-    acutPrintf(_T("SCALETEXT   - Scale text height of selected objects by a factor\n"));
+    acutPrintf(_T("ATCOPYTEXT   - Copy text content from one text to others\n"));
+    acutPrintf(_T("ATCOPYSTYLE  - Copy text style properties (not height)\n"));
+    acutPrintf(_T("ATCOPYTEXTFULL - Copy text style AND dimensions (height)\n"));
+    acutPrintf(_T("ATCOPYDIMSTYLE - Copy dimension style from one dim to others\n"));
+    acutPrintf(_T("ATSUMTEXT    - Sum numeric values from selected text objects\n"));
+    acutPrintf(_T("ATSCALETEXT  - Scale text height of selected objects by a factor\n"));
     
     acutPrintf(_T("\n--- AREA TOOLS ---\n"));
-    acutPrintf(_T("INSERTAREA  - Insert auto-updating area text in closed polyline\n"));
-    acutPrintf(_T("PERIMETER   - Insert perimeter text in closed polyline\n"));
-    acutPrintf(_T("SUMLENGTH   - Insert auto-updating sum of lengths (polylines/arcs/circles/lines)\n"));
-    acutPrintf(_T("LINEARLENGTH- Insert length text on a line or open polyline\n"));
-    acutPrintf(_T("TAGALL      - Insert length text on all selected lines/polylines\n"));
-    acutPrintf(_T("SPLITLINE   - Split a line by intersecting lines, creating individual segments\n"));
-    acutPrintf(_T("SPLITPOLI   - Split a polyline by intersecting lines, creating individual polyline segments\n"));
-    acutPrintf(_T("ROOMTAG     - Insert room name + area label in closed polyline\n"));
-    acutPrintf(_T("COUNTBLOCKS - Count block instances in selection or drawing\n"));
+    acutPrintf(_T("ATINSERTAREA  - Insert auto-updating area text in closed polyline\n"));
+    acutPrintf(_T("ATPERIMETER   - Insert perimeter text in closed polyline\n"));
+    acutPrintf(_T("ATSUMLENGTH   - Insert auto-updating sum of lengths (polylines/arcs/circles/lines)\n"));
+    acutPrintf(_T("ATLINEARLENGTH - Insert length text on a line or open polyline\n"));
+    acutPrintf(_T("ATTAGALL      - Insert length text on all selected lines/polylines\n"));
+    acutPrintf(_T("ATSPLITLINE   - Split a line by intersecting lines, creating individual segments\n"));
+    acutPrintf(_T("ATSPLITPOLI   - Split a polyline by intersecting lines, creating individual polyline segments\n"));
+    acutPrintf(_T("ATROOMTAG     - Insert room name + area label in closed polyline\n"));
+    acutPrintf(_T("ATCOUNTBLOCKS - Count block instances in selection or drawing\n"));
     
     acutPrintf(_T("\n--- DECORATIVE / PATTERN TOOLS ---\n"));
-    acutPrintf(_T("ARABESQUE        - Draw geometric arabesque patterns (rosette/star/petals)\n"));
-    acutPrintf(_T("ARABESCORL       - Retícula de arabesco andaluz 30/45  (param: A)\n"));
-    acutPrintf(_T("ARABESCOTOROSOL  - Arabesco nazari 3D solido sobre toro (3DFACE renderable)\n"));
-    acutPrintf(_T("ARABESCOHIPSOL   - Arabesco nazari 3D solido sobre paraboloide hiperbolico\n"));
-    acutPrintf(_T("HOJANAZARI       - Patron de hoja nazari hexagonal (La Alhambra)\n"));
+    acutPrintf(_T("ATARABESQUE       - Draw geometric arabesque patterns (rosette/star/petals)\n"));
+    acutPrintf(_T("ATARABESCORL      - Retícula de arabesco andaluz 30/45  (param: A)\n"));
+    acutPrintf(_T("ATARABESCOTOROSOL - Arabesco nazari 3D solido sobre toro (3DFACE renderable)\n"));
+    acutPrintf(_T("ATARABESCOHIPSOL  - Arabesco nazari 3D solido sobre paraboloide hiperbolico\n"));
+    acutPrintf(_T("ATHOJANAZARI      - Patron de hoja nazari hexagonal (La Alhambra)\n"));
+    
+    acutPrintf(_T("\n--- GOLDEN RECTANGLE ---\n"));
+    acutPrintf(_T("ATGOLDENRECT    - Draw golden-ratio rectangle spiral\n"));
+    acutPrintf(_T("ATGOLDENRECTIN  - Place golden rectangles inside a container\n"));
+    acutPrintf(_T("ATGOLDENRECTINW - Place custom-proportion rectangles inside a container\n"));
     
     acutPrintf(_T("\n--- AI ASSISTANT ---\n"));
-    acutPrintf(_T("AIASK       - Ask GitHub Copilot a question\n"));
-    acutPrintf(_T("AIDRAW      - Draw using natural language (suggests commands)\n"));
-    acutPrintf(_T("AILISP      - Generate and execute AutoLISP code from description\n"));
-    acutPrintf(_T("AIFIX       - Report error and get corrected code\n"));
-    acutPrintf(_T("AIHELP      - Show AI knowledge base of custom commands\n"));
-    acutPrintf(_T("AICLEAR     - Clear conversation history (start fresh)\n"));
-    acutPrintf(_T("AISETTOKEN  - Set your GitHub API token\n"));
-    acutPrintf(_T("AISETENDPOINT - Set API endpoint (Free/Subscription/Custom)\n"));
-    acutPrintf(_T("AITEST      - Test API connection\n"));
-    acutPrintf(_T("AILISTMODELS- List available models (Gemini only)\n"));
+    acutPrintf(_T("ATAIASK       - Ask GitHub Copilot a question\n"));
+    acutPrintf(_T("ATAIDRAW      - Draw using natural language (suggests commands)\n"));
+    acutPrintf(_T("ATAILISP      - Generate and execute AutoLISP code from description\n"));
+    acutPrintf(_T("ATAIFIX       - Report error and get corrected code\n"));
+    acutPrintf(_T("ATAIHELP      - Show AI knowledge base of custom commands\n"));
+    acutPrintf(_T("ATAICLEAR     - Clear conversation history (start fresh)\n"));
+    acutPrintf(_T("ATAISETTOKEN  - Set your GitHub API token\n"));
+    acutPrintf(_T("ATAISETENDPOINT - Set API endpoint (Free/Subscription/Custom)\n"));
+    acutPrintf(_T("ATAITEST      - Test API connection\n"));
+    acutPrintf(_T("ATAILISTMODELS - List available models (Gemini only)\n"));
+    
+    acutPrintf(_T("\n--- ACML INTERPRETER ---\n"));
+    acutPrintf(_T("ATACML      - Run ACML script\n"));
+    acutPrintf(_T("ATACMLCHECK - Validate ACML script\n"));
+    acutPrintf(_T("ATACMLLEX   - Lex ACML script\n"));
+    
+    acutPrintf(_T("\n--- DATABASE ---\n"));
+    acutPrintf(_T("ATCATENTITIES - Categorize entities by type\n"));
     
     acutPrintf(_T("\n--- PLUGIN MANAGEMENT ---\n"));
-    acutPrintf(_T("ARQAVERSION   - Display plugin version and build info\n"));
-    acutPrintf(_T("ARQAHELP      - Display this help (all commands)\n"));
-    acutPrintf(_T("RELOAD      - Show reload instructions\n"));
+    acutPrintf(_T("ATVERSION   - Display plugin version and build info\n"));
+    acutPrintf(_T("ATHELP      - Display this help (all commands)\n"));
+    acutPrintf(_T("ATRELOAD    - Show reload instructions\n"));
     
     acutPrintf(_T("\n--- LISP COMMANDS (from ReloadArqaTools.lsp) ---\n"));
     acutPrintf(_T("RELOADHW      - Unload and reload plugin\n"));
@@ -757,6 +802,6 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("RELOADHWPATH  - Reload from custom path\n"));
     
     acutPrintf(_T("\n====================================\n"));
-    acutPrintf(_T("Type ARQAVERSION for build information\n"));
+    acutPrintf(_T("Type ATVERSION for build information\n"));
     acutPrintf(_T("====================================\n"));
 }
