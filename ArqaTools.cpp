@@ -55,6 +55,7 @@ static void unsuppressAssertsCommand()
 #include "AcmlTools.h"
 #include "CategorizeTools.h"
 #include "GoldenRectTools.h"
+#include "SvgExportTools.h"
 #include "dbregion.h"
 #include "dbgroup.h"
 
@@ -176,6 +177,8 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATACMLLEX"),          AcmlTools::acmlLexCommand       },
         // Database
         { _T("ATCATENTITIES"),      CategorizeTools::catEntitiesCommand  },
+        // Export
+        { _T("ATSVGEXPORT"),        SvgExportTools::svgExportCommand    },
     };
 
     for (const auto& cmd : kCommands)
@@ -789,7 +792,10 @@ void CArqaToolsApp::arqaHelpCommand()
     
     acutPrintf(_T("\n--- DATABASE ---\n"));
     acutPrintf(_T("ATCATENTITIES - Categorize entities by type\n"));
-    
+
+    acutPrintf(_T("\n--- EXPORT ---\n"));
+    acutPrintf(_T("ATSVGEXPORT - Export selected entities (incl. block references, e.g. wall/door/window blocks) to an .svg file in Documents\n"));
+
     acutPrintf(_T("\n--- PLUGIN MANAGEMENT ---\n"));
     acutPrintf(_T("ATVERSION   - Display plugin version and build info\n"));
     acutPrintf(_T("ATHELP      - Display this help (all commands)\n"));

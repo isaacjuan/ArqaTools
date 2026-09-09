@@ -13,11 +13,18 @@ Or manually:
 msbuild ArqaTools.sln /t:Rebuild /p:Configuration="Debug 2025" /p:Platform=x64 /v:m
 ```
 
-The build target is **ObjectARX for AutoCAD 2025**. Include/lib paths come from the
-`OARX2025` env var (`$(OARX2025)\inc`, `$(OARX2025)\inc-x64`, `$(OARX2025)\lib-x64`).
+The build target is **ObjectARX for AutoCAD 2026**. Include/lib paths come from the
+`OARX2026` env var (`$(OARX2026)\inc`, `$(OARX2026)\inc-x64`, `$(OARX2026)\lib-x64`).
 Links against `rxapi.lib`, `acdb25.lib`, `acge25.lib`, `acgeoment.lib`, `ac1st25.lib`,
-`accore.lib`, `acgiapi.lib`, `AcPal.lib`. The project previously targeted IntelliCAD 14
-via the IcArx SDK (`ICAD14`/`ICAD14ODA`) — that path has been retired in favor of OARX2025.
+`accore.lib`, `acgiapi.lib`, `AcPal.lib` — note these lib names still carry the `25`
+suffix even under the 2026 SDK (ObjectARX's internal API version is decoupled from the
+product year). The project previously targeted IntelliCAD 14 via the IcArx SDK
+(`ICAD14`/`ICAD14ODA`), then briefly OARX2025 — retired in favor of OARX2026 because an
+ARX built against one major AutoCAD version's SDK is not ABI-compatible with a different
+version's host process (this caused a heap-corruption crash when a 2025-built plugin was
+loaded into AutoCAD 2026). **Always build against the SDK matching the AutoCAD version
+you will actually load the plugin into** — both 2025 and 2026 SDKs/installs are present
+on this machine (`OARX2025` env var still points at the 2025 SDK).
 
 ## Architecture
 

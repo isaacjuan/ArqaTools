@@ -58,7 +58,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <WarningLevel>Level3</WarningLevel>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(OARX2025)\inc;$(OARX2025)\inc-x64;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OARX2026)\inc;$(OARX2026)\inc-x64;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WINVER=0x0A00;_WIN32_WINNT=0x0A00;_ACAD2025;_WINDOWS;_USRDLL;_AFXEXT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SuppressStartupBanner>true</SuppressStartupBanner>
     </ClCompile>
@@ -69,7 +69,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(OARX2025)\lib-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(OARX2026)\lib-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>rxapi.lib;acdb25.lib;acge25.lib;acgeoment.lib;ac1st25.lib;accore.lib;acgiapi.lib;AcPal.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ModuleDefinitionFile>ArqaTools.def</ModuleDefinitionFile>
       <IgnoreSpecificDefaultLibraries>nafxcw.lib;nafxcwd.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -123,6 +123,7 @@
     <ClCompile Include="AcmlGenerator.cpp" />
     <ClCompile Include="AcmlTools.cpp" />
     <ClCompile Include="CategorizeTools.cpp" />
+    <ClCompile Include="SvgExportTools.cpp" />
     <ClCompile Include="StdAfx.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
@@ -151,6 +152,7 @@
     <ClInclude Include="AcmlGenerator.h" />
     <ClInclude Include="AcmlTools.h" />
     <ClInclude Include="CategorizeTools.h" />
+    <ClInclude Include="SvgExportTools.h" />
     <ClInclude Include="StdAfx.h" />
   </ItemGroup>
   
