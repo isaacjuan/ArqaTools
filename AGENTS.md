@@ -40,6 +40,21 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     `EnsureLayer`, `EnsureLinetype`, `GetPolylineCentroid`, `UpdateAreaText`
   - `MeasureFormat` — area/unit formatting with locale support
   - `ReactorPersistence` — transient reactor lifecycle (rebuild on DWG open, cleanup on unload)
+  - `SvgExportTools` (`ATSVGEXPORT`) — selection → `.svg` file. A top-level block
+    reference becomes a shared `<g>` in `<defs>` (built once per unique
+    `AcDbBlockTableRecord`, geometry left in block-local space) plus one `<use
+    transform="matrix(...)">` per occurrence — the matrix comes straight from
+    `blockTransform()`'s action on the local origin/axes (see `ComputeUseTransform`),
+    not a decomposed position/rotation/scale, so it's correct under mirroring/shear
+    too. ByBlock color inside a definition is deferred to CSS `currentColor`, set
+    per-instance via the `<use>`'s own `color` attribute. A block nested inside
+    another block is flattened into its container (composing transforms) rather than
+    becoming its own separate shared definition — only the outermost reference is
+    deduped. Anything else unrecognized (custom/AEC objects like `AEC_WALL`, or a
+    proxy standing in for a missing object enabler) falls back to `AcDbEntity::
+    explode()` — this is the general pattern to reach for whenever a command needs
+    "geometry as displayed on screen" for an object type this plugin doesn't have
+    native support for.
 
 ## Important quirks
 
@@ -53,8 +68,13 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
   must be included before `atlbase.h`/`atlcom.h`/`atlstr.h` so MFC module state initializes first.
 - **Do NOT add the `_DEBUG` undef/restore workaround** in `StdAfx.h` — it breaks MFC CRT
   linking (links release `mfcs140u.lib` in debug builds, causing `afxCurrentResourceHandle` assertions).
-- **OARX SDK headers are now used directly** (`$(OARX2025)\inc`) — this reverses the previous
+- **OARX SDK headers are now used directly** (`$(OARX2026)\inc`) — this reverses the previous
   IcArx-only rule. `rxobject.h` and other ObjectARX headers are included from `StdAfx.h`.
+- **Test against a Release build, not Debug**, when a command touches `explode()` or manually
+  deletes non-`AcRxObject` SDK types (e.g. `AcDbBlockTableRecordIterator`) — the Debug CRT's
+  heap validator can report a false-positive `_CrtIsValidHeapPointer` crash across the plugin/
+  AutoCAD module boundary that Release (what real users run, and what AutoCAD's own binaries
+  use) does not hit. Confirmed via `SvgExportTools`' `explode()` fallback on an `AEC_WALL`.
 - Every new `.cpp` must include `StdAfx.h` as its first include and be listed in
   `ArqaTools.vcxproj` under both `<ClCompile>` (source) and `<ClInclude>` (header).
 - **Command names are prefixed `AT`** (e.g. `ATHELLO`, `ATGOLDENRECT`) — follow this for any
@@ -76,5 +96,8 @@ to the repo root. Commands: `RELOADHW`, `UNLOADHW`, `RELOADHWBUILD`, `RELOADHWPA
 
 - No tests, no CI, no linters. There is no `npm`, `cargo`, `pytest`, etc.
 - `Build.bat` guards against re-initializing `VsDevCmd.bat` if `VSCMD_VER` is already set.
-- The solution and project were renamed from `HelloWorld` → `ArqaTools`. Some stale references
-  to old names remain in the README and `.claude/settings.json`.
+- The solution and project were renamed from `HelloWorld` → `ArqaTools`, and commands were later
+  reprefixed `AT*`. `README.md`, `ARCHITECTURE.md`, and most of `USER_GUIDE.md` still predate
+  both changes (old `HelloWorld`/`CHelloWorldApp` naming, pre-`AT` command names) — treat them
+  as historical/stale except where a section has been updated since (e.g. `USER_GUIDE.md`'s
+  `ATSVGEXPORT` entry). Stale references also remain in `.claude/settings.json`.

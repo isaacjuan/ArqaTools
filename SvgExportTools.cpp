@@ -8,6 +8,7 @@
 #include "acestext.h"
 #include <ShlObj.h>
 #include <vector>
+#include <map>
 #include <algorithm>
 
 namespace
@@ -18,6 +19,15 @@ namespace
     // (CAD is Y-up, SVG is Y-down). Because the flip is a pure reflection, any
     // angle taken directly from CAD geometry (arc sweep direction, text
     // rotation) must be negated when reused in SVG — see ToSvg()/EmitArc().
+    //
+    // A null Bounds* means "block-definition-local mode": geometry is being
+    // written once into a shared <g> (see EmitTopLevelBlockRef) in the
+    // block's own local space, Y-flipped but NOT translated by the overall
+    // selection bounds — placement is done entirely by the per-instance
+    // <use transform="matrix(...)">. The same null check doubles as the
+    // signal for ColorHex() to defer a ByBlock color to CSS `currentColor`
+    // instead of baking in a fixed hex, since only content going into a
+    // shared definition needs that deferral.
     // -------------------------------------------------------------------------
     struct Bounds
     {
@@ -43,9 +53,10 @@ namespace
 
     struct SvgPt { double x, y; };
 
-    SvgPt ToSvg(const Bounds& b, const AcGePoint3d& p)
+    SvgPt ToSvg(const Bounds* b, const AcGePoint3d& p)
     {
-        return { p.x - b.minX, b.Height() - (p.y - b.minY) };
+        if (!b) return { p.x, -p.y };
+        return { p.x - b->minX, b->Height() - (p.y - b->minY) };
     }
 
     CString FormatHex(int r, int g, int b)
@@ -77,8 +88,15 @@ namespace
         return col;
     }
 
-    CString ColorHex(AcDbEntity* pEnt, const AcCmColor* inheritedByBlock)
+    // `b == nullptr` means this entity is being written into a shared block
+    // <g> definition — a ByBlock color there defers to CSS `currentColor`
+    // (set per-instance via the <use>'s own `color` attribute) instead of
+    // being baked in, since the same definition is reused by every instance,
+    // each of which may want a different resolved ByBlock color.
+    CString ColorHex(AcDbEntity* pEnt, const AcCmColor* inheritedByBlock, const Bounds* b)
     {
+        if (!b && pEnt->color().isByBlock())
+            return _T("currentColor");
         AcCmColor c = ResolveColor(pEnt, inheritedByBlock);
         return FormatHex(c.red(), c.green(), c.blue());
     }
@@ -155,7 +173,7 @@ namespace
     // sweep CCW; the Y-flip in ToSvg() always reverses the visual sweep
     // sense, so a CCW CAD sweep maps to SVG sweep-flag 0, and a CW
     // (negative-bulge) sweep maps to sweep-flag 1.
-    void AppendArcPath(CString& d, const Bounds& b, double radius, double includedAngle,
+    void AppendArcPath(CString& d, const Bounds* b, double radius, double includedAngle,
                         bool sweepIsCwInCad, const AcGePoint3d& endPt)
     {
         int largeArcFlag = (includedAngle > M_PI) ? 1 : 0;
@@ -170,9 +188,11 @@ namespace
     // -------------------------------------------------------------------------
     // Per-entity-type emitters. Each takes an optional `inherited` color —
     // the already-resolved color of the block reference an entity is being
-    // expanded from, used only when the entity's own color is ByBlock.
+    // expanded from, used only when the entity's own color is ByBlock and
+    // `b` is non-null (see ColorHex). `b` null means "block-definition-local
+    // mode" (see Bounds comment above).
     // -------------------------------------------------------------------------
-    void EmitLine(AcDbLine* p, const Bounds& b, double strokeWidth, CString& out,
+    void EmitLine(AcDbLine* p, const Bounds* b, double strokeWidth, CString& out,
                   const AcCmColor* inherited)
     {
         SvgPt a = ToSvg(b, p->startPoint());
@@ -180,35 +200,35 @@ namespace
         CString elem;
         elem.Format(_T("  <line x1=\"%.4f\" y1=\"%.4f\" x2=\"%.4f\" y2=\"%.4f\" ")
                     _T("stroke=\"%s\" stroke-width=\"%.4f\" />\n"),
-                    a.x, a.y, c.x, c.y, (LPCTSTR)ColorHex(p, inherited), strokeWidth);
+                    a.x, a.y, c.x, c.y, (LPCTSTR)ColorHex(p, inherited, b), strokeWidth);
         out += elem;
     }
 
-    void EmitCircle(AcDbCircle* p, const Bounds& b, double strokeWidth, CString& out,
+    void EmitCircle(AcDbCircle* p, const Bounds* b, double strokeWidth, CString& out,
                      const AcCmColor* inherited)
     {
         SvgPt c = ToSvg(b, p->center());
         CString elem;
         elem.Format(_T("  <circle cx=\"%.4f\" cy=\"%.4f\" r=\"%.4f\" ")
                     _T("stroke=\"%s\" stroke-width=\"%.4f\" fill=\"none\" />\n"),
-                    c.x, c.y, p->radius(), (LPCTSTR)ColorHex(p, inherited), strokeWidth);
+                    c.x, c.y, p->radius(), (LPCTSTR)ColorHex(p, inherited, b), strokeWidth);
         out += elem;
     }
 
     // AcDbPoint has no boundary geometry to trace, so it's rendered as a
     // small filled marker (radius = 2x stroke width) rather than an outline —
     // a plain approximation of the PDMODE glyph AutoCAD actually draws.
-    void EmitPoint(AcDbPoint* p, const Bounds& b, double strokeWidth, CString& out,
+    void EmitPoint(AcDbPoint* p, const Bounds* b, double strokeWidth, CString& out,
                     const AcCmColor* inherited)
     {
         SvgPt c = ToSvg(b, p->position());
         CString elem;
         elem.Format(_T("  <circle cx=\"%.4f\" cy=\"%.4f\" r=\"%.4f\" fill=\"%s\" stroke=\"none\" />\n"),
-                    c.x, c.y, strokeWidth * 2.0, (LPCTSTR)ColorHex(p, inherited));
+                    c.x, c.y, strokeWidth * 2.0, (LPCTSTR)ColorHex(p, inherited, b));
         out += elem;
     }
 
-    void EmitArc(AcDbArc* p, const Bounds& b, double strokeWidth, CString& out,
+    void EmitArc(AcDbArc* p, const Bounds* b, double strokeWidth, CString& out,
                  const AcCmColor* inherited)
     {
         AcGePoint3d center = p->center();
@@ -228,7 +248,7 @@ namespace
 
         CString elem;
         elem.Format(_T("  <path d=\"%s\" stroke=\"%s\" stroke-width=\"%.4f\" fill=\"none\" />\n"),
-                    (LPCTSTR)d, (LPCTSTR)ColorHex(p, inherited), strokeWidth);
+                    (LPCTSTR)d, (LPCTSTR)ColorHex(p, inherited, b), strokeWidth);
         out += elem;
     }
 
@@ -236,7 +256,7 @@ namespace
     // AcDbPolyline, AcDb2dPolyline, and AcDbHatch's polyline-type loops).
     // Ignores elevation/normal (assumes a WCS-aligned 2D drawing), same
     // simplification the rest of this exporter already makes.
-    CString BuildPathFromVertices(const Bounds& b, const AcGePoint2dArray& pts,
+    CString BuildPathFromVertices(const Bounds* b, const AcGePoint2dArray& pts,
                                    const AcGeDoubleArray& bulges, bool closed)
     {
         int n = pts.length();
@@ -271,7 +291,7 @@ namespace
         return d;
     }
 
-    void EmitPolyline(AcDbPolyline* p, const Bounds& b, double strokeWidth, CString& out,
+    void EmitPolyline(AcDbPolyline* p, const Bounds* b, double strokeWidth, CString& out,
                        const AcCmColor* inherited)
     {
         unsigned int nVerts = p->numVerts();
@@ -293,7 +313,7 @@ namespace
 
         CString elem;
         elem.Format(_T("  <path d=\"%s\" stroke=\"%s\" stroke-width=\"%.4f\" fill=\"none\" />\n"),
-                    (LPCTSTR)d, (LPCTSTR)ColorHex(p, inherited), strokeWidth);
+                    (LPCTSTR)d, (LPCTSTR)ColorHex(p, inherited, b), strokeWidth);
         out += elem;
     }
 
@@ -301,7 +321,7 @@ namespace
     // database-resident AcDb2dVertex sub-entities rather than an inline
     // array. Only regular (line/arc) vertices are used; spline/curve-fit
     // helper vertices are skipped.
-    void EmitHeavyPolyline(AcDb2dPolyline* p, const Bounds& b, double strokeWidth, CString& out,
+    void EmitHeavyPolyline(AcDb2dPolyline* p, const Bounds* b, double strokeWidth, CString& out,
                             const AcCmColor* inherited)
     {
         AcGePoint2dArray pts;
@@ -325,7 +345,7 @@ namespace
 
         CString elem;
         elem.Format(_T("  <path d=\"%s\" stroke=\"%s\" stroke-width=\"%.4f\" fill=\"none\" />\n"),
-                    (LPCTSTR)d, (LPCTSTR)ColorHex(p, inherited), strokeWidth);
+                    (LPCTSTR)d, (LPCTSTR)ColorHex(p, inherited, b), strokeWidth);
         out += elem;
     }
 
@@ -336,7 +356,7 @@ namespace
     // (e.g. a wall opening) cut out correctly. Approximates the hatch as a
     // solid fill in the entity's own color — actual hatch patterns (cross-
     // hatching etc.) are not replicated.
-    bool EmitHatch(AcDbHatch* p, const Bounds& b, CString& out, const AcCmColor* inherited)
+    bool EmitHatch(AcDbHatch* p, const Bounds* b, CString& out, const AcCmColor* inherited)
     {
         CString allPaths;
         int numLoops = p->numLoops();
@@ -356,7 +376,7 @@ namespace
 
         CString elem;
         elem.Format(_T("  <path d=\"%s\" fill=\"%s\" fill-rule=\"evenodd\" stroke=\"none\" />\n"),
-                    (LPCTSTR)allPaths, (LPCTSTR)ColorHex(p, inherited));
+                    (LPCTSTR)allPaths, (LPCTSTR)ColorHex(p, inherited, b));
         out += elem;
         return true;
     }
@@ -366,25 +386,25 @@ namespace
     // arc sweeps are (see AppendArcPath) — the Y-flip reverses visual sense.
     void EmitTextElement(const AcGePoint3d& pos, double rotationRad, double heightPx,
                           const CString& content, AcDbEntity* pColorSrc,
-                          const AcCmColor* inherited, const Bounds& b, CString& out)
+                          const AcCmColor* inherited, const Bounds* b, CString& out)
     {
         SvgPt p = ToSvg(b, pos);
         double rotDeg = -(rotationRad * 180.0 / M_PI);
         CString elem;
         elem.Format(_T("  <text x=\"%.4f\" y=\"%.4f\" font-size=\"%.4f\" fill=\"%s\" ")
                     _T("transform=\"rotate(%.4f,%.4f,%.4f)\">%s</text>\n"),
-                    p.x, p.y, heightPx, (LPCTSTR)ColorHex(pColorSrc, inherited),
+                    p.x, p.y, heightPx, (LPCTSTR)ColorHex(pColorSrc, inherited, b),
                     rotDeg, p.x, p.y, (LPCTSTR)content);
         out += elem;
     }
 
-    void EmitText(AcDbText* p, const Bounds& b, CString& out, const AcCmColor* inherited)
+    void EmitText(AcDbText* p, const Bounds* b, CString& out, const AcCmColor* inherited)
     {
         EmitTextElement(p->position(), p->rotation(), p->height(),
                         EscapeXml(p->textString()), p, inherited, b, out);
     }
 
-    void EmitMText(AcDbMText* p, const Bounds& b, CString& out, const AcCmColor* inherited)
+    void EmitMText(AcDbMText* p, const Bounds* b, CString& out, const AcCmColor* inherited)
     {
         EmitTextElement(p->location(), p->rotation(), p->textHeight(),
                         EscapeXml(StripMTextCodes(p->contents())), p, inherited, b, out);
@@ -398,10 +418,19 @@ namespace
     // hardware sub-block, a dynamic block's anonymous block, etc.) — but
     // `depth` is capped well below any plausible legitimate nesting as a
     // guard against a cyclic block definition or pathological data.
+    //
+    // A *directly selected* block reference does not come through here at
+    // all — see EmitTopLevelBlockRef, which builds a shared <g> definition
+    // once per unique block and a <use> per instance. This dispatch's own
+    // AcDbBlockReference branch only fires for a block-within-a-block found
+    // one or more levels down (while building such a definition, or from an
+    // explode() result), where it's simplest to flatten the nested content
+    // (composing transforms) directly into the enclosing <g> rather than
+    // creating further nested <symbol>/<use> pairs.
     // -------------------------------------------------------------------------
     constexpr int kMaxExpansionDepth = 32;
 
-    void EmitBlockRef(AcDbBlockReference* pRef, const Bounds& b, double strokeWidth,
+    void EmitBlockRef(AcDbBlockReference* pRef, const Bounds* b, double strokeWidth,
                        CString& out, int depth, int& exported, int& skipped);
 
     // Fallback for any entity type not natively recognized above — custom /
@@ -410,7 +439,7 @@ namespace
     // explode() is the ObjectARX-standard way to get an object's "as
     // displayed" geometry without needing its proprietary API — the same
     // mechanism the EXPLODE command uses.
-    void EmitExploded(AcDbEntity* pEnt, const Bounds& b, double strokeWidth, CString& out,
+    void EmitExploded(AcDbEntity* pEnt, const Bounds* b, double strokeWidth, CString& out,
                        const AcCmColor* inherited, int depth, int& exported, int& skipped);
 
     CString ClassName(AcDbEntity* pEnt)
@@ -419,7 +448,7 @@ namespace
         return pClass ? CString(pClass->name()) : CString(_T("<unknown>"));
     }
 
-    void EmitEntity(AcDbEntity* pEnt, const Bounds& b, double strokeWidth, CString& out,
+    void EmitEntity(AcDbEntity* pEnt, const Bounds* b, double strokeWidth, CString& out,
                      const AcCmColor* inherited, int depth,
                      int& exported, int& skipped)
     {
@@ -457,13 +486,17 @@ namespace
         }
     }
 
-    // Expands a block reference's definition (Line/Circle/Arc/Polyline/Text/
-    // MText/Hatch/2dPolyline directly; a nested block reference or unknown
-    // custom object recurses through EmitBlockRef/EmitExploded again, up to
-    // kMaxExpansionDepth), transforming each entity by the reference's
-    // block-to-WCS matrix before emitting it. ByBlock colors resolve to this
-    // reference's own resolved color.
-    void EmitBlockRef(AcDbBlockReference* pRef, const Bounds& b, double strokeWidth,
+    // Flattens a nested (block-within-a-block) reference's definition into
+    // whichever space `out`/`b` represent, composing the nested reference's
+    // own blockTransform on top of whatever transform already got its
+    // container there. Used only below the top level — see EmitEntity's
+    // comment and EmitTopLevelBlockRef for the top-level, shared-definition
+    // path. ByBlock colors resolve to this reference's own resolved color;
+    // note that if this nested reference's own color is itself ByBlock, that
+    // resolves to black here rather than deferring further up the chain to
+    // an eventual currentColor — a known simplification for the rare case of
+    // more than one level of ByBlock-referencing-ByBlock nesting.
+    void EmitBlockRef(AcDbBlockReference* pRef, const Bounds* b, double strokeWidth,
                        CString& out, int depth, int& exported, int& skipped)
     {
         CommonTools::AcDbObjectGuard<AcDbBlockTableRecord> def(pRef->blockTableRecord(), AcDb::kForRead);
@@ -496,7 +529,7 @@ namespace
     // color inherited from the original object, so the original's own
     // resolved color (given whatever inheritance already applied to it) is
     // threaded through as the pieces' inherited color.
-    void EmitExploded(AcDbEntity* pEnt, const Bounds& b, double strokeWidth, CString& out,
+    void EmitExploded(AcDbEntity* pEnt, const Bounds* b, double strokeWidth, CString& out,
                        const AcCmColor* inherited, int depth, int& exported, int& skipped)
     {
         AcDbVoidPtrArray pieces;
@@ -517,6 +550,99 @@ namespace
             EmitEntity(pPiece, b, strokeWidth, out, &selfColor, depth + 1, exported, skipped);
             delete pPiece;
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Top-level block references: exported as a shared <g id="block_N"> (the
+    // block's own geometry, in its own local space, built once per unique
+    // AcDbBlockTableRecord) plus one <use href="#block_N" transform="matrix(
+    // ...)"> per occurrence — mirroring AutoCAD's own one-definition/many-
+    // references data model instead of duplicating each instance's geometry.
+    // -------------------------------------------------------------------------
+
+    // Computes the SVG matrix(a,b,c,d,e,f) that places a block instance,
+    // derived directly from blockTransform()'s action on the local origin
+    // and unit axes — this handles rotation, non-uniform scale, mirroring,
+    // and shear uniformly, without assuming any particular decomposition.
+    // `topBounds` non-null bakes the selection's Y-flip-and-offset into the
+    // translation (the only case actually used today, since nested blocks
+    // are flattened rather than further deduped — see EmitBlockRef above);
+    // null would place the instance in local-flip-only space instead, for a
+    // future nested <use>.
+    CString ComputeUseTransform(const AcGeMatrix3d& xform, const Bounds* topBounds)
+    {
+        AcGePoint3d origin  = AcGePoint3d(0.0, 0.0, 0.0).transformBy(xform);
+        AcGePoint3d xAxisPt = AcGePoint3d(1.0, 0.0, 0.0).transformBy(xform);
+        AcGePoint3d yAxisPt = AcGePoint3d(0.0, 1.0, 0.0).transformBy(xform);
+
+        double a = xAxisPt.x - origin.x;
+        double b = -(xAxisPt.y - origin.y);
+        double c = -(yAxisPt.x - origin.x);
+        double d = yAxisPt.y - origin.y;
+        double e, f;
+        if (topBounds) { e = origin.x - topBounds->minX; f = topBounds->maxY - origin.y; }
+        else           { e = origin.x;                   f = -origin.y; }
+
+        CString s;
+        s.Format(_T("matrix(%.6f,%.6f,%.6f,%.6f,%.6f,%.6f)"), a, b, c, d, e, f);
+        return s;
+    }
+
+    void EmitTopLevelBlockRef(AcDbBlockReference* pRef, const Bounds& bounds, double strokeWidth,
+                              CString& out, CString& defsBody,
+                              std::map<AcDbObjectId, CString>& definedBlocks,
+                              int& exported, int& skipped)
+    {
+        AcDbObjectId defId = pRef->blockTableRecord();
+        auto found = definedBlocks.find(defId);
+        CString groupId;
+        if (found == definedBlocks.end())
+        {
+            CommonTools::AcDbObjectGuard<AcDbBlockTableRecord> def(defId, AcDb::kForRead);
+            if (!def) { ++skipped; return; }
+
+            AcDbBlockTableRecordIterator* pIter = nullptr;
+            if (def->newIterator(pIter) != Acad::eOk) { ++skipped; return; }
+            CommonTools::AcDbIteratorGuard<AcDbBlockTableRecordIterator> iterGuard(pIter);
+
+            groupId.Format(_T("block_%d"), (int)definedBlocks.size());
+            definedBlocks[defId] = groupId;   // register before building, guards a cyclic definition
+
+            CString defContent;
+            int defExported = 0, defSkipped = 0;
+            for (; !iterGuard->done(); iterGuard->step())
+            {
+                AcDbEntity* pSub = nullptr;
+                if (iterGuard->getEntity(pSub, AcDb::kForRead) != Acad::eOk) continue;
+                // Block-local content: b=nullptr means local-flip-only
+                // coordinates and ByBlock -> currentColor (see Bounds/ColorHex).
+                // No clone/transform needed — this is the block's own
+                // untransformed local geometry.
+                EmitEntity(pSub, nullptr, strokeWidth, defContent, nullptr, 1, defExported, defSkipped);
+                pSub->close();
+            }
+            if (defSkipped > 0)
+                acutPrintf(_T("  [block %s] %d sub-entit%s skipped\n"),
+                           (LPCTSTR)groupId, defSkipped, defSkipped == 1 ? _T("y") : _T("ies"));
+
+            CString g;
+            g.Format(_T("  <g id=\"%s\">\n%s  </g>\n"), (LPCTSTR)groupId, (LPCTSTR)defContent);
+            defsBody += g;
+        }
+        else
+        {
+            groupId = found->second;
+        }
+
+        CString transform = ComputeUseTransform(pRef->blockTransform(), &bounds);
+        AcCmColor col = ResolveColor(pRef, nullptr);
+
+        CString use;
+        use.Format(_T("  <use href=\"#%s\" transform=\"%s\" color=\"%s\" />\n"),
+                   (LPCTSTR)groupId, (LPCTSTR)transform,
+                   (LPCTSTR)FormatHex(col.red(), col.green(), col.blue()));
+        out += use;
+        ++exported;
     }
 }
 
@@ -557,16 +683,28 @@ void SvgExportTools::svgExportCommand()
     double height       = (std::max)(bounds.Height(), 1.0);
     double strokeWidth = (std::max)(width, height) * 0.002;
 
-    // Pass 2: emit supported entities.
+    // Pass 2: emit supported entities. Block references are handled
+    // separately (shared <defs> + <use> per instance); everything else goes
+    // through the general recursive dispatch.
     CString body;
+    CString defsBody;
+    std::map<AcDbObjectId, CString> definedBlocks;
     int exported = 0, skipped = 0;
     for (auto id : ids)
     {
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForRead);
         if (!ent) { ++skipped; continue; }
 
-        EmitEntity(ent.get(), bounds, strokeWidth, body, /*inherited=*/nullptr,
-                   /*depth=*/0, exported, skipped);
+        if (ent->isKindOf(AcDbBlockReference::desc()))
+        {
+            EmitTopLevelBlockRef(static_cast<AcDbBlockReference*>(ent.get()), bounds, strokeWidth,
+                                 body, defsBody, definedBlocks, exported, skipped);
+        }
+        else
+        {
+            EmitEntity(ent.get(), &bounds, strokeWidth, body, /*inherited=*/nullptr,
+                       /*depth=*/0, exported, skipped);
+        }
     }
 
     if (exported == 0)
@@ -576,11 +714,22 @@ void SvgExportTools::svgExportCommand()
         return;
     }
 
+    // No fixed pixel width/height: those would equal the drawing's real-world
+    // unit dimensions (often thousands of mm), which a browser renders at a
+    // literal 1:1 pixel scale — usually far larger than the viewport, and
+    // often beyond what the browser's own zoom-out range can shrink back down
+    // to fit. Leaving only viewBox makes the SVG scale to fill whatever
+    // displays it while preserving the drawing's aspect ratio.
     CString svg;
     svg.Format(_T("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-               _T("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 %.4f %.4f\" ")
-               _T("width=\"%.4f\" height=\"%.4f\">\n"),
-               width, height, width, height);
+               _T("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 %.4f %.4f\">\n"),
+               width, height);
+    if (!defsBody.IsEmpty())
+    {
+        svg += _T("<defs>\n");
+        svg += defsBody;
+        svg += _T("</defs>\n");
+    }
     svg += body;
     svg += _T("</svg>\n");
 

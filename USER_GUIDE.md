@@ -372,6 +372,68 @@ Distributes selected objects evenly along a horizontal line with specified spaci
 
 ---
 
+## Export Tools
+
+### ATSVGEXPORT - Export Selection to SVG
+
+Exports the selected entities to an `.svg` file in your Documents folder, preserving their as-drawn appearance (position, color, and — for text — rotation and size).
+
+#### How to Use:
+
+1. **Type `ATSVGEXPORT`** in the AutoCAD command line
+2. **Select the entities** to export — window, crossing, or individual picks; press Enter when done
+
+#### What It Does:
+
+- Computes the bounding box of the selection and sizes the SVG's `viewBox` to match
+- Writes one `<line>`, `<circle>`, `<path>`, or `<text>` element per supported entity, in the entity's resolved color (ByLayer/ByBlock/ACI/true-color are all resolved to a concrete `#rrggbb`)
+- **Block references** are exported the same way AutoCAD stores them: each unique block *definition* is written once as a `<g>` inside `<defs>`, and every occurrence (copy) in the drawing becomes a `<use>` element pointing at it with a placement transform — not a duplicated copy of the geometry. A block whose own color is ByBlock is written with `fill`/`stroke="currentColor"`; each `<use>` sets its own `color="#rrggbb"` so different-colored copies of the same block still render correctly from one shared definition. A block nested inside another block (a door's hardware sub-block, a dynamic block's anonymous block, etc.) is flattened into its container's definition rather than becoming its own separate shared definition
+- **Custom or architectural objects** the exporter doesn't recognize directly (e.g. AutoCAD Architecture's `AEC_WALL`/`AEC_DOOR`/`AEC_WINDOW`, or any proxy object) fall back to `explode()` — the same "as displayed" decomposition the `EXPLODE` command uses — so walls/doors/windows still export without needing the AEC object enabler
+- Prints a `[skip] <ClassName>` line to the command line for anything it genuinely could not export, so gaps are visible instead of silent
+
+#### Supported entity types:
+
+Line, Circle, Arc, LWPolyline (including bulge/arc segments), the older heavy 2D polyline, Hatch (polyline-type loops only, filled with the hatch's resolved color — actual hatch patterns like cross-hatching aren't replicated), Text, MText, Point, and Block Reference.
+
+#### Examples:
+
+**Example 1: Export a floor plan**
+- Select the walls, doors, and windows of a room (a mix of plain polylines and inserted door/window blocks)
+- Type `ATSVGEXPORT`
+- Select the objects and press Enter
+- **Result:** `ArqaTools_Export.svg` is written to Documents, viewable in any browser or vector editor
+
+**Example 2: Export a single detail**
+- Window-select a small detail (lines, text labels, a couple of blocks)
+- Type `ATSVGEXPORT`, select, press Enter
+- **Result:** A tightly-cropped SVG matching just that selection's extents
+
+#### Technical Details:
+
+- **Output location:** `<Documents>\ArqaTools_Export.svg` (overwrites any previous export)
+- **Coordinate mapping:** CAD is Y-up, SVG is Y-down — the exporter flips Y about the selection's bounding box so the drawing appears right-side-up; arc sweep direction and text rotation are adjusted accordingly
+- **Stroke width:** Automatically scaled to 0.2% of the larger bounding-box dimension
+- **MText formatting codes** (`\C`, `\H`, `\P`, etc.) are stripped with a best-effort plain-text conversion, not a full MText parser
+- **Block/explode expansion** recurses up to a generous depth cap (32), which only guards against a cyclic or pathological block definition — legitimate nesting (a door block containing a hardware sub-block, for example) is not limited in practice
+- **Block placement** is computed directly from the block reference's transform (position, rotation, scale — including non-uniform scale and mirroring), so it's exact regardless of how the block was inserted
+
+#### Important Notes:
+
+- **Hatches are outline-approximated as a solid fill** in the hatch's own color — the actual pattern (lines, cross-hatch, etc.) is not drawn
+- **Elevation/normal are ignored** — the exporter assumes a WCS-aligned 2D drawing, which covers the vast majority of plan-view content
+- Requires a **Release** build of the plugin when testing against a live AutoCAD session — a Debug build's stricter heap validator can report a false-positive crash when expanding certain custom objects (see AGENTS.md)
+
+#### Troubleshooting:
+
+**Some objects show `[skip] <ClassName>` in the command line:**
+- The entity type genuinely isn't supported yet (e.g. a Spline, 3D Solid, or Dimension) — note the class name and request support for it if needed
+- For a custom object, `explode()` may have returned no usable pieces — the skip line includes the error code (e.g. `eNotApplicable`) for diagnosis
+
+**"No exportable geometry in the selection":**
+- Nothing in the selection matched a supported type and `explode()` produced nothing for the rest — try selecting simpler geometry to confirm the command itself is working
+
+---
+
 ## Information Commands
 
 ### HWHELP - Show All Commands
