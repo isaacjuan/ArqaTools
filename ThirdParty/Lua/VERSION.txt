@@ -1,0 +1,8 @@
+Vendored from https://www.lua.org/ftp/lua-5.4.7.tar.gz (released 13 Jun 2024).
+
+Only the library sources under src/ are vendored (the standalone lua.c /
+luac.c CLI and compiler front-ends were removed — DevTools embeds Lua as a
+library only, via LuaEngine.cpp, and does not ship the Lua CLI or bytecode
+compiler binaries).
+
+License: MIT, see LICENSE.txt (unmodified from upstream).

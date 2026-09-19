@@ -40,6 +40,18 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     `EnsureLayer`, `EnsureLinetype`, `GetPolylineCentroid`, `UpdateAreaText`
   - `MeasureFormat` — area/unit formatting with locale support
   - `ReactorPersistence` — transient reactor lifecycle (rebuild on DWG open, cleanup on unload)
+  - `LuaTools` (`ATLUA`, `ATAILUA`) — second, additive scripting engine alongside AutoLISP/ACML.
+    Vendors plain Lua 5.4 (`ThirdParty\Lua\src\`, source-only, no prebuilt lib) directly into this
+    project. `LuaTools::runLuaScript(code)` runs synchronously (`lua_pcall`) and returns a real
+    `{ok, output, error}` — unlike `AITools::ExecuteLispCode`'s coarse `acedInvoke` return-code
+    check, or `aiLispCommand`/`aiFixCommand`, which only copy generated LISP to the clipboard for
+    manual paste. Restricted stdlib (`base`/`table`/`string`/`math` only — no `io`/`os`/`package`/
+    `debug`). Exposes a global `at` table: `at.listEntities()`, `at.drawLine/drawCircle/drawArc/
+    drawRect(...)` → handle string, `at.moveEntity/copyEntity/rotateEntity(handle, ...)`,
+    `at.print(msg)`. `ATLUA` runs inline code or `@path\to\file.lua`; `ATAILUA` asks the configured
+    AI (reusing `AITools::SendToGitHubCopilotWithHistory`/`GetConversationHistory`) to write Lua
+    against the `at` API and runs it directly. Fully decoupled from ACML — no cross-references
+    either direction.
   - `SvgExportTools` (`ATSVGEXPORT`) — selection → `.svg` file. A top-level block
     reference becomes a shared `<g>` in `<defs>` (built once per unique
     `AcDbBlockTableRecord`, geometry left in block-local space) plus one `<use

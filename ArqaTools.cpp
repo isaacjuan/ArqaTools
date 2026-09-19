@@ -56,6 +56,7 @@ static void unsuppressAssertsCommand()
 #include "CategorizeTools.h"
 #include "GoldenRectTools.h"
 #include "SvgExportTools.h"
+#include "LuaTools.h"
 #include "dbregion.h"
 #include "dbgroup.h"
 
@@ -179,6 +180,9 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATCATENTITIES"),      CategorizeTools::catEntitiesCommand  },
         // Export
         { _T("ATSVGEXPORT"),        SvgExportTools::svgExportCommand    },
+        // Lua scripting (second, additive scripting engine alongside LISP/ACML)
+        { _T("ATLUA"),              LuaTools::luaRunCommand      },
+        { _T("ATAILUA"),            LuaTools::aiLuaCommand       },
     };
 
     for (const auto& cmd : kCommands)
@@ -795,6 +799,10 @@ void CArqaToolsApp::arqaHelpCommand()
 
     acutPrintf(_T("\n--- EXPORT ---\n"));
     acutPrintf(_T("ATSVGEXPORT - Export selected entities (incl. block references, e.g. wall/door/window blocks) to an .svg file in Documents\n"));
+
+    acutPrintf(_T("\n--- LUA SCRIPTING ---\n"));
+    acutPrintf(_T("ATLUA       - Run a Lua script (inline or @path\\to\\file.lua) against the \"at\" API\n"));
+    acutPrintf(_T("ATAILUA     - Ask the AI to write and run a Lua script for a natural-language request\n"));
 
     acutPrintf(_T("\n--- PLUGIN MANAGEMENT ---\n"));
     acutPrintf(_T("ATVERSION   - Display plugin version and build info\n"));

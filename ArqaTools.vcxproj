@@ -18,6 +18,8 @@
     <Keyword>MFCProj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <CharacterSet>Unicode</CharacterSet>
+    <!-- Vendored Lua 5.4 (plain C source, compiled directly into this project) -->
+    <LuaIncDir>$(ProjectDir)ThirdParty\Lua\src</LuaIncDir>
   </PropertyGroup>
   
   <PropertyGroup Condition="$(Configuration.ToLower().Contains('2025'))">
@@ -58,7 +60,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <WarningLevel>Level3</WarningLevel>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(OARX2026)\inc;$(OARX2026)\inc-x64;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OARX2026)\inc;$(OARX2026)\inc-x64;$(LuaIncDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WINVER=0x0A00;_WIN32_WINNT=0x0A00;_ACAD2025;_WINDOWS;_USRDLL;_AFXEXT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SuppressStartupBanner>true</SuppressStartupBanner>
     </ClCompile>
@@ -124,6 +126,40 @@
     <ClCompile Include="AcmlTools.cpp" />
     <ClCompile Include="CategorizeTools.cpp" />
     <ClCompile Include="SvgExportTools.cpp" />
+    <ClCompile Include="LuaTools.cpp" />
+    <!-- Vendored Lua 5.4 library source (see ThirdParty\Lua\VERSION.txt) — plain C, not using the project PCH -->
+    <ClCompile Include="ThirdParty\Lua\src\lapi.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lauxlib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lbaselib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lcode.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lcorolib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lctype.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\ldblib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\ldebug.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\ldo.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\ldump.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lfunc.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lgc.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\linit.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\liolib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\llex.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lmathlib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lmem.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\loadlib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lobject.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lopcodes.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\loslib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lparser.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lstate.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lstring.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lstrlib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\ltable.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\ltablib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\ltm.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lundump.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lutf8lib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lvm.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="ThirdParty\Lua\src\lzio.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="StdAfx.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
@@ -153,6 +189,34 @@
     <ClInclude Include="AcmlTools.h" />
     <ClInclude Include="CategorizeTools.h" />
     <ClInclude Include="SvgExportTools.h" />
+    <ClInclude Include="LuaTools.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lapi.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lauxlib.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lcode.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lctype.h" />
+    <ClInclude Include="ThirdParty\Lua\src\ldebug.h" />
+    <ClInclude Include="ThirdParty\Lua\src\ldo.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lfunc.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lgc.h" />
+    <ClInclude Include="ThirdParty\Lua\src\ljumptab.h" />
+    <ClInclude Include="ThirdParty\Lua\src\llex.h" />
+    <ClInclude Include="ThirdParty\Lua\src\llimits.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lmem.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lobject.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lopcodes.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lopnames.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lparser.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lprefix.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lstate.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lstring.h" />
+    <ClInclude Include="ThirdParty\Lua\src\ltable.h" />
+    <ClInclude Include="ThirdParty\Lua\src\ltm.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lua.h" />
+    <ClInclude Include="ThirdParty\Lua\src\luaconf.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lualib.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lundump.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lvm.h" />
+    <ClInclude Include="ThirdParty\Lua\src\lzio.h" />
     <ClInclude Include="StdAfx.h" />
   </ItemGroup>
   
