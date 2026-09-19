@@ -23,5 +23,11 @@ namespace SvgExportTools
     // Prints a "[skip] <ClassName>" or explode() error line to the command
     // line for anything it could not export, so gaps are visible rather than
     // silent.
+    //
+    // Every element is grouped into a <g id="layer_..."> per AutoCAD layer
+    // (top-level content and a block definition's own content alike), and
+    // gets its own "id" derived from its source entity's handle (an
+    // exploded piece, which has no handle of its own, uses its source
+    // entity's id with an index suffix).
     void svgExportCommand();
 }
