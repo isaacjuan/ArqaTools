@@ -94,7 +94,8 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     `LuaTools::hasApiFunction`) with up to two automatic correction rounds, shows the code for
     approval, copies the previous version to `history\NAME_<timestamp>.lua`, writes the file and
     reloads everything (`LoadAll` = fresh engine + `removeGroup` + re-register). A file that fails
-    to load unregisters whatever it defined. The sandbox: no io/os/package/debug, no
+    to load unregisters whatever it defined and is remembered in `g_failedFiles` with its error;
+    `ATAICMD NAME` then repairs `NAME.lua` from its source and load error instead of starting over. The sandbox: no io/os/package/debug, no
     `dofile`/`loadfile`, `load` is text-only, and global `at` is a read-only userdata proxy.
   - `SvgExportTools` (`ATSVGEXPORT`) — selection → `.svg` file. A top-level block
     reference becomes a shared `<g>` in `<defs>` (built once per unique

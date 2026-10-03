@@ -31,6 +31,7 @@ struct CmdInfo
 
 std::unique_ptr<LuaTools::LuaEngine> g_engine;
 std::map<CString, CmdInfo>           g_cmds;              // by name
+std::map<CString, CString>           g_failedFiles;       // full path -> load error
 CString                              g_slotName[kMaxSlots];
 CString                              g_loadingFile;       // file whose top level is running
 
@@ -248,6 +249,7 @@ void LoadAll(bool report)
 {
     acedRegCmds->removeGroup(kGroup);
     g_cmds.clear();
+    g_failedFiles.clear();
     for (auto& s : g_slotName) s.Empty();
 
     g_engine.reset(new LuaTools::LuaEngine(/*echoOutput=*/true));
@@ -261,6 +263,7 @@ void LoadAll(bool report)
         if (!LoadFile(file, err))
         {
             ++failed;
+            g_failedFiles[file] = err;
             acutPrintf(_T("\n[Lua] %s not loaded: %s"), (LPCTSTR)FileNameOf(file), (LPCTSTR)err);
         }
     }
@@ -388,7 +391,7 @@ CString BuildPrompt(const CString& name, const CString& request, bool existing,
         p += _T("Requested change: ") + request + _T("\n\n");
         p += _T("CURRENT FILE:\n") + FromUtf8(currentSource) + _T("\n\n");
         if (!lastError.IsEmpty())
-            p += _T("ITS LAST RUN FAILED WITH:\n") + lastError + _T("\n\n");
+            p += _T("ERROR TO FIX (from loading or running this file):\n") + lastError + _T("\n\n");
     }
     else
         p += _T("What it should do: ") + request + _T("\n\n");
@@ -486,7 +489,7 @@ void Uninit()
 void listCommand()
 {
     acutPrintf(_T("\n=== LUA COMMANDS ===\n"));
-    if (g_cmds.empty())
+    if (g_cmds.empty() && g_failedFiles.empty())
     {
         acutPrintf(_T("None. Create one with ATAICMD, or put .lua files in\n%s\nand run ATLUARELOAD.\n"),
                    (LPCTSTR)CommandsFolder());
@@ -498,6 +501,8 @@ void listCommand()
         acutPrintf(_T("%-20s %s  [%s]%s\n"), (LPCTSTR)c.name, (LPCTSTR)c.description,
                    (LPCTSTR)FileNameOf(c.file), c.lastError.IsEmpty() ? _T("") : _T("  (last run failed)"));
     }
+    for (const auto& kv : g_failedFiles)
+        acutPrintf(_T("%-20s NOT LOADED: %s\n"), (LPCTSTR)FileNameOf(kv.first), (LPCTSTR)kv.second);
     acutPrintf(_T("Folder: %s\n"), (LPCTSTR)CommandsFolder());
 }
 
@@ -556,16 +561,33 @@ void aiCommand()
 
     auto it = g_cmds.find(name);
     bool existing = it != g_cmds.end();
-    if (!existing && CommandNameTaken(name))
+    CString targetFile = CommandsFolder() + _T("\\") + name + _T(".lua");
+
+    // NAME.lua that failed to load: its command is not registered, but the
+    // AI should repair that file (seeing its code and load error), not start over.
+    auto failed = g_failedFiles.end();
+    if (!existing)
+        for (auto f = g_failedFiles.begin(); f != g_failedFiles.end(); ++f)
+            if (f->first.CompareNoCase(targetFile) == 0) failed = f;
+    bool broken = failed != g_failedFiles.end();
+
+    if (!existing && !broken && CommandNameTaken(name))
     {
         acutPrintf(_T("\n%s is already an AutoCAD or ArqaTools command - choose another name.\n"), (LPCTSTR)name);
         return;
     }
 
-    CString targetFile = CommandsFolder() + _T("\\") + name + _T(".lua");
     std::string currentSource;
     CString lastError;
-    if (existing)
+    if (broken)
+    {
+        lastError = _T("The file does not load: ") + failed->second;
+        ReadFileUtf8(targetFile, currentSource);
+        existing = true;   // same flow as changing a command: send source + error
+        acutPrintf(_T("Repairing %s (%s does not load) - its code and load error will be sent to the AI\n"),
+                   (LPCTSTR)name, (LPCTSTR)FileNameOf(targetFile));
+    }
+    else if (existing)
     {
         targetFile = it->second.file;
         lastError  = it->second.lastError;
@@ -589,7 +611,7 @@ void aiCommand()
     request.Trim();
     if (request.IsEmpty() && lastError.IsEmpty())
     { acutPrintf(_T("\nA description is required.\n")); return; }
-    if (request.IsEmpty()) request = _T("Fix the error from its last run.");
+    if (request.IsEmpty()) request = _T("Fix the error shown below.");
 
     // Ask, validate, and let the AI correct itself up to twice.
     std::vector<AITools::ChatMessage> messages;
