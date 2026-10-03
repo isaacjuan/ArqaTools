@@ -46,12 +46,23 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     `{ok, output, error}` — unlike `AITools::ExecuteLispCode`'s coarse `acedInvoke` return-code
     check, or `aiLispCommand`/`aiFixCommand`, which only copy generated LISP to the clipboard for
     manual paste. Restricted stdlib (`base`/`table`/`string`/`math` only — no `io`/`os`/`package`/
-    `debug`). Exposes a global `at` table: `at.listEntities()`, `at.drawLine/drawCircle/drawArc/
-    drawRect(...)` → handle string, `at.moveEntity/copyEntity/rotateEntity(handle, ...)`,
-    `at.print(msg)`. `ATLUA` runs inline code or `@path\to\file.lua`; `ATAILUA` asks the configured
-    AI (reusing `AITools::SendToGitHubCopilotWithHistory`/`GetConversationHistory`) to write Lua
-    against the `at` API and runs it directly. Fully decoupled from ACML — no cross-references
-    either direction.
+    `debug`). Exposes a global `at` table — user input (`getPoint/getDistance/getReal/getInt/
+    getString/getKeyword/getEntity/getSelection`; ESC aborts the script, Enter → default or nil,
+    points converted UCS→WCS), query (`listEntities`, `entities([type])`, `getProps(handle)`),
+    create (`drawLine/drawCircle/drawArc/drawRect` → handle string), modify (`moveEntity/
+    copyEntity/rotateEntity/erase/setLayer/setColor`), `print`. The `kFns` table in `LuaTools.cpp`
+    is the single source of truth: it registers the bindings *and* feeds `describeApi()`, which
+    generates the API section of the `ATAILUA` prompt — add new functions only there, with a
+    signature and doc string. Lua is compiled as C, so `luaL_error`/`luaL_check*` longjmp past C++
+    destructors: in bindings, check args before opening any `AcDbObjectGuard`/creating a
+    `CString`, and raise errors only after those scopes close. A count hook polls `acedUsrBrk()`
+    (ESC breaks runaway loops) and enforces `LuaRunOptions::maxInstructions` (`ATAILUA` caps AI
+    code at 500M instructions). A run is a single UNDO step (it executes inside the calling
+    command). `ATLUA` runs inline code or `@path\to\file.lua` (see `test.lua`,
+    `test_foundations.lua`); `ATAILUA` asks the configured AI (reusing
+    `AITools::SendToGitHubCopilotWithHistory`/`GetConversationHistory`) to write Lua against the
+    `at` API and runs it directly. Fully decoupled from ACML — no cross-references either
+    direction.
   - `SvgExportTools` (`ATSVGEXPORT`) — selection → `.svg` file. A top-level block
     reference becomes a shared `<g>` in `<defs>` (built once per unique
     `AcDbBlockTableRecord`, geometry left in block-local space) plus one `<use
