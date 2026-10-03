@@ -82,8 +82,12 @@
   <ItemDefinitionGroup Condition="$(Configuration.ToLower().Contains('debug'))">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
-      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- Release CRT on purpose (Autodesk's recommendation for ARX debug builds):
+           AutoCAD runs on the release CRT, and ObjectARX APIs such as
+           AcDbRegion::createFromCurves / AcDbEntity::explode grow AcArray buffers
+           inside acad that our inline AcArray code later frees. With the debug CRT
+           that is a cross-heap free (_CrtIsValidHeapPointer assert, heap corruption). -->
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <BrowseInformation>true</BrowseInformation>
     </ClCompile>

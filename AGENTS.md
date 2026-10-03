@@ -81,6 +81,13 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
 
 ## Important quirks
 
+- **Debug config uses the release CRT (`/MD`, no `_DEBUG`)** — Autodesk's recommendation for ARX
+  debug builds. AutoCAD runs on the release CRT, and ObjectARX calls like
+  `AcDbRegion::createFromCurves` / `AcDbEntity::explode` grow `AcArray` buffers inside acad that
+  our inline `AcArray` code later frees; with `/MDd` that is a cross-heap free
+  (`_CrtIsValidHeapPointer` assert, then heap corruption). Debug still has optimization off and
+  a full PDB. Do not switch back to `MultiThreadedDebugDLL`. `ATSUPPRESSASSERTS` is now compiled
+  out (it is `#ifdef _DEBUG`).
 - **Language standard is `stdcpp17`**, not C++20 — the SDK uses `requires` as a method name
   (a keyword in C++20).
 - **MFC + ATL mixed DLL** — `ArqaTools.cpp` declares `class CArqaToolsAtlModule : public CAtlMfcModule {};`
