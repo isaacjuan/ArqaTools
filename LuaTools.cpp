@@ -479,6 +479,19 @@ void aiLuaCommand()
     CString luaCode = response;
     luaCode.Replace(_T("```lua"), _T(""));
     luaCode.Replace(_T("```"), _T(""));
+
+    // This project's lightweight JSON parser doesn't always unescape control
+    // characters inside the response's "content" string - the same quirk
+    // aiLispCommand works around (AITools.cpp's cleanup block). Unlike LISP
+    // (where the code gets squashed to one line anyway), Lua statements are
+    // newline/whitespace-friendly, so restore real newlines/tabs rather than
+    // collapsing to spaces.
+    luaCode.Replace(_T("\r\n"), _T("\n"));
+    luaCode.Replace(_T("\n"), _T("\n"));
+    luaCode.Replace(_T("\r"), _T("\n"));
+    luaCode.Replace(_T("\t"), _T("\t"));
+    luaCode.Replace(_T("\\\""), _T("\""));
+
     luaCode.Trim();
     if (luaCode.Find(_T("CODE:")) == 0)
         luaCode = luaCode.Mid(5);

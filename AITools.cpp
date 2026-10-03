@@ -239,6 +239,22 @@ namespace AITools
         return s_cachedEndpoint;
     }
     
+    // Human-readable hint for the WinHTTP error codes seen in practice when
+    // HttpPost's connect/send/receive calls fail - saves a trip to the docs.
+    static CString WinHttpErrorHint(DWORD gle)
+    {
+        switch (gle)
+        {
+        case 12002: return _T(" - timeout");
+        case 12007: return _T(" - name not resolved (DNS failure / no internet?)");
+        case 12029: return _T(" - cannot connect (host unreachable / firewall?)");
+        case 12030: return _T(" - connection reset");
+        case 12157: return _T(" - secure channel error (TLS handshake failed - often a corporate proxy/firewall doing SSL inspection with an untrusted cert)");
+        case 12175: return _T(" - secure failure (TLS negotiation failed - proxy/firewall SSL inspection, or an unsupported TLS version)");
+        default:    return _T("");
+        }
+    }
+
     // -------------------------------------------------------------------------
     // HttpPost: POST via WinHTTP. Supports both HTTPS (cloud APIs) and plain
     // HTTP (local Ollama). Sets statusCode to the HTTP status (0 on error).
@@ -259,8 +275,10 @@ namespace AITools
         HINTERNET hConnect = WinHttpConnect(hSession, host, port, 0);
         if (!hConnect)
         {
+            DWORD gle = GetLastError();
             WinHttpCloseHandle(hSession);
-            CString err; err.Format(_T("Error: Could not connect to %s"), (LPCTSTR)host);
+            CString err; err.Format(_T("Error: Could not connect to %s (WinHTTP error %lu%s)"),
+                                     (LPCTSTR)host, gle, (LPCTSTR)WinHttpErrorHint(gle));
             return err;
         }
 
@@ -290,14 +308,20 @@ namespace AITools
         if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                                 utf8Buf.data(), utf8Len - 1, utf8Len - 1, 0))
         {
+            DWORD gle = GetLastError();
             WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-            return _T("Error: Could not send request");
+            CString err; err.Format(_T("Error: Could not send request (WinHTTP error %lu%s)"),
+                                     gle, (LPCTSTR)WinHttpErrorHint(gle));
+            return err;
         }
 
         if (!WinHttpReceiveResponse(hRequest, NULL))
         {
+            DWORD gle = GetLastError();
             WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-            return _T("Error: Could not receive response");
+            CString err; err.Format(_T("Error: Could not receive response (WinHTTP error %lu%s)"),
+                                     gle, (LPCTSTR)WinHttpErrorHint(gle));
+            return err;
         }
 
         DWORD statusCodeSize = sizeof(statusCode);
