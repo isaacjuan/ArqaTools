@@ -31,4 +31,18 @@ namespace ArabesqueTools
     // Superficie sillon: z = amp*((x/Lx)^2 - (y/Ly)^2)
     // Lx = nT*S/2,  Ly = mT*S/2,  amp = A * fa (amplitud del sillon)
     void arabescohipSolCommand();
+
+    // ── Non-interactive pattern generators (used by the commands above and by
+    //    the Lua at.pattern* bindings). All draw into model space.
+    void DrawRosette  (const AcGePoint3d& center, double R, int n);
+    void DrawStar     (const AcGePoint3d& center, double R, int n, double innerFactor);
+    void DrawPetals   (const AcGePoint3d& center, double R, int n, double bulgeFactor);
+    void DrawGeometric(const AcGePoint3d& center, double R, int n, double innerFactor);
+    void DrawHojaNazari(const AcGePoint3d& origin, double leafSize, int numRings, double widthFactor);
+    // Clamps cols/rows to 1..30 in place; returns the tile size S.
+    double DrawArabescoRl(const AcGePoint3d& corner, double A, int& cols, int& rows);
+    void DrawArabescoToroSol(const AcGePoint3d& center, double A,
+                             int nT, int mT, int D, double fw, double fh);
+    void DrawArabescoHipSol(const AcGePoint3d& center, double A,
+                            int nT, int mT, double fa, int D, double fw, double fh);
 }

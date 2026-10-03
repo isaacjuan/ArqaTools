@@ -16,7 +16,7 @@ namespace ArabesqueTools
     // N circles of radius R, each centered at distance R from origin.
     // All circles pass through the center → classic Islamic rosette.
     // -----------------------------------------------------------------------
-    static void DrawRosette(const AcGePoint3d& center, double R, int n)
+    void DrawRosette(const AcGePoint3d& center, double R, int n)
     {
         AcDbBlockTableRecord* pBTR = nullptr;
         if (CommonTools::GetModelSpace(pBTR) != Acad::eOk) return;
@@ -40,7 +40,7 @@ namespace ArabesqueTools
     // N-pointed star: alternating outer (R) and inner (r = R * innerFactor)
     // vertices forming a single closed polyline.
     // -----------------------------------------------------------------------
-    static void DrawStar(const AcGePoint3d& center, double R, int n, double innerFactor)
+    void DrawStar(const AcGePoint3d& center, double R, int n, double innerFactor)
     {
         AcDbBlockTableRecord* pBTR = nullptr;
         if (CommonTools::GetModelSpace(pBTR) != Acad::eOk) return;
@@ -74,7 +74,7 @@ namespace ArabesqueTools
     // segments → one arc bows left, the closing arc bows right → symmetric leaf.
     // bulge = tan(α/4):  0.4142 → 90° arc (round),  0.2679 → 60° (slender)
     // -----------------------------------------------------------------------
-    static void DrawPetals(const AcGePoint3d& center, double R, int n, double bulgeFactor)
+    void DrawPetals(const AcGePoint3d& center, double R, int n, double bulgeFactor)
     {
         AcDbBlockTableRecord* pBTR = nullptr;
         if (CommonTools::GetModelSpace(pBTR) != Acad::eOk) return;
@@ -106,7 +106,7 @@ namespace ArabesqueTools
     // STAR ROSETTE (bonus mode "G" = Geometric)
     // Combines a star polygon with a concentric rosette ring for a richer pattern.
     // -----------------------------------------------------------------------
-    static void DrawGeometric(const AcGePoint3d& center, double R, int n, double innerFactor)
+    void DrawGeometric(const AcGePoint3d& center, double R, int n, double innerFactor)
     {
         // Outer star
         DrawStar(center, R, n, innerFactor);
@@ -243,7 +243,7 @@ namespace ArabesqueTools
         pLeaf->close();
     }
 
-    static void DrawHojaNazari(const AcGePoint3d& origin,
+    void DrawHojaNazari(const AcGePoint3d& origin,
                                 double leafSize,
                                 int numRings,
                                 double widthFactor)
@@ -471,23 +471,29 @@ namespace ArabesqueTools
         int cols = 3, rows = 3;
         acedGetInt(_T("\nColumnas <3>: "), &cols);
         acedGetInt(_T("\nFilas    <3>: "), &rows);
+
+        double S = DrawArabescoRl(AcGePoint3d(iPt[0], iPt[1], iPt[2]), A, cols, rows);
+        acutPrintf(_T("\nRetícula %d×%d  A=%.1f  S=%.1f"), cols, rows, A, S);
+    }
+
+    double DrawArabescoRl(const AcGePoint3d& corner, double A, int& cols, int& rows)
+    {
         if (cols < 1) cols = 1;  if (cols > 30) cols = 30;
         if (rows < 1) rows = 1;  if (rows > 30) rows = 30;
 
         const double S = A * (3.0 + 2.0 * sqrt(3.0));
 
         AcDbBlockTableRecord* pBTR = nullptr;
-        if (CommonTools::GetModelSpace(pBTR) != Acad::eOk) return;
+        if (CommonTools::GetModelSpace(pBTR) != Acad::eOk) return S;
 
         for (int row = 0; row < rows; row++)
             for (int col = 0; col < cols; col++)
                 DrawArabescoRlTile(pBTR,
-                                   iPt[0] + col * S,
-                                   iPt[1] + row * S,
+                                   corner.x + col * S,
+                                   corner.y + row * S,
                                    A, S);
         pBTR->close();
-
-        acutPrintf(_T("\nRetícula %d×%d  A=%.1f  S=%.1f"), cols, rows, A, S);
+        return S;
     }
 
     // -----------------------------------------------------------------------
@@ -698,27 +704,34 @@ namespace ArabesqueTools
 
         int nT = 6;
         acedGetInt(_T("\nBaldosas circunferencia mayor <6>: "), &nT);
-        if (nT < 1) nT = 1;
 
         int mT = 3;
         acedGetInt(_T("\nBaldosas circunferencia menor <3>: "), &mT);
-        if (mT < 1) mT = 1;
 
         int D = 6;
         acedGetInt(_T("\nSubdivisiones por segmento <6>: "), &D);
-        if (D < 2) D = 2;
 
         double fw = 0.28;
         acedGetReal(_T("\nAncho de strap, factor de A <0.28>: "), &fw);
         double fh = 0.08;
         acedGetReal(_T("\nAlto de strap, factor de A <0.08>: "), &fh);
 
+        DrawArabescoToroSol(AcGePoint3d(cPt[0], cPt[1], cPt[2]), A, nT, mT, D, fw, fh);
+    }
+
+    void DrawArabescoToroSol(const AcGePoint3d& center, double A,
+                             int nT, int mT, int D, double fw, double fh)
+    {
+        if (nT < 1) nT = 1;
+        if (mT < 1) mT = 1;
+        if (D < 2)  D = 2;
+
         const double S  = A * (3.0 + 2.0*sqrt(3.0));
         const double Rb = nT * S / (2.0 * ARB_PI);
         const double Rs = mT * S / (2.0 * ARB_PI);
         const double ww = A * fw * 0.5;
         const double hh = A * fh;
-        const double cx = cPt[0], cy = cPt[1], cz = cPt[2];
+        const double cx = center.x, cy = center.y, cz = center.z;
         const double dnT = (double)nT, dmT = (double)mT;
 
         AcDbBlockTableRecord* pBTR = nullptr;
@@ -905,29 +918,36 @@ namespace ArabesqueTools
 
         int nT = 4;
         acedGetInt(_T("\nBaldosas en X <4>: "), &nT);
-        if (nT < 1) nT = 1;
 
         int mT = 4;
         acedGetInt(_T("\nBaldosas en Y <4>: "), &mT);
-        if (mT < 1) mT = 1;
 
         double fa = 3.0;
         acedGetReal(_T("\nAmplitud del sillon, factor de A <3.0>: "), &fa);
 
         int D = 6;
         acedGetInt(_T("\nSubdivisiones por segmento <6>: "), &D);
-        if (D < 2) D = 2;
 
         double fw = 0.28;
         acedGetReal(_T("\nAncho de strap, factor de A <0.28>: "), &fw);
         double fh = 0.08;
         acedGetReal(_T("\nAlto de strap, factor de A <0.08>: "), &fh);
 
+        DrawArabescoHipSol(AcGePoint3d(cPt[0], cPt[1], cPt[2]), A, nT, mT, fa, D, fw, fh);
+    }
+
+    void DrawArabescoHipSol(const AcGePoint3d& center, double A,
+                            int nT, int mT, double fa, int D, double fw, double fh)
+    {
+        if (nT < 1) nT = 1;
+        if (mT < 1) mT = 1;
+        if (D < 2)  D = 2;
+
         const double S   = A * (3.0 + 2.0*sqrt(3.0));
         const double amp = A * fa;
         const double ww  = A * fw * 0.5;
         const double hh  = A * fh;
-        const double cx  = cPt[0], cy = cPt[1], cz = cPt[2];
+        const double cx  = center.x, cy = center.y, cz = center.z;
         const double dnT = (double)nT, dmT = (double)mT;
 
         AcDbBlockTableRecord* pBTR = nullptr;

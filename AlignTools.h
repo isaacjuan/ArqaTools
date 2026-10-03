@@ -3,6 +3,7 @@
 #pragma once
 
 #include "StdAfx.h"
+#include <vector>
 
 namespace AlignTools
 {
@@ -23,4 +24,10 @@ namespace AlignTools
 
     // Place object at midpoint between two points
     void placeMidCommand();
+
+    // Non-interactive core of ATALX/ATALY/ATALZ: aligns each entity (or the
+    // whole group it belongs to) so its reference point sits at `coord` on
+    // `axis` (0 = X, 1 = Y, 2 = Z). Returns the number of items aligned.
+    int AlignObjects(const std::vector<AcDbObjectId>& ids, int axis, double coord,
+                     bool verbose = true);
 }

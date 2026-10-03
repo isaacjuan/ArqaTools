@@ -81,7 +81,7 @@ namespace AlignTools
     // Uses the group's first circle as the reference point.
     // -------------------------------------------------------------------------
     static void AlignGroup(AcDbObjectId groupId, int axis, double coord,
-                           int idx, int& aligned)
+                           int idx, int& aligned, bool verbose)
     {
         CommonTools::AcDbObjectGuard<AcDbGroup> group(groupId);
         if (!group) return;
@@ -89,7 +89,7 @@ namespace AlignTools
         TCHAR groupName[256];
         _tcscpy_s(groupName, 256, group->name());
         int numBefore = group->numEntities();
-        acutPrintf(_T("  [GROUP] Processing '%s' (%d entities)\n"), groupName, numBefore);
+        if (verbose) acutPrintf(_T("  [GROUP] Processing '%s' (%d entities)\n"), groupName, numBefore);
 
         AcGePoint3d circleCenter;
         if (!GetGroupCircleCenter(group.get(), circleCenter)) return;
@@ -106,10 +106,10 @@ namespace AlignTools
 
         int numAfter = group->numEntities();
         if (numAfter != numBefore)
-            acutPrintf(_T("  *** WARNING: '%s' entity count %d→%d ***\n"),
+            if (verbose) acutPrintf(_T("  *** WARNING: '%s' entity count %d→%d ***\n"),
                        groupName, numBefore, numAfter);
 
-        acutPrintf(_T("  [%d] Group '%s' aligned (%d entities)\n"), idx + 1, groupName, moved);
+        if (verbose) acutPrintf(_T("  [%d] Group '%s' aligned (%d entities)\n"), idx + 1, groupName, moved);
         aligned++;
     }
 
@@ -118,7 +118,7 @@ namespace AlignTools
     // Dispatches by entity type; falls back to bounding-box min-point.
     // -------------------------------------------------------------------------
     static void AlignEntity(AcDbObjectId objId, int axis, double coord,
-                            int idx, int& aligned, int& skipped)
+                            int idx, int& aligned, int& skipped, bool verbose)
     {
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(objId, AcDb::kForWrite);
         if (!ent) { skipped++; return; }
@@ -133,7 +133,7 @@ namespace AlignTools
             SetAxisCoord(c, axis, coord);
             p->setCenter(c);
             modified = true;
-            acutPrintf(_T("  [%d] Circle aligned by center\n"), idx + 1);
+            if (verbose) acutPrintf(_T("  [%d] Circle aligned by center\n"), idx + 1);
         }
         else if (pEnt->isKindOf(AcDbArc::desc()))
         {
@@ -142,7 +142,7 @@ namespace AlignTools
             SetAxisCoord(c, axis, coord);
             p->setCenter(c);
             modified = true;
-            acutPrintf(_T("  [%d] Arc aligned by center\n"), idx + 1);
+            if (verbose) acutPrintf(_T("  [%d] Arc aligned by center\n"), idx + 1);
         }
         else if (pEnt->isKindOf(AcDbCurve::desc()))
         {
@@ -152,7 +152,7 @@ namespace AlignTools
             {
                 p->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, start)));
                 modified = true;
-                acutPrintf(_T("  [%d] Curve aligned by start point\n"), idx + 1);
+                if (verbose) acutPrintf(_T("  [%d] Curve aligned by start point\n"), idx + 1);
             }
         }
         else if (pEnt->isKindOf(AcDbText::desc()))
@@ -162,7 +162,7 @@ namespace AlignTools
             SetAxisCoord(pos, axis, coord);
             p->setPosition(pos);
             modified = true;
-            acutPrintf(_T("  [%d] Text aligned by position\n"), idx + 1);
+            if (verbose) acutPrintf(_T("  [%d] Text aligned by position\n"), idx + 1);
         }
         else if (pEnt->isKindOf(AcDbMText::desc()))
         {
@@ -171,7 +171,7 @@ namespace AlignTools
             SetAxisCoord(loc, axis, coord);
             p->setLocation(loc);
             modified = true;
-            acutPrintf(_T("  [%d] MText aligned by location\n"), idx + 1);
+            if (verbose) acutPrintf(_T("  [%d] MText aligned by location\n"), idx + 1);
         }
         else if (pEnt->isKindOf(AcDbBlockReference::desc()))
         {
@@ -180,7 +180,7 @@ namespace AlignTools
             SetAxisCoord(pos, axis, coord);
             p->setPosition(pos);
             modified = true;
-            acutPrintf(_T("  [%d] Block aligned by position\n"), idx + 1);
+            if (verbose) acutPrintf(_T("  [%d] Block aligned by position\n"), idx + 1);
         }
         else if (pEnt->isKindOf(AcDbRegion::desc()))
         {
@@ -194,13 +194,13 @@ namespace AlignTools
                 {
                     p->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, refPt)));
                     modified = true;
-                    acutPrintf(_T("  [%d] Region aligned by boundary\n"), idx + 1);
+                    if (verbose) acutPrintf(_T("  [%d] Region aligned by boundary\n"), idx + 1);
                 }
                 for (int j = 0; j < curves.length(); j++)
                     delete static_cast<AcDbEntity*>(curves[j]);
             }
             else
-                acutPrintf(_T("  [%d] Region - could not explode\n"), idx + 1);
+                if (verbose) acutPrintf(_T("  [%d] Region - could not explode\n"), idx + 1);
         }
         else
         {
@@ -209,7 +209,7 @@ namespace AlignTools
             {
                 pEnt->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, ext.minPoint())));
                 modified = true;
-                acutPrintf(_T("  [%d] Entity aligned by extents\n"), idx + 1);
+                if (verbose) acutPrintf(_T("  [%d] Entity aligned by extents\n"), idx + 1);
             }
         }
 
@@ -270,28 +270,37 @@ namespace AlignTools
         acedSSLength(ssGuard.ss, &length);
         acutPrintf(_T("Selected %d objects. Aligning...\n"), length);
 
+        std::vector<AcDbObjectId> ids;
+        CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId objId) { ids.push_back(objId); });
+
+        int aligned = AlignObjects(ids, axis, coord, true);
+
+        VerifySeqNumGroups();
+        acutPrintf(_T("\nAlignment complete: %d aligned\n"), aligned);
+    }
+
+    int AlignObjects(const std::vector<AcDbObjectId>& ids, int axis, double coord, bool verbose)
+    {
         int aligned = 0, skipped = 0;
         AcDbObjectIdArray processedGroups;
         auto groupMap = CommonTools::BuildEntityGroupMap(
             acdbHostApplicationServices()->workingDatabase());
 
-        CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId objId)
+        for (AcDbObjectId objId : ids)
         {
             auto it = groupMap.find(objId);
             if (it != groupMap.end())
             {
-                if (processedGroups.contains(it->second)) return;
+                if (processedGroups.contains(it->second)) continue;
                 processedGroups.append(it->second);
-                AlignGroup(it->second, axis, coord, 0, aligned);
+                AlignGroup(it->second, axis, coord, 0, aligned, verbose);
             }
             else
             {
-                AlignEntity(objId, axis, coord, 0, aligned, skipped);
+                AlignEntity(objId, axis, coord, 0, aligned, skipped, verbose);
             }
-        });
-
-        VerifySeqNumGroups();
-        acutPrintf(_T("\nAlignment complete: %d aligned, %d skipped\n"), aligned, skipped);
+        }
+        return aligned;
     }
 
     // -------------------------------------------------------------------------

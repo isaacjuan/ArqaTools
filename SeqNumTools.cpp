@@ -89,7 +89,8 @@ namespace SeqNumTools
     // Helper: Create and add centered text entity to model space, returns ObjectId
     // If circleRadius > 0, adjusts widthFactor to ensure text width <= 80% of circle diameter
     static AcDbObjectId CreateCenteredText(const AcGePoint3d& position, const TCHAR* text, 
-                                    double height, double circleRadius, AcDbBlockTableRecord* pModelSpace)
+                                    double height, double circleRadius, AcDbBlockTableRecord* pModelSpace,
+                                    bool verbose = true)
     {
         AcDbText* pText = new AcDbText();
         pText->setPosition(position);
@@ -114,7 +115,7 @@ namespace SeqNumTools
                 const double MAX_WIDTH_RATIO = 0.8;
                 double maxWidth = circleRadius * 2.0 * MAX_WIDTH_RATIO;
                 
-                acutPrintf(_T("  [WIDTH CHECK] Text='%s' ActualWidth=%.2f MaxWidth=%.2f (%.0f%% of dia)\n"), 
+                if (verbose) acutPrintf(_T("  [WIDTH CHECK] Text='%s' ActualWidth=%.2f MaxWidth=%.2f (%.0f%% of dia)\n"), 
                            text, actualWidth, maxWidth, MAX_WIDTH_RATIO * 100.0);
                 
                 // If text is too wide, compress it
@@ -122,16 +123,16 @@ namespace SeqNumTools
                 {
                     double newWidthFactor = maxWidth / actualWidth;
                     pText->setWidthFactor(newWidthFactor);
-                    acutPrintf(_T("  [COMPRESS] WidthFactor adjusted: 1.0 -> %.3f\n"), newWidthFactor);
+                    if (verbose) acutPrintf(_T("  [COMPRESS] WidthFactor adjusted: 1.0 -> %.3f\n"), newWidthFactor);
                 }
                 else
                 {
-                    acutPrintf(_T("  [OK] Text fits within circle (no compression needed)\n"));
+                    if (verbose) acutPrintf(_T("  [OK] Text fits within circle (no compression needed)\n"));
                 }
             }
         }
         
-        acutPrintf(_T("  [TEXT CREATED] Text='%s' Height=%.2f WidthFactor=%.3f\n"), 
+        if (verbose) acutPrintf(_T("  [TEXT CREATED] Text='%s' Height=%.2f WidthFactor=%.3f\n"), 
                    text, height, pText->widthFactor());
         
         AcDbObjectId textId;
@@ -142,7 +143,7 @@ namespace SeqNumTools
     }
 
     // Helper: Create a group containing circle and text
-    static void CreateNumberGroup(AcDbObjectId circleId, AcDbObjectId textId)
+    static void CreateNumberGroup(AcDbObjectId circleId, AcDbObjectId textId, bool verbose = true)
     {
         AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
         AcDbDictionary* pGroupDictRaw;
@@ -168,7 +169,36 @@ namespace SeqNumTools
         pGroup->close();
         // pGroupDict closed automatically by AcDbDictionaryGuard destructor
 
-        acutPrintf(_T("  [GROUP] Created group '%s' with circle and text\n"), groupName);
+        if (verbose) acutPrintf(_T("  [GROUP] Created group '%s' with circle and text\n"), groupName);
+    }
+
+    AcDbObjectId CreateSeqNumber(const AcGePoint3d& center, const CString& text,
+                                 double height, bool withCircle, AcDbObjectId* circleId,
+                                 bool verbose)
+    {
+        if (circleId) *circleId = AcDbObjectId::kNull;
+
+        AcDbBlockTableRecord* pModelSpace = nullptr;
+        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
+            return AcDbObjectId::kNull;
+
+        // Same golden-ratio sizing as the interactive SEQNUM command.
+        const double GOLDEN_RATIO = 1.618;
+        double circleRadius = height * GOLDEN_RATIO;
+
+        AcDbObjectId cId;
+        if (withCircle)
+            cId = CreateCircle(center, circleRadius, pModelSpace);
+        AcDbObjectId textId = CreateCenteredText(center, text, height,
+                                                 withCircle ? circleRadius : 0.0, pModelSpace, verbose);
+        pModelSpace->close();
+
+        if (withCircle)
+        {
+            CreateNumberGroup(cId, textId, verbose);
+            if (circleId) *circleId = cId;
+        }
+        return textId;
     }
 
     // SEQNUM command - Create sequence of numbers at specified points

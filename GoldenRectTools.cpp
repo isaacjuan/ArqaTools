@@ -102,17 +102,24 @@ void GoldenRectTools::goldenRectCommand()
     if (!PickPoint(&corner, _T("\nEndpoint defining first side: "), sidePt))
     { acutPrintf(_T("\nCancelled.\n")); return; }
 
+    if (!GoldenRectTools::DrawGoldenSpiral(corner, sidePt))
+    { acutPrintf(_T("\nPoints are too close.\n")); return; }
+
+    acutPrintf(_T("\n%d golden rectangles drawn, spiraling inward.\n"), kRecurrences);
+}
+
+bool GoldenRectTools::DrawGoldenSpiral(const AcGePoint3d& corner, const AcGePoint3d& sidePt)
+{
     AcGeVector3d dir(sidePt.x - corner.x, sidePt.y - corner.y, 0.0);
     double sideLen = dir.length();
-    if (sideLen < 0.001) { acutPrintf(_T("\nPoints are too close.\n")); return; }
+    if (sideLen < 0.001) return false;
     dir /= sideLen;
 
     AcGeVector3d perp(-dir.y, dir.x, 0.0);
     AcGePoint3d origin(corner.x, corner.y, 0.0);
 
     DrawSpiralRect(0, origin, dir, perp, sideLen, sideLen / kGoldenRatio);
-
-    acutPrintf(_T("\n%d golden rectangles drawn, spiraling inward.\n"), kRecurrences);
+    return true;
 }
 
 // ── GOLDEN RECT IN / INW (common implementation) ──────────────────────────────

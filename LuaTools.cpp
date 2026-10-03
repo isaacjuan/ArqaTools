@@ -4,6 +4,12 @@
 #include "CommonTools.h"
 #include "CategorizeTools.h"
 #include "CadInfra.h"
+#include "MeasureFormat.h"
+#include "ArabesqueTools.h"
+#include "GoldenRectTools.h"
+#include "PolylineTools.h"
+#include "AlignTools.h"
+#include "SeqNumTools.h"
 
 extern "C" {
 #include "lua.h"
@@ -195,6 +201,61 @@ void PushHandle(lua_State* L, const AcDbObjectId& id)
 {
     std::string h = HandleToString(id);
     lua_pushlstring(L, h.data(), h.size());
+}
+
+void PushIdList(lua_State* L, const std::vector<AcDbObjectId>& ids)
+{
+    lua_createtable(L, static_cast<int>(ids.size()), 0);
+    for (size_t i = 0; i < ids.size(); ++i)
+    {
+        PushHandle(L, ids[i]);
+        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+}
+
+// Records the database's last entity on construction; collect() then walks
+// everything appended after it. Lets void "draw a pattern" core functions
+// (ArabesqueTools, GoldenRectTools) hand Lua the handles they created without
+// changing their signatures.
+class NewEntityTracker
+{
+public:
+    NewEntityTracker() { m_hasLast = (acdbEntLast(m_last) == RTNORM); }
+
+    std::vector<AcDbObjectId> collect() const
+    {
+        std::vector<AcDbObjectId> ids;
+        ads_name cur, next;
+        int rc = m_hasLast ? acdbEntNext(m_last, next) : acdbEntNext(nullptr, next);
+        while (rc == RTNORM)
+        {
+            AcDbObjectId id;
+            if (acdbGetObjectId(id, next) == Acad::eOk)
+                ids.push_back(id);
+            cur[0] = next[0];
+            cur[1] = next[1];
+            rc = acdbEntNext(cur, next);
+        }
+        return ids;
+    }
+
+private:
+    ads_name m_last;
+    bool     m_hasLast = false;
+};
+
+// Runs a void drawing function and pushes the table of handles it created.
+template <typename Fn>
+int DrawAndCollect(lua_State* L, Fn&& draw)
+{
+    std::vector<AcDbObjectId> ids;
+    {
+        NewEntityTracker tracker;
+        draw();
+        ids = tracker.collect();
+    }
+    PushIdList(L, ids);
+    return 1;
 }
 
 // ── at.* C function bindings ────────────────────────────────────────────────
@@ -537,12 +598,7 @@ int at_getSelection(lua_State* L)
     }
     if (rc == RTCAN) return RaiseCancelled(L);
 
-    lua_createtable(L, static_cast<int>(ids.size()), 0);
-    for (size_t i = 0; i < ids.size(); ++i)
-    {
-        PushHandle(L, ids[i]);
-        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
-    }
+    PushIdList(L, ids);
     return 1;
 }
 
@@ -576,12 +632,7 @@ int at_entities(lua_State* L)
         }
     }
 
-    lua_createtable(L, static_cast<int>(ids.size()), 0);
-    for (size_t i = 0; i < ids.size(); ++i)
-    {
-        PushHandle(L, ids[i]);
-        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
-    }
+    PushIdList(L, ids);
     return 1;
 }
 
@@ -766,6 +817,379 @@ int at_setColor(lua_State* L)
     return 1;
 }
 
+// ── Tier 1: drawing helpers ─────────────────────────────────────────────────
+
+// Reads point i (1-based) of the table at idx: {x=,y=[,bulge=][,z=]} or {x,y[,bulge]}.
+// Uses only non-raising Lua API calls; returns false on a malformed entry.
+bool ReadVertex(lua_State* L, int idx, lua_Integer i, double& x, double& y, double& bulge, double& z)
+{
+    lua_rawgeti(L, idx, i);
+    bool ok = lua_istable(L, -1);
+    if (ok)
+    {
+        int t = lua_gettop(L);
+        lua_getfield(L, t, "x");      lua_getfield(L, t, "y");
+        lua_getfield(L, t, "bulge");  lua_getfield(L, t, "z");
+        if (lua_isnil(L, -4))         // positional form {x, y, bulge}
+        {
+            lua_pop(L, 4);
+            lua_rawgeti(L, t, 1); lua_rawgeti(L, t, 2); lua_rawgeti(L, t, 3); lua_pushnil(L);
+        }
+        int okX = 0, okY = 0;
+        x     = lua_tonumberx(L, -4, &okX);
+        y     = lua_tonumberx(L, -3, &okY);
+        bulge = lua_tonumber(L, -2);   // nil -> 0
+        z     = lua_tonumber(L, -1);
+        ok = okX && okY;
+        lua_pop(L, 4);
+    }
+    lua_pop(L, 1);
+    return ok;
+}
+
+// at.drawPolyline(points [, closed]) -> handle
+int at_drawPolyline(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    bool closed = lua_toboolean(L, 2) != 0;
+    lua_Integer n = static_cast<lua_Integer>(lua_rawlen(L, 1));
+    luaL_argcheck(L, n >= 2, 1, "need at least 2 points");
+
+    double x, y, b, z;
+    for (lua_Integer i = 1; i <= n; ++i)        // validate before allocating
+        if (!ReadVertex(L, 1, i, x, y, b, z))
+            return luaL_error(L, "point %d must be {x=,y=} or {x,y}", static_cast<int>(i));
+
+    AcDbPolyline* pPl = new AcDbPolyline(static_cast<unsigned int>(n));
+    for (lua_Integer i = 1; i <= n; ++i)
+    {
+        ReadVertex(L, 1, i, x, y, b, z);
+        if (i == 1) pPl->setElevation(z);
+        pPl->addVertexAt(static_cast<unsigned int>(i - 1), AcGePoint2d(x, y), b);
+    }
+    pPl->setClosed(closed);
+
+    AcDbObjectId id = AppendToModelSpace(pPl);
+    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
+    PushHandle(L, id);
+    return 1;
+}
+
+// at.drawText(x,y,z, text [,height [,rotationDeg]]) -> handle
+int at_drawText(lua_State* L)
+{
+    double x = luaL_checknumber(L, 1), y = luaL_checknumber(L, 2), z = luaL_checknumber(L, 3);
+    const char* text = luaL_checkstring(L, 4);
+    double height = luaL_optnumber(L, 5, 0.0);
+    double rotDeg = luaL_optnumber(L, 6, 0.0);
+
+    AcDbObjectId id;
+    {
+        CString wText(CA2T(text, CP_UTF8));
+        id = CadInfra::InsertText(AcGePoint3d(x, y, z), wText, rotDeg * M_PI / 180.0);
+        if (!id.isNull() && height > 0.0)
+        {
+            CommonTools::AcDbObjectGuard<AcDbText> t(id, AcDb::kForWrite);
+            if (t) t->setHeight(height);
+        }
+    }
+    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
+    PushHandle(L, id);
+    return 1;
+}
+
+// at.drawMText(x,y,z, text [,height]) -> handle
+int at_drawMText(lua_State* L)
+{
+    double x = luaL_checknumber(L, 1), y = luaL_checknumber(L, 2), z = luaL_checknumber(L, 3);
+    const char* text = luaL_checkstring(L, 4);
+    double height = luaL_optnumber(L, 5, 0.0);
+
+    AcDbObjectId id;
+    {
+        CString wText(CA2T(text, CP_UTF8));
+        id = CadInfra::InsertMText(AcGePoint3d(x, y, z), wText);
+        if (!id.isNull() && height > 0.0)
+        {
+            CommonTools::AcDbObjectGuard<AcDbMText> t(id, AcDb::kForWrite);
+            if (t) t->setTextHeight(height);
+        }
+    }
+    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
+    PushHandle(L, id);
+    return 1;
+}
+
+// at.ensureLayer(name [, {color=, linetype=, lineweight=, description=, plot=, locked=}]) -> true
+// Properties only apply when the layer is created; an existing layer is left as is.
+int at_ensureLayer(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    bool hasProps = lua_istable(L, 2);
+
+    // Leave each field's value on the stack so the const char* stays valid.
+    const char *color = nullptr, *linetype = nullptr, *desc = nullptr;
+    double lw = -1.0;
+    bool plot = true, locked = false;
+    if (hasProps)
+    {
+        lua_getfield(L, 2, "color");       color    = lua_tostring(L, -1);
+        lua_getfield(L, 2, "linetype");    linetype = lua_tostring(L, -1);
+        lua_getfield(L, 2, "description"); desc     = lua_tostring(L, -1);
+        lua_getfield(L, 2, "lineweight");  if (lua_isnumber(L, -1)) lw = lua_tonumber(L, -1);
+        lua_getfield(L, 2, "plot");        if (!lua_isnil(L, -1)) plot = lua_toboolean(L, -1) != 0;
+        lua_getfield(L, 2, "locked");      locked = lua_toboolean(L, -1) != 0;
+    }
+
+    {
+        CadInfra::LayerProps props;
+        if (color)    props.color       = color;
+        if (linetype) props.linetype    = linetype;
+        if (desc)     props.description = desc;
+        props.lineweight = lw;
+        props.plot       = plot;
+        props.locked     = locked;
+        CadInfra::EnsureLayer(CString(CA2T(name, CP_UTF8)), props);
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// at.formatArea(area) / at.formatLength(length) -> string in drawing units (INSUNITS)
+int at_formatArea(lua_State* L)
+{
+    double v = luaL_checknumber(L, 1);
+    std::string s;
+    {
+        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+        s = ToUtf8(MeasureFormat::FormatArea(v, pDb->insunits()));
+    }
+    lua_pushlstring(L, s.data(), s.size());
+    return 1;
+}
+
+int at_formatLength(lua_State* L)
+{
+    double v = luaL_checknumber(L, 1);
+    std::string s;
+    {
+        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+        s = ToUtf8(MeasureFormat::FormatLength(v, pDb->insunits()));
+    }
+    lua_pushlstring(L, s.data(), s.size());
+    return 1;
+}
+
+// at.refPoint(handle) -> x,y,z | nil,err  (the point the move/copy/align tools use)
+int at_refPoint(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    AcDbObjectId id = ResolveHandle(handle);
+    AcGePoint3d p;
+    if (id.isNull() || !CommonTools::GetEntityReferencePoint(id, p))
+    { lua_pushnil(L); lua_pushstring(L, "no reference point"); return 2; }
+    lua_pushnumber(L, p.x); lua_pushnumber(L, p.y); lua_pushnumber(L, p.z);
+    return 3;
+}
+
+// Reads a {handle, ...} table at idx into ids (unknown handles are skipped).
+std::vector<AcDbObjectId> ReadHandleList(lua_State* L, int idx)
+{
+    std::vector<AcDbObjectId> ids;
+    lua_Integer n = static_cast<lua_Integer>(lua_rawlen(L, idx));
+    for (lua_Integer i = 1; i <= n; ++i)
+    {
+        lua_rawgeti(L, idx, i);
+        const char* h = lua_tostring(L, -1);
+        AcDbObjectId id = h ? ResolveHandle(h) : AcDbObjectId::kNull;
+        lua_pop(L, 1);
+        if (!id.isNull()) ids.push_back(id);
+    }
+    return ids;
+}
+
+// at.alignTo({handle,...}, "x"|"y"|"z", coord) -> number aligned
+int at_alignTo(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    static const char* const kAxes[] = { "x", "y", "z", nullptr };
+    int axis = luaL_checkoption(L, 2, nullptr, kAxes);
+    double coord = luaL_checknumber(L, 3);
+
+    int aligned;
+    {
+        std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+        aligned = AlignTools::AlignObjects(ids, axis, coord, false);
+    }
+    lua_pushinteger(L, aligned);
+    return 1;
+}
+
+// ── Tier 1: polyline booleans / regions ─────────────────────────────────────
+
+// at.polyBoolean(h1, h2, "union"|"intersect"|"subtract") -> region handle | nil,err
+int at_polyBoolean(lua_State* L)
+{
+    const char* h1 = luaL_checkstring(L, 1);
+    const char* h2 = luaL_checkstring(L, 2);
+    static const char* const kOps[] = { "union", "intersect", "subtract", nullptr };
+    static const AcDb::BoolOperType kOpVals[] = { AcDb::kBoolUnite, AcDb::kBoolIntersect, AcDb::kBoolSubtract };
+    int op = luaL_checkoption(L, 3, nullptr, kOps);
+
+    AcDbObjectId id;
+    std::string err;
+    {
+        CString wErr;
+        id = PolylineTools::BooleanPolylines(ResolveHandle(h1), ResolveHandle(h2), kOpVals[op], &wErr);
+        if (id.isNull()) err = ToUtf8(wErr);
+    }
+    if (id.isNull()) { lua_pushnil(L); lua_pushlstring(L, err.data(), err.size()); return 2; }
+    PushHandle(L, id);
+    return 1;
+}
+
+// at.regionToPolyline(regionHandle) -> polyline handle | nil,err
+int at_regionToPolyline(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+
+    AcDbObjectId id;
+    std::string err;
+    {
+        CString wErr;
+        id = PolylineTools::RegionToPolyline(ResolveHandle(h), &wErr);
+        if (id.isNull()) err = ToUtf8(wErr);
+    }
+    if (id.isNull()) { lua_pushnil(L); lua_pushlstring(L, err.data(), err.size()); return 2; }
+    PushHandle(L, id);
+    return 1;
+}
+
+// ── Tier 1: annotation ──────────────────────────────────────────────────────
+
+// at.seqNumber(x,y,z, text, height [, withCircle]) -> textHandle [, circleHandle]
+int at_seqNumber(lua_State* L)
+{
+    double x = luaL_checknumber(L, 1), y = luaL_checknumber(L, 2), z = luaL_checknumber(L, 3);
+    const char* text = luaL_checkstring(L, 4);
+    double height = luaL_checknumber(L, 5);
+    luaL_argcheck(L, height > 0.0, 5, "height must be > 0");
+    bool withCircle = lua_toboolean(L, 6) != 0;
+
+    AcDbObjectId textId, circleId;
+    {
+        CString wText(CA2T(text, CP_UTF8));
+        textId = SeqNumTools::CreateSeqNumber(AcGePoint3d(x, y, z), wText, height, withCircle, &circleId, false);
+    }
+    if (textId.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
+    PushHandle(L, textId);
+    if (circleId.isNull()) return 1;
+    PushHandle(L, circleId);
+    return 2;
+}
+
+// ── Tier 1: geometric patterns (each returns {handle,...} of what it drew) ──
+
+// at.goldenSpiral(x1,y1,z1, x2,y2,z2)
+int at_goldenSpiral(lua_State* L)
+{
+    AcGePoint3d a(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    AcGePoint3d b(luaL_checknumber(L, 4), luaL_checknumber(L, 5), luaL_checknumber(L, 6));
+    luaL_argcheck(L, a.distanceTo(b) >= 0.001, 4, "points are too close");
+    return DrawAndCollect(L, [&] { GoldenRectTools::DrawGoldenSpiral(a, b); });
+}
+
+int ClampInt(lua_Integer v, int lo, int hi)
+{
+    return static_cast<int>(v < lo ? lo : (v > hi ? hi : v));
+}
+
+// at.patternRosette(cx,cy,cz, R, n)
+int at_patternRosette(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double R = luaL_checknumber(L, 4);
+    int n = ClampInt(luaL_optinteger(L, 5, 8), 3, 64);
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawRosette(c, R, n); });
+}
+
+// at.patternStar(cx,cy,cz, R, n [,innerFactor])
+int at_patternStar(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double R = luaL_checknumber(L, 4);
+    int n = ClampInt(luaL_optinteger(L, 5, 8), 3, 64);
+    double f = luaL_optnumber(L, 6, 0.38);
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawStar(c, R, n, f); });
+}
+
+// at.patternPetals(cx,cy,cz, R, n [,bulge])
+int at_patternPetals(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double R = luaL_checknumber(L, 4);
+    int n = ClampInt(luaL_optinteger(L, 5, 8), 3, 64);
+    double b = luaL_optnumber(L, 6, 0.4142);
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawPetals(c, R, n, b); });
+}
+
+// at.patternGeometric(cx,cy,cz, R, n [,innerFactor])
+int at_patternGeometric(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double R = luaL_checknumber(L, 4);
+    int n = ClampInt(luaL_optinteger(L, 5, 8), 3, 64);
+    double f = luaL_optnumber(L, 6, 0.45);
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawGeometric(c, R, n, f); });
+}
+
+// at.patternHojaNazari(cx,cy,cz, leafSize [,rings [,widthFactor]])
+int at_patternHojaNazari(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double size = luaL_checknumber(L, 4);
+    int rings = ClampInt(luaL_optinteger(L, 5, 3), 1, 12);
+    double w = luaL_optnumber(L, 6, 0.35);
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawHojaNazari(c, size, rings, w); });
+}
+
+// at.patternArabescoRl(x,y,z, A [,cols [,rows]])
+int at_patternArabescoRl(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double A = luaL_checknumber(L, 4);
+    int cols = static_cast<int>(luaL_optinteger(L, 5, 3));
+    int rows = static_cast<int>(luaL_optinteger(L, 6, 3));
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawArabescoRl(c, A, cols, rows); });
+}
+
+// at.patternArabescoToro(cx,cy,cz, A [,nT [,mT [,subdiv [,widthF [,heightF]]]]])
+int at_patternArabescoToro(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double A  = luaL_checknumber(L, 4);
+    int nT    = static_cast<int>(luaL_optinteger(L, 5, 6));
+    int mT    = static_cast<int>(luaL_optinteger(L, 6, 3));
+    int D     = static_cast<int>(luaL_optinteger(L, 7, 6));
+    double fw = luaL_optnumber(L, 8, 0.28);
+    double fh = luaL_optnumber(L, 9, 0.08);
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawArabescoToroSol(c, A, nT, mT, D, fw, fh); });
+}
+
+// at.patternArabescoHip(cx,cy,cz, A [,nT [,mT [,ampF [,subdiv [,widthF [,heightF]]]]]])
+int at_patternArabescoHip(lua_State* L)
+{
+    AcGePoint3d c(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+    double A  = luaL_checknumber(L, 4);
+    int nT    = static_cast<int>(luaL_optinteger(L, 5, 4));
+    int mT    = static_cast<int>(luaL_optinteger(L, 6, 4));
+    double fa = luaL_optnumber(L, 7, 3.0);
+    int D     = static_cast<int>(luaL_optinteger(L, 8, 6));
+    double fw = luaL_optnumber(L, 9, 0.28);
+    double fh = luaL_optnumber(L, 10, 0.08);
+    return DrawAndCollect(L, [&] { ArabesqueTools::DrawArabescoHipSol(c, A, nT, mT, fa, D, fw, fh); });
+}
+
 // at.print(msg) - explicit alias, distinct from the overridden global print(),
 // in case a script wants to be unambiguous about which one it means.
 int at_print(lua_State* L)
@@ -832,6 +1256,22 @@ const AtFn kFns[] = {
     { "drawCircle",   at_drawCircle,   "(cx,cy,cz,r) -> handle",               "" },
     { "drawArc",      at_drawArc,      "(cx,cy,cz,r,startDeg,endDeg) -> handle", "counter-clockwise from start to end" },
     { "drawRect",     at_drawRect,     "(x1,y1,z1,x2,y2,z2) -> handle",        "closed polyline from two corners" },
+    { "drawPolyline", at_drawPolyline, "({{x=,y=[,bulge=]},...} [,closed]) -> handle", "points may also be {x,y[,bulge]}; elevation from the first point's z" },
+    { "drawText",     at_drawText,     "(x,y,z,text [,height [,rotationDeg]]) -> handle", "single-line text centered on the point; default height from the drawing" },
+    { "drawMText",    at_drawMText,    "(x,y,z,text [,height]) -> handle",     "multiline text centered on the point" },
+    { "seqNumber",    at_seqNumber,    "(x,y,z,text,height [,withCircle]) -> textHandle [,circleHandle]", "ATSEQNUM-style number; with a circle the two are grouped" },
+    { "ensureLayer",  at_ensureLayer,  "(name [,{color=,linetype=,lineweight=,description=,plot=,locked=}]) -> true",
+      "create the layer if missing; color \"#RRGGBB\" or a name, lineweight in mm" },
+    // Patterns - each returns {handle,...} of everything drawn
+    { "goldenSpiral",       at_goldenSpiral,       "(x1,y1,z1,x2,y2,z2) -> {handle,...}", "golden-ratio spiral of rectangles, first side p1->p2" },
+    { "patternRosette",     at_patternRosette,     "(cx,cy,cz,R [,n=8]) -> {handle,...}", "n interlocking circles" },
+    { "patternStar",        at_patternStar,        "(cx,cy,cz,R [,n=8 [,innerFactor=0.38]]) -> {handle,...}", "n-pointed star polyline" },
+    { "patternPetals",      at_patternPetals,      "(cx,cy,cz,R [,n=8 [,bulge=0.4142]]) -> {handle,...}", "lens-shaped petal flower" },
+    { "patternGeometric",   at_patternGeometric,   "(cx,cy,cz,R [,n=8 [,innerFactor=0.45]]) -> {handle,...}", "star plus inner rosette" },
+    { "patternHojaNazari",  at_patternHojaNazari,  "(cx,cy,cz,leafSize [,rings=3 [,widthFactor=0.35]]) -> {handle,...}", "Alhambra leaf tessellation" },
+    { "patternArabescoRl",  at_patternArabescoRl,  "(x,y,z,A [,cols=3 [,rows=3]]) -> {handle,...}", "Andalusian 30/45 lattice from lower-left corner; tile S = 6.464*A" },
+    { "patternArabescoToro", at_patternArabescoToro, "(cx,cy,cz,A [,nT=6 [,mT=3 [,subdiv=6 [,widthF=0.28 [,heightF=0.08]]]]]) -> {handle,...}", "lattice straps on a 3D torus" },
+    { "patternArabescoHip", at_patternArabescoHip, "(cx,cy,cz,A [,nT=4 [,mT=4 [,ampF=3 [,subdiv=6 [,widthF=0.28 [,heightF=0.08]]]]]]) -> {handle,...}", "lattice straps on a hyperbolic paraboloid" },
     // Modify
     { "moveEntity",   at_moveEntity,   "(handle,dx,dy,dz) -> true|false",      "moves the whole group if the entity is grouped" },
     { "copyEntity",   at_copyEntity,   "(handle,dx,dy,dz) -> handle",          "" },
@@ -839,6 +1279,13 @@ const AtFn kFns[] = {
     { "erase",        at_erase,        "(handle) -> true|false",               "" },
     { "setLayer",     at_setLayer,     "(handle,layerName) -> true|false",     "creates the layer if it does not exist" },
     { "setColor",     at_setColor,     "(handle,aci) -> true|false",           "ACI 1-255, 0 = ByBlock, 256 = ByLayer" },
+    { "alignTo",      at_alignTo,      "({handle,...}, \"x\"|\"y\"|\"z\", coord) -> count", "ATALX-style: move each object (or its group) so its reference point sits at coord" },
+    { "polyBoolean",  at_polyBoolean,  "(h1,h2,\"union\"|\"intersect\"|\"subtract\") -> regionHandle | nil,err", "closed polylines; subtract keeps h1 minus h2; originals untouched" },
+    { "regionToPolyline", at_regionToPolyline, "(regionHandle) -> handle | nil,err", "closed polyline following one boundary loop; a region with holes gives a single loop (a warning is printed)" },
+    // Measurement helpers
+    { "refPoint",     at_refPoint,     "(handle) -> x,y,z | nil,err",          "the reference point used by move/copy/align" },
+    { "formatArea",   at_formatArea,   "(area) -> string",                     "formatted for the drawing's units, e.g. \"12.50 m2\"" },
+    { "formatLength", at_formatLength, "(length) -> string",                   "formatted for the drawing's units" },
 };
 
 void registerAtTable(lua_State* L, LuaCtx* ctx)

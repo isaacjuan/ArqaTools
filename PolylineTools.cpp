@@ -38,8 +38,7 @@ namespace PolylineTools
 
         AcDbObjectId objId1;
         acdbGetObjectId(objId1, ename1);
-        CommonTools::AcDbObjectGuard<AcDbPolyline> poly1(objId1);
-        if (!poly1)
+        if (!CommonTools::AcDbObjectGuard<AcDbPolyline>(objId1))
         { acutPrintf(_T("\nError: Selected object is not a polyline.\n")); return Acad::eInvalidInput; }
 
         ads_name ename2; ads_point pt2;
@@ -48,41 +47,57 @@ namespace PolylineTools
 
         AcDbObjectId objId2;
         acdbGetObjectId(objId2, ename2);
-        CommonTools::AcDbObjectGuard<AcDbPolyline> poly2(objId2);
-        if (!poly2)
-        { acutPrintf(_T("\nError: Selected object is not a polyline.\n")); return Acad::eInvalidInput; }
 
-        AcDbRegion* pRegion1 = CreateRegionFromPolyline(poly1.get());
-        AcDbRegion* pRegion2 = CreateRegionFromPolyline(poly2.get());
+        CString err;
+        if (BooleanPolylines(objId1, objId2, operation, &err).isNull())
+        {
+            acutPrintf(_T("\nError: %s (%s).\n"), (LPCTSTR)err, operationName);
+            return Acad::eInvalidInput;
+        }
+        acutPrintf(_T("\n%s operation completed successfully!\n"), operationName);
+        return Acad::eOk;
+    }
+
+    AcDbObjectId BooleanPolylines(AcDbObjectId first, AcDbObjectId second,
+                                  AcDb::BoolOperType op, CString* err)
+    {
+        auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
+
+        AcDbRegion* pRegion1 = nullptr;
+        AcDbRegion* pRegion2 = nullptr;
+        {
+            CommonTools::AcDbObjectGuard<AcDbPolyline> poly1(first);
+            CommonTools::AcDbObjectGuard<AcDbPolyline> poly2(second);
+            if (!poly1 || !poly2)
+                return fail(_T("both objects must be polylines"));
+            pRegion1 = CreateRegionFromPolyline(poly1.get());
+            pRegion2 = CreateRegionFromPolyline(poly2.get());
+        }
 
         if (!pRegion1 || !pRegion2)
         {
-            if (pRegion1) delete pRegion1;
-            if (pRegion2) delete pRegion2;
-            acutPrintf(_T("\nError: Could not create regions from polylines.\n"));
-            return Acad::eInvalidInput;
+            delete pRegion1;
+            delete pRegion2;
+            return fail(_T("could not create regions from polylines (are they closed?)"));
         }
 
-        Acad::ErrorStatus es = pRegion1->booleanOper(operation, pRegion2);
+        Acad::ErrorStatus es = pRegion1->booleanOper(op, pRegion2);
         delete pRegion2;
-
         if (es != Acad::eOk)
-        { delete pRegion1; acutPrintf(_T("\nError: %s operation failed.\n"), operationName); return es; }
+        { delete pRegion1; return fail(_T("boolean operation failed")); }
 
         AcDbBlockTableRecord* pModelSpace = nullptr;
-        es = CommonTools::GetModelSpace(pModelSpace);
-        if (es == Acad::eOk)
-        {
-            pRegion1->setColorIndex(3); // Green
-            pModelSpace->appendAcDbEntity(pRegion1);
-            pModelSpace->close();
-            pRegion1->close();
-            acutPrintf(_T("\n%s operation completed successfully!\n"), operationName);
-            return Acad::eOk;
-        }
-        delete pRegion1;
-        acutPrintf(_T("\nError: Could not add result to drawing.\n"));
-        return es;
+        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
+        { delete pRegion1; return fail(_T("could not add result to drawing")); }
+
+        pRegion1->setColorIndex(3); // Green
+        AcDbObjectId resultId;
+        es = pModelSpace->appendAcDbEntity(resultId, pRegion1);
+        pModelSpace->close();
+        if (es != Acad::eOk)
+        { delete pRegion1; return fail(_T("could not add result to drawing")); }
+        pRegion1->close();
+        return resultId;
     }
 
     // SUBPOLY command - Subtract second polyline from first
@@ -222,23 +237,33 @@ namespace PolylineTools
 
         AcDbObjectId objId;
         acdbGetObjectId(objId, ename);
-        CommonTools::AcDbObjectGuard<AcDbRegion> region(objId);
-        if (!region)
-        { acutPrintf(_T("\nError: Selected object is not a region.\n")); return; }
+
+        CString err;
+        AcDbObjectId polyId = RegionToPolyline(objId, &err);
+        if (polyId.isNull())
+        { acutPrintf(_T("\nError: %s.\n"), (LPCTSTR)err); return; }
+
+        CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polyId);
+        acutPrintf(_T("\nPolyline created with %d vertices!\n"), poly ? (int)poly->numVerts() : 0);
+    }
+
+    AcDbObjectId RegionToPolyline(AcDbObjectId regionId, CString* err)
+    {
+        auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
 
         AcDbVoidPtrArray curves;
-        Acad::ErrorStatus es = region->explode(curves);
-
-        if (es != Acad::eOk || curves.length() == 0)
-        { acutPrintf(_T("\nError: Could not explode region.\n")); return; }
+        {
+            CommonTools::AcDbObjectGuard<AcDbRegion> region(regionId);
+            if (!region)
+                return fail(_T("object is not a region"));
+            if (region->explode(curves) != Acad::eOk || curves.length() == 0)
+                return fail(_T("could not explode region"));
+        }
 
         int totalSegments = curves.length();
-        acutPrintf(_T("\nExploded into %d segments. Ordering segments...\n"), totalSegments);
-
         AcArray<int>  orderedIndices;
         AcArray<bool> reversed;
         OrderCurveSegments(curves, totalSegments, orderedIndices, reversed);
-        acutPrintf(_T("Ordered %d segments successfully\n"), orderedIndices.length());
 
         AcDbPolyline* pPoly = BuildPolylineFromCurves(curves, orderedIndices, reversed);
 
@@ -249,18 +274,15 @@ namespace PolylineTools
         pPoly->setColorIndex(3); // Green
 
         AcDbBlockTableRecord* pModelSpace = nullptr;
-        es = CommonTools::GetModelSpace(pModelSpace);
-        if (es == Acad::eOk)
-        {
-            pModelSpace->appendAcDbEntity(pPoly);
-            pModelSpace->close();
-            pPoly->close();
-            acutPrintf(_T("\nPolyline created with %d vertices!\n"), orderedIndices.length());
-        }
-        else
-        {
-            delete pPoly;
-            acutPrintf(_T("\nError: Could not add polyline to drawing.\n"));
-        }
+        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
+        { delete pPoly; return fail(_T("could not add polyline to drawing")); }
+
+        AcDbObjectId polyId;
+        Acad::ErrorStatus es = pModelSpace->appendAcDbEntity(polyId, pPoly);
+        pModelSpace->close();
+        if (es != Acad::eOk)
+        { delete pPoly; return fail(_T("could not add polyline to drawing")); }
+        pPoly->close();
+        return polyId;
     }
 }
