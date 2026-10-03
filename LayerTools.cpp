@@ -94,75 +94,97 @@ namespace LayerTools
             return;
         }
         
-        // Get database
-        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-        if (!pDb)
+        bool created = false;
+        CString err;
+        if (!SetCurrentLayer(layerName, true, &created, &err))
         {
-            acutPrintf(_T("Error: No active database.\n"));
+            acutPrintf(_T("Error: %s\n"), (LPCTSTR)err);
             return;
         }
-        
-        // Open layer table
-        AcDbLayerTable* pLayerTable = nullptr;
-        if (pDb->getLayerTable(pLayerTable, AcDb::kForWrite) != Acad::eOk)
-        {
-            acutPrintf(_T("Error: Cannot access layer table.\n"));
-            return;
-        }
-        
-        // Check if layer already exists
-        if (pLayerTable->has(layerName))
-        {
-            acutPrintf(_T("Layer '%s' already exists. Setting as current...\n"), (LPCTSTR)layerName);
-            
-            // Get existing layer ID
-            AcDbObjectId layerId;
-            if (pLayerTable->getAt(layerName, layerId) == Acad::eOk)
-            {
-                pDb->setClayer(layerId);
-                acutPrintf(_T("✓ Layer '%s' set as current.\n"), (LPCTSTR)layerName);
-            }
-            else
-            {
-                acutPrintf(_T("Error: Cannot get layer ID.\n"));
-            }
-            
-            pLayerTable->close();
-            return;
-        }
-        
-        // Create new layer
-        AcDbLayerTableRecord* pNewLayer = new AcDbLayerTableRecord();
-        pNewLayer->setName(layerName);
-        
-        // Set default color (white/7)
-        AcCmColor color;
-        color.setColorIndex(7);
-        pNewLayer->setColor(color);
-        
-        // Add layer to layer table
-        AcDbObjectId newLayerId;
-        if (pLayerTable->add(newLayerId, pNewLayer) == Acad::eOk)
-        {
-            pNewLayer->close();
-            pLayerTable->close();
-            
-            // Set new layer as current
-            if (pDb->setClayer(newLayerId) == Acad::eOk)
-            {
-                acutPrintf(_T("✓ Layer '%s' created and set as current.\n"), (LPCTSTR)layerName);
-            }
-            else
-            {
-                acutPrintf(_T("✓ Layer '%s' created but could not set as current.\n"), (LPCTSTR)layerName);
-            }
-        }
+        if (created)
+            acutPrintf(_T("✓ Layer '%s' created and set as current.\n"), (LPCTSTR)layerName);
         else
+            acutPrintf(_T("✓ Layer '%s' already exists, set as current.\n"), (LPCTSTR)layerName);
+    }
+
+    CString GetCurrentLayer()
+    {
+        CString name;
+        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+        if (!pDb) return name;
+        CommonTools::AcDbObjectGuard<AcDbLayerTableRecord> rec(pDb->clayer());
+        if (rec) { const ACHAR* n = nullptr; rec->getName(n); name = n; }
+        return name;
+    }
+
+    bool SetCurrentLayer(const CString& name, bool create, bool* created, CString* err)
+    {
+        auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return false; };
+        if (created) *created = false;
+
+        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+        if (!pDb) return fail(_T("no active database"));
+
+        AcDbLayerTable* pLayerTable = nullptr;
+        if (pDb->getLayerTable(pLayerTable, create ? AcDb::kForWrite : AcDb::kForRead) != Acad::eOk)
+            return fail(_T("cannot access layer table"));
+
+        AcDbObjectId layerId;
+        if (pLayerTable->getAt(name, layerId) != Acad::eOk)
         {
+            if (!create) { pLayerTable->close(); return fail(_T("layer not found")); }
+
+            // New layer, default color white/7 (same as ATNL always did).
+            AcDbLayerTableRecord* pNewLayer = new AcDbLayerTableRecord();
+            pNewLayer->setName(name);
+            AcCmColor color;
+            color.setColorIndex(7);
+            pNewLayer->setColor(color);
+            if (pLayerTable->add(layerId, pNewLayer) != Acad::eOk)
+            {
+                delete pNewLayer;
+                pLayerTable->close();
+                return fail(_T("could not create layer"));
+            }
             pNewLayer->close();
-            pLayerTable->close();
-            acutPrintf(_T("Error: Could not create layer.\n"));
+            if (created) *created = true;
         }
+        pLayerTable->close();
+
+        if (pDb->setClayer(layerId) != Acad::eOk)
+            return fail(_T("could not set layer as current (is it frozen?)"));
+        return true;
+    }
+
+    bool SetLayerState(const CString& name, int frozen, int off, int locked, CString* err)
+    {
+        auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return false; };
+
+        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+        if (!pDb) return fail(_T("no active database"));
+
+        AcDbObjectId layerId;
+        {
+            AcDbLayerTable* pLayerTable = nullptr;
+            if (pDb->getLayerTable(pLayerTable, AcDb::kForRead) != Acad::eOk)
+                return fail(_T("cannot access layer table"));
+            Acad::ErrorStatus es = pLayerTable->getAt(name, layerId);
+            pLayerTable->close();
+            if (es != Acad::eOk) return fail(_T("layer not found"));
+        }
+
+        if (frozen == 1)
+        {
+            if (layerId == pDb->clayer())         return fail(_T("cannot freeze the current layer"));
+            if (name.CompareNoCase(_T("0")) == 0) return fail(_T("cannot freeze layer 0"));
+        }
+
+        CommonTools::AcDbObjectGuard<AcDbLayerTableRecord> layer(layerId, AcDb::kForWrite);
+        if (!layer) return fail(_T("cannot open layer record"));
+        if (frozen >= 0) layer->setIsFrozen(frozen ? Adesk::kTrue : Adesk::kFalse);
+        if (off    >= 0) layer->setIsOff   (off    ? Adesk::kTrue : Adesk::kFalse);
+        if (locked >= 0) layer->setIsLocked(locked ? Adesk::kTrue : Adesk::kFalse);
+        return true;
     }
 }
 // MATCHLAYER command - Change selected objects to the layer of a source object
@@ -185,21 +207,18 @@ void LayerTools::freezeLayerCommand()
         layerId = ent->layerId();
     }
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    if (layerId == pDb->clayer())
-    { acutPrintf(_T("\nCannot freeze the current layer.\n")); return; }
+    CString layerName;
+    {
+        CommonTools::AcDbObjectGuard<AcDbLayerTableRecord> layer(layerId);
+        if (!layer) { acutPrintf(_T("\nError: Cannot open layer record.\n")); return; }
+        const ACHAR* lName = nullptr;
+        layer->getName(lName);
+        layerName = lName;
+    }
 
-    CommonTools::AcDbObjectGuard<AcDbLayerTableRecord> layer(layerId, AcDb::kForWrite);
-    if (!layer) { acutPrintf(_T("\nError: Cannot open layer record.\n")); return; }
-
-    const ACHAR* lName = nullptr;
-    layer->getName(lName);
-    CString layerName(lName);
-
-    if (layerName.CompareNoCase(_T("0")) == 0)
-    { acutPrintf(_T("\nCannot freeze layer 0.\n")); return; }
-
-    layer->setIsFrozen(Adesk::kTrue);
+    CString err;
+    if (!SetLayerState(layerName, 1, -1, -1, &err))
+    { acutPrintf(_T("\n%s.\n"), (LPCTSTR)err); return; }
 
     acutPrintf(_T("\nLayer '%s' frozen.\n"), (LPCTSTR)layerName);
 }

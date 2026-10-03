@@ -1,6 +1,7 @@
 #pragma once
 #include "StdAfx.h"
 #include <vector>
+#include <map>
 
 // ============================================================================
 // CurveTextReactor - base class (Template Method pattern)
@@ -103,6 +104,36 @@ void countBlocksCommand();
 void splitLineCommand();
 void splitPoliCommand();
 void tagAllCommand();
+
+// ── Non-interactive cores (used by the commands above and the Lua bindings).
+// Every label is reactor-linked: it updates when its curve changes and is
+// erased with it, and the link survives save/reopen (xdata + ReactorPersistence).
+// On failure they return kNull / an empty list and, when err is given, a reason.
+namespace AreaTools
+{
+    AcDbObjectId InsertAreaLabel(AcDbObjectId polylineId, CString* err = nullptr);
+    AcDbObjectId InsertPerimeterLabel(AcDbObjectId polylineId, CString* err = nullptr);
+    AcDbObjectId InsertRoomTag(AcDbObjectId polylineId, const CString& roomName,
+                               CString* err = nullptr);
+    // Perpendicular length label at the curve's midpoint.
+    AcDbObjectId InsertLengthLabel(AcDbObjectId curveId, const CString& layerName = CString());
+    // One label at pos showing the summed length of curveIds (non-curves skipped).
+    AcDbObjectId InsertSumLengthLabel(const std::vector<AcDbObjectId>& curveIds,
+                                      const AcGePoint3d& pos, double* total = nullptr,
+                                      int* monitored = nullptr, CString* err = nullptr);
+    // Block name -> instance count, among ids (nullptr = all of model space).
+    // Anonymous blocks (*U..., *D...) are skipped.
+    std::map<CString, int> CountBlocks(const std::vector<AcDbObjectId>* ids);
+    // Replace the base curve by segments split at its intersections with
+    // crossIds (the base is erased). SplitLine produces lines, SplitPolyline
+    // keeps arc segments. Optionally tags each segment with a length label.
+    std::vector<AcDbObjectId> SplitLine(AcDbObjectId baseId, const std::vector<AcDbObjectId>& crossIds,
+                                        const CString& targetLayer, bool tagLengths,
+                                        CString* err = nullptr);
+    std::vector<AcDbObjectId> SplitPolyline(AcDbObjectId baseId, const std::vector<AcDbObjectId>& crossIds,
+                                            const CString& targetLayer, bool tagLengths,
+                                            CString* err = nullptr);
+}
 
 // Persistence lifecycle — call from ARX init / unload
 void InitAreaToolsPersistence();

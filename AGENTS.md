@@ -52,12 +52,19 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     create (`drawLine/drawCircle/drawArc/drawRect/drawPolyline/drawText/drawMText/seqNumber/
     ensureLayer` → handle string), patterns (`goldenSpiral`, `pattern*` → `{handle,...}`),
     modify (`moveEntity/copyEntity/rotateEntity/erase/setLayer/setColor/alignTo/polyBoolean/
-    regionToPolyline`), helpers (`refPoint/formatArea/formatLength`), `print`. Bindings for
+    regionToPolyline/distribute/distributeCopies/splitLine/splitPolyline`), text (`getText/
+    setText/copyTextStyle/copyDimStyle/sumText/scaleText`), reactor-linked labels (`areaLabel/
+    perimeterLabel/roomTag/lengthLabel/sumLengthLabel`), layers (`layers/getCurrentLayer/
+    setCurrentLayer/setLayerState`), `countBlocks`, `exportSvg` (bare file name only, always
+    written to Documents), helpers (`refPoint/formatArea/formatLength`), `print`. Bindings for
     existing tools call each module's non-interactive core (`ArabesqueTools::Draw*`,
     `GoldenRectTools::DrawGoldenSpiral`, `PolylineTools::BooleanPolylines/RegionToPolyline`,
-    `AlignTools::AlignObjects`, `SeqNumTools::CreateSeqNumber`) — the AT* commands are thin prompt
-    wrappers over the same functions, so new tool logic belongs in such a core, not in the
-    command. Void core functions are wrapped with `DrawAndCollect`, which uses
+    `AlignTools::AlignObjects`, `SeqNumTools::CreateSeqNumber`, `DistributeTools::
+    DistributeObjects/DistributeCopies`, `TextTools::GetText/SetText/CopyTextStyle/...`,
+    `AreaTools::Insert*Label/InsertRoomTag/CountBlocks/SplitLine/SplitPolyline`,
+    `LayerTools::GetCurrentLayer/SetCurrentLayer/SetLayerState`, `SvgExportTools::ExportSvg`) —
+    the AT* commands are thin prompt wrappers over the same functions, so new tool logic belongs
+    in such a core, not in the command. Void core functions are wrapped with `DrawAndCollect`, which uses
     `acdbEntLast`/`acdbEntNext` to return the handles they appended. The `kFns` table in `LuaTools.cpp`
     is the single source of truth: it registers the bindings *and* feeds `describeApi()`, which
     generates the API section of the `ATAILUA` prompt — add new functions only there, with a
@@ -67,7 +74,7 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     (ESC breaks runaway loops) and enforces `LuaRunOptions::maxInstructions` (`ATAILUA` caps AI
     code at 500M instructions). A run is a single UNDO step (it executes inside the calling
     command). `ATLUA` runs inline code or `@path\to\file.lua` (see `test.lua`,
-    `test_foundations.lua`, `test_tier1.lua`); `ATAILUA` asks the configured AI (reusing
+    `test_foundations.lua`, `test_tier1.lua`, `test_tier2.lua`); `ATAILUA` asks the configured AI (reusing
     `AITools::SendToGitHubCopilotWithHistory`/`GetConversationHistory`) to write Lua against the
     `at` API and runs it directly. Fully decoupled from ACML — no cross-references either
     direction.

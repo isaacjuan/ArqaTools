@@ -875,6 +875,28 @@ void SvgExportTools::svgExportCommand()
     ids.reserve(length);
     CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId id) { ids.push_back(id); });
 
+    CString filePath = DocumentsFolder() + _T("\\ArqaTools_Export.svg");
+    int exported = 0, skipped = 0;
+    CString err;
+    if (!ExportSvg(ids, filePath, &exported, &skipped, &err))
+    { acutPrintf(_T("\n%s\n"), (LPCTSTR)err); return; }
+
+    acutPrintf(_T("\nExported %d entities (%d skipped) to:\n%s\n"),
+               exported, skipped, (LPCTSTR)filePath);
+}
+
+CString SvgExportTools::DocumentsFolder()
+{
+    TCHAR docPath[MAX_PATH] = {};
+    SHGetFolderPath(NULL, CSIDL_PERSONAL, NULL, 0, docPath);
+    return CString(docPath);
+}
+
+bool SvgExportTools::ExportSvg(const std::vector<AcDbObjectId>& ids, const CString& filePath,
+                               int* exportedOut, int* skippedOut, CString* err)
+{
+    auto fail = [err](const CString& msg) { if (err) *err = msg; return false; };
+
     // Pass 1: bounding box, to size the viewBox and set up the Y-flip.
     // getGeomExtents on a block reference already accounts for its transform,
     // so nested block content is included without any special-casing here.
@@ -888,7 +910,7 @@ void SvgExportTools::svgExportCommand()
             bounds.Expand(ext);
     }
     if (!bounds.valid)
-    { acutPrintf(_T("\nCould not determine extents of the selection.\n")); return; }
+        return fail(_T("Could not determine extents of the selection."));
 
     double width  = (std::max)(bounds.Width(),  1.0);
     double height = (std::max)(bounds.Height(), 1.0);
@@ -924,12 +946,11 @@ void SvgExportTools::svgExportCommand()
         }
     }
 
+    if (exportedOut) *exportedOut = exported;
+    if (skippedOut)  *skippedOut  = skipped;
     if (exported == 0)
-    {
-        acutPrintf(_T("\nNo exportable geometry in the selection — nothing recognized ")
-                   _T("directly, and explode() produced nothing for the rest.\n"));
-        return;
-    }
+        return fail(_T("No exportable geometry in the selection — nothing recognized ")
+                    _T("directly, and explode() produced nothing for the rest."));
 
     // No fixed pixel width/height: those would equal the drawing's real-world
     // unit dimensions (often thousands of mm), which a browser renders at a
@@ -950,18 +971,10 @@ void SvgExportTools::svgExportCommand()
     svg += WrapLayers(body);
     svg += _T("</svg>\n");
 
-    TCHAR docPath[MAX_PATH];
-    SHGetFolderPath(NULL, CSIDL_PERSONAL, NULL, 0, docPath);
-    CString filePath;
-    filePath.Format(_T("%s\\ArqaTools_Export.svg"), docPath);
-
     FILE* fp = nullptr;
-    errno_t err = _tfopen_s(&fp, filePath, _T("w, ccs=UTF-8"));
-    if (err != 0 || !fp)
-    { acutPrintf(_T("\nError: could not write to %s\n"), (LPCTSTR)filePath); return; }
+    if (_tfopen_s(&fp, filePath, _T("w, ccs=UTF-8")) != 0 || !fp)
+        return fail(_T("Error: could not write to ") + filePath);
     fwprintf(fp, _T("%s"), (LPCTSTR)svg);
     fclose(fp);
-
-    acutPrintf(_T("\nExported %d entities (%d skipped) to:\n%s\n"),
-               exported, skipped, (LPCTSTR)filePath);
+    return true;
 }

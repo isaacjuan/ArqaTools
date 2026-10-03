@@ -392,28 +392,12 @@ namespace TextTools {
         AcDbObjectId sourceId;
         if (!GetObjectId(sourceId, sourceEnt)) { helper.PrintSourceIdError(); return; }
 
-        CommonTools::AcDbObjectGuard<AcDbObject> pSrc(sourceId);
-        if (!pSrc) { helper.PrintSourceOpenError(); return; }
-
-        AcDbObjectId styleId;
-        double height = 0.0, widthFactor = 1.0, oblique = 0.0;
-        AcDb::TextHorzMode horzMode = AcDb::kTextLeft;
-        AcDb::TextVertMode vertMode = AcDb::kTextBase;
-
-        AcDbText* pST = nullptr; AcDbMText* pSMT = nullptr;
-        TextType srcType = GetTextType(pSrc.get(), &pST, &pSMT);
-
-        if (srcType == TextType_DbText && pST)
         {
-            styleId = pST->textStyle(); height = pST->height();
-            widthFactor = pST->widthFactor(); oblique = pST->oblique();
-            horzMode = pST->horizontalMode(); vertMode = pST->verticalMode();
+            CommonTools::AcDbObjectGuard<AcDbObject> pSrc(sourceId);
+            if (!pSrc) { helper.PrintSourceOpenError(); return; }
+            if (GetTextType(pSrc.get(), nullptr, nullptr) == TextType_None)
+            { acutPrintf(_T("\nError: Source entity is not a text object.\n")); return; }
         }
-        else if (srcType == TextType_MText && pSMT)
-        { styleId = pSMT->textStyle(); height = pSMT->textHeight(); }
-        else
-        { acutPrintf(_T("\nError: Source entity is not a text object.\n")); return; }
-
 
         if (!helper.SelectDestinations()) { helper.PrintNoDestinations(); return; }
 
@@ -422,40 +406,11 @@ namespace TextTools {
         acedSSLength(ss, &length);
         acutPrintf(_T("Processing %d destination object(s)...\n"), length);
 
-        int updated = 0, skipped = 0;
-        CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId destId)
-        {
-            if (destId == sourceId) { skipped++; return; }
+        std::vector<AcDbObjectId> destIds;
+        CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { destIds.push_back(id); });
 
-            CommonTools::AcDbObjectGuard<AcDbObject> pDest(destId, AcDb::kForWrite);
-            if (!pDest) { skipped++; return; }
-
-            if (IsDimensionEntity(pDest.get())) { skipped++; return; }
-
-            AcDbText* pDT = nullptr; AcDbMText* pDMT = nullptr;
-            TextType dt = GetTextType(pDest.get(), &pDT, &pDMT);
-            bool ok = false;
-
-            if (dt == TextType_DbText && pDT)
-            {
-                pDT->setTextStyle(styleId);
-                if (includeHeight) pDT->setHeight(height);
-                pDT->setWidthFactor(widthFactor);
-                pDT->setOblique(oblique);
-                pDT->setHorizontalMode(horzMode);
-                pDT->setVerticalMode(vertMode);
-                ok = true;
-            }
-            else if (dt == TextType_MText && pDMT)
-            {
-                pDMT->setTextStyle(styleId);
-                if (includeHeight) pDMT->setTextHeight(height);
-                ok = true;
-            }
-
-            if (ok) updated++; else skipped++;
-        });
-
+        int skipped = 0;
+        int updated = CopyTextStyle(sourceId, destIds, includeHeight, &skipped);
         acutPrintf(_T("\nUpdated: %d | Skipped: %d\n"), updated, skipped);
     }
 }
@@ -500,18 +455,11 @@ void TextTools::copyDimStyleCommand()
     acedSSLength(ss, &length);
     acutPrintf(_T("Processing %d destination object(s)...\n"), length);
 
-    int updated = 0, skipped = 0;
-    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId destId)
-    {
-        if (destId == sourceId) { skipped++; return; }
+    std::vector<AcDbObjectId> destIds;
+    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { destIds.push_back(id); });
 
-        CommonTools::AcDbObjectGuard<AcDbObject> pDest(destId, AcDb::kForWrite);
-        if (!pDest) { skipped++; return; }
-
-        AcDbDimension* pDim = AcDbDimension::cast(pDest.get());
-        if (pDim) { pDim->setDimensionStyle(dimStyleId); updated++; }
-        else      { skipped++; }
-    });
+    int skipped = 0;
+    int updated = CopyDimStyle(sourceId, destIds, &skipped);
 
     acutPrintf(_T("\nUpdated: %d | Skipped: %d\n"), updated, skipped);
 }
@@ -553,42 +501,13 @@ void TextTools::sumTextCommand()
     
     acutPrintf(_T("Processing %d text object(s)...\n"), length);
     
-    double totalSum = 0.0;
-    int validCount = 0;
-    int invalidCount = 0;
-    
-    // Process each text object
-    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId objId)
-    {
-        CommonTools::AcDbObjectGuard<AcDbObject> pObj(objId);
-        if (!pObj) return;
-
-        CString textContent;
-        AcDbText*  pText  = AcDbText::cast(pObj.get());
-        AcDbMText* pMText = pText ? nullptr : AcDbMText::cast(pObj.get());
-        if      (pText)  textContent = pText->textString();
-        else if (pMText) textContent = pMText->contents();
-        else             return;
-
-        textContent.Trim();
-        textContent.Replace(_T("$"), _T(""));
-        textContent.Replace(_T("€"), _T(""));
-        textContent.Replace(_T("£"), _T(""));
-        textContent.Replace(_T(" "), _T(""));
-        textContent.Replace(_T(","), _T(""));
-
-        if (textContent.IsEmpty()) { invalidCount++; return; }
-
-        TCHAR* endPtr = nullptr;
-        double value = _tcstod(textContent, &endPtr);
-        if (endPtr != nullptr && (*endPtr == _T('\0') || *endPtr == _T('\n')))
-        { totalSum += value; validCount++; acutPrintf(_T("  %s = %.2f\n"), (LPCTSTR)textContent, value); }
-        else
-        { invalidCount++; acutPrintf(_T("  Skipped '%s' (not numeric)\n"), (LPCTSTR)textContent); }
-    });
-
+    std::vector<AcDbObjectId> ids;
+    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { ids.push_back(id); });
     acedSSFree(ss);
-    
+
+    int validCount = 0, invalidCount = 0;
+    double totalSum = SumTextValues(ids, &validCount, &invalidCount, true);
+
     if (validCount == 0)
     {
         acutPrintf(_T("\nNo valid numeric values found.\n"));
@@ -697,19 +616,171 @@ void TextTools::scaleTextCommand()
     Adesk::Int32 length = 0;
     acedSSLength(ss, &length);
 
-    int count = 0;
-    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId objId)
-    {
-        CommonTools::AcDbObjectGuard<AcDbEntity> ent(objId, AcDb::kForWrite);
-        if (!ent) return;
-
-        if (ent->isKindOf(AcDbText::desc()))
-        { static_cast<AcDbText*>(ent.get())->setHeight(static_cast<AcDbText*>(ent.get())->height() * factor); count++; }
-        else if (ent->isKindOf(AcDbMText::desc()))
-        { static_cast<AcDbMText*>(ent.get())->setTextHeight(static_cast<AcDbMText*>(ent.get())->textHeight() * factor); count++; }
-        // Note: AcDbDimension text height is controlled by dim style
-    });
+    std::vector<AcDbObjectId> ids;
+    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { ids.push_back(id); });
+    int count = ScaleTextHeight(ids, factor);
 
     acedSSFree(ss);
     acutPrintf(_T("\nScaled text height x%.2f on %d object(s).\n"), factor, count);
+}
+
+// ============================================================================
+// Non-interactive cores (used by the commands above and the Lua bindings)
+// ============================================================================
+namespace TextTools
+{
+    bool GetText(AcDbObjectId id, CString& out)
+    {
+        CommonTools::AcDbObjectGuard<AcDbObject> obj(id);
+        AcDbText* pText = nullptr; AcDbMText* pMText = nullptr;
+        switch (GetTextType(obj.get(), &pText, &pMText))
+        {
+        case TextType_DbText: out = pText->textStringConst(); return true;
+        case TextType_MText:  { AcString c; pMText->contents(c); out = c.kwszPtr(); return true; }
+        default:              return false;
+        }
+    }
+
+    bool SetText(AcDbObjectId id, const CString& text)
+    {
+        CommonTools::AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForWrite);
+        return ent && SetTextContent(ent.get(), text);
+    }
+
+    int CopyTextStyle(AcDbObjectId srcId, const std::vector<AcDbObjectId>& destIds,
+                      bool includeHeight, int* skippedOut)
+    {
+        AcDbObjectId styleId;
+        double height = 0.0, widthFactor = 1.0, oblique = 0.0;
+        AcDb::TextHorzMode horzMode = AcDb::kTextLeft;
+        AcDb::TextVertMode vertMode = AcDb::kTextBase;
+        {
+            CommonTools::AcDbObjectGuard<AcDbObject> pSrc(srcId);
+            AcDbText* pST = nullptr; AcDbMText* pSMT = nullptr;
+            TextType srcType = GetTextType(pSrc.get(), &pST, &pSMT);
+            if (srcType == TextType_DbText)
+            {
+                styleId = pST->textStyle(); height = pST->height();
+                widthFactor = pST->widthFactor(); oblique = pST->oblique();
+                horzMode = pST->horizontalMode(); vertMode = pST->verticalMode();
+            }
+            else if (srcType == TextType_MText)
+            { styleId = pSMT->textStyle(); height = pSMT->textHeight(); }
+            else
+                return -1;
+        }
+
+        int updated = 0, skipped = 0;
+        for (AcDbObjectId destId : destIds)
+        {
+            if (destId == srcId) { skipped++; continue; }
+
+            CommonTools::AcDbObjectGuard<AcDbObject> pDest(destId, AcDb::kForWrite);
+            if (!pDest || IsDimensionEntity(pDest.get())) { skipped++; continue; }
+
+            AcDbText* pDT = nullptr; AcDbMText* pDMT = nullptr;
+            TextType dt = GetTextType(pDest.get(), &pDT, &pDMT);
+            if (dt == TextType_DbText)
+            {
+                pDT->setTextStyle(styleId);
+                if (includeHeight) pDT->setHeight(height);
+                pDT->setWidthFactor(widthFactor);
+                pDT->setOblique(oblique);
+                pDT->setHorizontalMode(horzMode);
+                pDT->setVerticalMode(vertMode);
+                updated++;
+            }
+            else if (dt == TextType_MText)
+            {
+                pDMT->setTextStyle(styleId);
+                if (includeHeight) pDMT->setTextHeight(height);
+                updated++;
+            }
+            else
+                skipped++;
+        }
+        if (skippedOut) *skippedOut = skipped;
+        return updated;
+    }
+
+    int CopyDimStyle(AcDbObjectId srcId, const std::vector<AcDbObjectId>& destIds, int* skippedOut)
+    {
+        AcDbObjectId dimStyleId;
+        {
+            CommonTools::AcDbObjectGuard<AcDbObject> pSrc(srcId);
+            AcDbDimension* pSrcDim = pSrc ? AcDbDimension::cast(pSrc.get()) : nullptr;
+            if (!pSrcDim) return -1;
+            dimStyleId = pSrcDim->dimensionStyle();
+        }
+
+        int updated = 0, skipped = 0;
+        for (AcDbObjectId destId : destIds)
+        {
+            if (destId == srcId) { skipped++; continue; }
+            CommonTools::AcDbObjectGuard<AcDbObject> pDest(destId, AcDb::kForWrite);
+            AcDbDimension* pDim = pDest ? AcDbDimension::cast(pDest.get()) : nullptr;
+            if (pDim) { pDim->setDimensionStyle(dimStyleId); updated++; }
+            else      { skipped++; }
+        }
+        if (skippedOut) *skippedOut = skipped;
+        return updated;
+    }
+
+    bool ParseNumber(CString text, double& value)
+    {
+        text.Trim();
+        text.Replace(_T("$"), _T(""));
+        text.Replace(_T("€"), _T(""));
+        text.Replace(_T("£"), _T(""));
+        text.Replace(_T(" "), _T(""));
+        text.Replace(_T(","), _T(""));
+        if (text.IsEmpty()) return false;
+
+        TCHAR* endPtr = nullptr;
+        value = _tcstod(text, &endPtr);
+        return endPtr != nullptr && (*endPtr == _T('\0') || *endPtr == _T('\n'));
+    }
+
+    double SumTextValues(const std::vector<AcDbObjectId>& ids, int* validOut, int* invalidOut,
+                         bool verbose)
+    {
+        double total = 0.0;
+        int valid = 0, invalid = 0;
+        for (AcDbObjectId id : ids)
+        {
+            CString content;
+            if (!GetText(id, content)) continue;   // not text: ignored, not counted
+
+            double v = 0.0;
+            if (ParseNumber(content, v))
+            {
+                total += v; valid++;
+                if (verbose) acutPrintf(_T("  %s = %.2f\n"), (LPCTSTR)content, v);
+            }
+            else
+            {
+                invalid++;
+                if (verbose) acutPrintf(_T("  Skipped '%s' (not numeric)\n"), (LPCTSTR)content);
+            }
+        }
+        if (validOut)   *validOut = valid;
+        if (invalidOut) *invalidOut = invalid;
+        return total;
+    }
+
+    int ScaleTextHeight(const std::vector<AcDbObjectId>& ids, double factor)
+    {
+        int count = 0;
+        for (AcDbObjectId id : ids)
+        {
+            CommonTools::AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForWrite);
+            if (!ent) continue;
+            if (auto* t = AcDbText::cast(ent.get()))
+            { t->setHeight(t->height() * factor); count++; }
+            else if (auto* m = AcDbMText::cast(ent.get()))
+            { m->setTextHeight(m->textHeight() * factor); count++; }
+            // AcDbDimension text height is controlled by the dim style.
+        }
+        return count;
+    }
 }

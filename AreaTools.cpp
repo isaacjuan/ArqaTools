@@ -225,47 +225,59 @@ void insertAreaCommand()
     AcDbObjectId polylineId;
     acdbGetObjectId(polylineId, ent);
 
+    CString err;
+    AcDbObjectId textId = AreaTools::InsertAreaLabel(polylineId, &err);
+    if (textId.isNull())
+    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
+
+    CString areaText;
+    { CommonTools::AcDbObjectGuard<AcDbText> t(textId); if (t) areaText = t->textStringConst(); }
+    acutPrintf(_T("\nArea text inserted: %s"), (LPCTSTR)areaText);
+}
+
+AcDbObjectId AreaTools::InsertAreaLabel(AcDbObjectId polylineId, CString* err)
+{
+    auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
+
     AcGePoint3d centroid;
     double area = 0.0;
     {
         CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polylineId);
-        if (!poly) { acutPrintf(_T("\nError: Could not open selected object.")); return; }
-        if (!poly->isClosed()) { acutPrintf(_T("\nError: Polyline must be closed.")); return; }
-        if (poly->getArea(area) != Acad::eOk) { acutPrintf(_T("\nError: Could not calculate area.")); return; }
+        if (!poly) return fail(_T("object is not a polyline"));
+        if (!poly->isClosed()) return fail(_T("polyline must be closed"));
+        if (poly->getArea(area) != Acad::eOk) return fail(_T("could not calculate area"));
         if (!CadInfra::GetPolylineCentroid(poly.get(), centroid))
-        { acutPrintf(_T("\nError: Could not calculate centroid.")); return; }
+            return fail(_T("could not calculate centroid"));
     }
 
     AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
     CString areaText = MeasureFormat::FormatArea(area, pDb->insunits());
 
     AcDbObjectId textId = CadInfra::InsertText(centroid, areaText);
-    if (textId == AcDbObjectId::kNull)
-    { acutPrintf(_T("\nError: Could not add text to drawing.")); return; }
+    if (textId.isNull()) return fail(_T("could not add text to drawing"));
 
     auto* pReactor = new PolylineAreaReactor(polylineId, textId);
     ReactorPersistence::Register(pReactor);
     CadInfra::StoreAreaXData(polylineId, textId);
-
-    acutPrintf(_T("\nArea text inserted: %s"), (LPCTSTR)areaText);
+    return textId;
 }
 
 // ============================================================================
 // SUMLENGTH - Insert auto-updating sum-of-lengths text
 // ============================================================================
 
-// Accumulate curve lengths from a selection set.
-static bool CollectCurveLengths(ads_name ss, Adesk::Int32 ssLen,
+// Accumulate curve lengths from a list of ids (non-curves are skipped).
+static bool CollectCurveLengths(const std::vector<AcDbObjectId>& candidates,
                                  std::vector<AcDbObjectId>& ids,
                                  double& totalLength, AcGePoint3d& centroid)
 {
     double sumX = 0.0, sumY = 0.0, sumZ = 0.0;
     int validCount = 0;
 
-    CommonTools::ForEachSsEntity(ss, ssLen, [&](AcDbObjectId objId)
+    for (AcDbObjectId objId : candidates)
     {
         CommonTools::AcDbObjectGuard<AcDbCurve> curve(objId);
-        if (!curve) return;
+        if (!curve) continue;
         double s, e, len = 0.0;
         if (curve->getStartParam(s) == Acad::eOk &&
             curve->getEndParam(e)   == Acad::eOk &&
@@ -282,7 +294,7 @@ static bool CollectCurveLengths(ads_name ss, Adesk::Int32 ssLen,
                 validCount++;
             }
         }
-    });
+    }
 
     if (ids.empty()) return false;
     if (validCount > 0)
@@ -302,33 +314,59 @@ void sumLengthCommand()
     acedSSLength(ss, &ssLen);
     if (ssLen == 0) { acedSSFree(ss); acutPrintf(_T("\nNo objects selected.")); return; }
 
+    std::vector<AcDbObjectId> candidates;
+    CommonTools::ForEachSsEntity(ss, ssLen, [&](AcDbObjectId id) { candidates.push_back(id); });
+    acedSSFree(ss);
+
     std::vector<AcDbObjectId> ids;
     double total = 0.0;
     AcGePoint3d centroid(0, 0, 0);
-    bool ok = CollectCurveLengths(ss, ssLen, ids, total, centroid);
-    acedSSFree(ss);
-
-    if (!ok) { acutPrintf(_T("\nNo valid curves selected.")); return; }
+    if (!CollectCurveLengths(candidates, ids, total, centroid))
+    { acutPrintf(_T("\nNo valid curves selected.")); return; }
 
     AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    CString text = MeasureFormat::FormatLength(total, pDb->insunits());
-    acutPrintf(_T("\nTotal length: %s"), (LPCTSTR)text);
+    acutPrintf(_T("\nTotal length: %s"), (LPCTSTR)MeasureFormat::FormatLength(total, pDb->insunits()));
 
     ads_point adsPoint;
     if (acedGetPoint(NULL, _T("\nSpecify position for text: "), adsPoint) != RTNORM)
     { acutPrintf(_T("\nCommand cancelled.")); return; }
 
-    AcGePoint3d textPos(adsPoint[0], adsPoint[1], adsPoint[2]);
-    AcDbObjectId textId = CadInfra::InsertText(textPos, text);
-    if (textId == AcDbObjectId::kNull)
-    { acutPrintf(_T("\nError: Could not add text to drawing.")); return; }
+    CString err;
+    int monitored = 0;
+    AcDbObjectId textId = AreaTools::InsertSumLengthLabel(
+        ids, AcGePoint3d(adsPoint[0], adsPoint[1], adsPoint[2]), nullptr, &monitored, &err);
+    if (textId.isNull())
+    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
+
+    acutPrintf(_T("\nSum length text inserted. Monitoring %d curve(s)."), monitored);
+}
+
+AcDbObjectId AreaTools::InsertSumLengthLabel(const std::vector<AcDbObjectId>& curveIds,
+                                             const AcGePoint3d& pos, double* totalOut,
+                                             int* monitoredOut, CString* err)
+{
+    auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
+
+    std::vector<AcDbObjectId> ids;
+    double total = 0.0;
+    AcGePoint3d centroid(0, 0, 0);
+    if (!CollectCurveLengths(curveIds, ids, total, centroid))
+        return fail(_T("no valid curves"));
+
+    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+    CString text = MeasureFormat::FormatLength(total, pDb->insunits());
+
+    AcDbObjectId textId = CadInfra::InsertText(pos, text);
+    if (textId.isNull()) return fail(_T("could not add text to drawing"));
 
     auto* pReactor = new PolylineSumLengthReactor(ids, textId);
     ReactorPersistence::Register(pReactor);
     for (const auto& id : ids)
         CadInfra::StoreSumXData(id, textId);
 
-    acutPrintf(_T("\nSum length text inserted. Monitoring %d curve(s)."), ids.size());
+    if (totalOut)     *totalOut = total;
+    if (monitoredOut) *monitoredOut = static_cast<int>(ids.size());
+    return textId;
 }
 
 // ============================================================================
@@ -345,14 +383,10 @@ void roomTagCommand()
     AcDbObjectId polyId;
     acdbGetObjectId(polyId, ent);
 
-    AcGePoint3d centroid;
-    double area = 0.0;
     {
         CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polyId);
         if (!poly) { acutPrintf(_T("\nError: Cannot open object.")); return; }
         if (!poly->isClosed()) { acutPrintf(_T("\nError: Polyline must be closed.")); return; }
-        poly->getArea(area);
-        CadInfra::GetPolylineCentroid(poly.get(), centroid);
     }
 
     TCHAR roomNameBuf[256];
@@ -360,20 +394,40 @@ void roomTagCommand()
     { acutPrintf(_T("\nCommand cancelled.")); return; }
     CString roomName(roomNameBuf);
 
+    CString err;
+    AcDbObjectId mtextId = AreaTools::InsertRoomTag(polyId, roomName, &err);
+    if (mtextId.isNull())
+    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
+
+    acutPrintf(_T("\nRoom tag inserted: %s"), (LPCTSTR)roomName);
+}
+
+AcDbObjectId AreaTools::InsertRoomTag(AcDbObjectId polyId, const CString& roomName, CString* err)
+{
+    auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
+
+    AcGePoint3d centroid;
+    double area = 0.0;
+    {
+        CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polyId);
+        if (!poly) return fail(_T("object is not a polyline"));
+        if (!poly->isClosed()) return fail(_T("polyline must be closed"));
+        poly->getArea(area);
+        CadInfra::GetPolylineCentroid(poly.get(), centroid);
+    }
+
     AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
     CString areaStr = MeasureFormat::FormatArea(area, pDb->insunits());
     CString tagStr;
     tagStr.Format(_T("%s\\P%s"), (LPCTSTR)roomName, (LPCTSTR)areaStr);
 
     AcDbObjectId mtextId = CadInfra::InsertMText(centroid, tagStr);
-    if (mtextId == AcDbObjectId::kNull)
-    { acutPrintf(_T("\nError: Could not insert room tag.")); return; }
+    if (mtextId.isNull()) return fail(_T("could not insert room tag"));
 
     auto* pReactor = new RoomTagReactor(polyId, mtextId, roomName);
     ReactorPersistence::Register(pReactor);
     CadInfra::StoreRoomXData(polyId, mtextId, roomName);
-
-    acutPrintf(_T("\nRoom tag inserted: %s | %s"), (LPCTSTR)roomName, (LPCTSTR)areaStr);
+    return mtextId;
 }
 
 // ============================================================================
@@ -390,12 +444,26 @@ void perimeterCommand()
     AcDbObjectId polyId;
     acdbGetObjectId(polyId, ent);
 
+    CString err;
+    AcDbObjectId textId = AreaTools::InsertPerimeterLabel(polyId, &err);
+    if (textId.isNull())
+    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
+
+    CString label;
+    { CommonTools::AcDbObjectGuard<AcDbText> t(textId); if (t) label = t->textStringConst(); }
+    acutPrintf(_T("\nPerimeter text inserted: %s"), (LPCTSTR)label);
+}
+
+AcDbObjectId AreaTools::InsertPerimeterLabel(AcDbObjectId polyId, CString* err)
+{
+    auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
+
     AcGePoint3d centroid;
     double length = 0.0;
     {
         CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polyId);
-        if (!poly) { acutPrintf(_T("\nError: Cannot open object.")); return; }
-        if (!poly->isClosed()) { acutPrintf(_T("\nError: Polyline must be closed.")); return; }
+        if (!poly) return fail(_T("object is not a polyline"));
+        if (!poly->isClosed()) return fail(_T("polyline must be closed"));
         double endParam;
         poly->getEndParam(endParam);
         poly->getDistAtParam(endParam, length);
@@ -413,22 +481,19 @@ void perimeterCommand()
         (LPCTSTR)MeasureFormat::FormatLength(length, pDb->insunits()));
 
     AcDbObjectId textId = CadInfra::InsertText(textPos, label);
-    if (textId == AcDbObjectId::kNull)
-    { acutPrintf(_T("\nError: Could not insert text.")); return; }
+    if (textId.isNull()) return fail(_T("could not insert text"));
 
     auto* pReactor = new PerimeterReactor(polyId, textId);
     ReactorPersistence::Register(pReactor);
     CadInfra::StorePerimXData(polyId, textId);
-
-    acutPrintf(_T("\nPerimeter text inserted: %s"), (LPCTSTR)label);
+    return textId;
 }
 
 // ============================================================================
 // LINEARLENGTH / TAGALL helper
 // Insert a perpendicular length label on a single curve + attach reactor.
 // ============================================================================
-static bool InsertLinearLengthOnCurve(AcDbObjectId curveId,
-                                       const CString& layerName = CString())
+AcDbObjectId AreaTools::InsertLengthLabel(AcDbObjectId curveId, const CString& layerName)
 {
     double length = 0.0;
     AcGePoint3d  midPt;
@@ -437,7 +502,7 @@ static bool InsertLinearLengthOnCurve(AcDbObjectId curveId,
 
     {
         CommonTools::AcDbObjectGuard<AcDbCurve> curve(curveId);
-        if (!curve) return false;
+        if (!curve) return AcDbObjectId::kNull;
 
         double startParam, endParam;
         curve->getStartParam(startParam);
@@ -465,12 +530,12 @@ static bool InsertLinearLengthOnCurve(AcDbObjectId curveId,
         MeasureFormat::FormatLength(length, pDb->insunits(), true, true),
         angle, AcDb::kTextLeft, AcDb::kTextBase, layerName);
 
-    if (textId == AcDbObjectId::kNull) return false;
+    if (textId == AcDbObjectId::kNull) return AcDbObjectId::kNull;
 
     auto* pReactor = new LinearLengthReactor(curveId, textId);
     ReactorPersistence::Register(pReactor);
     CadInfra::StoreLinearLengthXData(curveId, textId);
-    return true;
+    return textId;
 }
 
 void linearLengthCommand()
@@ -484,7 +549,7 @@ void linearLengthCommand()
     AcDbObjectId curveId;
     acdbGetObjectId(curveId, ent);
 
-    if (!InsertLinearLengthOnCurve(curveId))
+    if (AreaTools::InsertLengthLabel(curveId).isNull())
         acutPrintf(_T("\nError: Could not tag selected object."));
 }
 
@@ -504,6 +569,35 @@ void countBlocksCommand()
     bool wholeDrawing = (opt == _T("D"));
 
     std::map<CString, int> blockCount;
+    if (wholeDrawing)
+        blockCount = AreaTools::CountBlocks(nullptr);
+    else
+    {
+        ads_name ss;
+        if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
+        { acutPrintf(_T("\nNo objects selected.")); return; }
+        Adesk::Int32 len = 0;
+        acedSSLength(ss, &len);
+        std::vector<AcDbObjectId> ids;
+        CommonTools::ForEachSsEntity(ss, len, [&](AcDbObjectId id) { ids.push_back(id); });
+        acedSSFree(ss);
+        blockCount = AreaTools::CountBlocks(&ids);
+    }
+
+    if (blockCount.empty()) { acutPrintf(_T("\nNo block references found.")); return; }
+
+    acutPrintf(_T("\n%-40s  COUNT\n"), _T("BLOCK NAME"));
+    acutPrintf(_T("----------------------------------------  -----\n"));
+    int total = 0;
+    for (auto& kv : blockCount)
+    { acutPrintf(_T("%-40s  %d\n"), (LPCTSTR)kv.first, kv.second); total += kv.second; }
+    acutPrintf(_T("----------------------------------------  -----\n"));
+    acutPrintf(_T("%-40s  %d\n"), _T("TOTAL"), total);
+}
+
+std::map<CString, int> AreaTools::CountBlocks(const std::vector<AcDbObjectId>* ids)
+{
+    std::map<CString, int> blockCount;
     auto countEntity = [&](AcDbObjectId id)
     {
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(id);
@@ -518,61 +612,62 @@ void countBlocksCommand()
             blockCount[name]++;
     };
 
-    if (wholeDrawing)
+    if (ids)
     {
-        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-        AcDbBlockTable* pBT = nullptr;
-        if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk)
-        { acutPrintf(_T("\nError accessing block table.")); return; }
-        AcDbBlockTableRecord* pBTR = nullptr;
-        if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForRead) != Acad::eOk)
-        { pBT->close(); return; }
+        for (AcDbObjectId id : *ids) countEntity(id);
+        return blockCount;
+    }
+
+    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+    AcDbBlockTable* pBT = nullptr;
+    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) return blockCount;
+    AcDbBlockTableRecord* pBTR = nullptr;
+    if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForRead) != Acad::eOk)
+    { pBT->close(); return blockCount; }
+    pBT->close();
+    std::vector<AcDbObjectId> all;
+    {
         AcDbBlockTableRecordIterator* pRaw = nullptr;
         pBTR->newIterator(pRaw);
         CommonTools::AcDbIteratorGuard<AcDbBlockTableRecordIterator> pIter(pRaw);
         for (; !pIter->done(); pIter->step())
-        { AcDbObjectId id; pIter->getEntityId(id); countEntity(id); }
-        pBTR->close(); pBT->close();
+        { AcDbObjectId id; pIter->getEntityId(id); all.push_back(id); }
     }
-    else
-    {
-        ads_name ss;
-        if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-        { acutPrintf(_T("\nNo objects selected.")); return; }
-        Adesk::Int32 len = 0;
-        acedSSLength(ss, &len);
-        CommonTools::ForEachSsEntity(ss, len, [&](AcDbObjectId id){ countEntity(id); });
-        acedSSFree(ss);
-    }
-
-    if (blockCount.empty()) { acutPrintf(_T("\nNo block references found.")); return; }
-
-    acutPrintf(_T("\n%-40s  COUNT\n"), _T("BLOCK NAME"));
-    acutPrintf(_T("----------------------------------------  -----\n"));
-    int total = 0;
-    for (auto& kv : blockCount)
-    { acutPrintf(_T("%-40s  %d\n"), (LPCTSTR)kv.first, kv.second); total += kv.second; }
-    acutPrintf(_T("----------------------------------------  -----\n"));
-    acutPrintf(_T("%-40s  %d\n"), _T("TOTAL"), total);
+    pBTR->close();
+    for (AcDbObjectId id : all) countEntity(id);
+    return blockCount;
 }
 
 // ============================================================================
-// Shared geometry: collect intersections of pBase with a selection set
+// Shared geometry: collect intersections of pBase with a list of entities
 // ============================================================================
 static void CollectIntersectionPoints(AcDbCurve* pBase, AcDbObjectId baseId,
-                                       ads_name ss, Adesk::Int32 ssLen,
+                                       const std::vector<AcDbObjectId>& crossIds,
                                        std::vector<AcGePoint3d>& pts)
 {
-    CommonTools::ForEachSsEntity(ss, ssLen, [&](AcDbObjectId crossId)
+    for (AcDbObjectId crossId : crossIds)
     {
-        if (crossId == baseId) return;
+        if (crossId == baseId) continue;
         CommonTools::AcDbObjectGuard<AcDbEntity> cross(crossId);
-        if (!cross) return;
+        if (!cross) continue;
         AcGePoint3dArray intPts;
         pBase->intersectWith(cross.get(), AcDb::kOnBothOperands, intPts);
         for (int j = 0; j < intPts.length(); j++)
             pts.push_back(intPts[j]);
-    });
+    }
+}
+
+// Prompts for the crossing entities (shared by SPLITLINE / SPLITPOLI).
+static bool SelectCrossingEntities(std::vector<AcDbObjectId>& crossIds)
+{
+    acutPrintf(_T("\nSelect crossing lines/polylines: "));
+    ads_name ss;
+    if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM) return false;
+    Adesk::Int32 ssLen = 0;
+    acedSSLength(ss, &ssLen);
+    CommonTools::ForEachSsEntity(ss, ssLen, [&](AcDbObjectId id) { crossIds.push_back(id); });
+    acedSSFree(ss);
+    return true;
 }
 
 // ============================================================================
@@ -588,25 +683,41 @@ void splitLineCommand()
 
     AcDbObjectId baseId;
     acdbGetObjectId(baseId, baseEnt);
+    {
+        CommonTools::AcDbObjectGuard<AcDbCurve> base(baseId);
+        if (!base) { acutPrintf(_T("\nError: Cannot open base line.")); return; }
+    }
+
+    std::vector<AcDbObjectId> crossIds;
+    if (!SelectCrossingEntities(crossIds))
+    { acutPrintf(_T("\nCommand cancelled.")); return; }
+
+    CString err;
+    std::vector<AcDbObjectId> segIds = AreaTools::SplitLine(baseId, crossIds, _T("doc_areas"), true, &err);
+    if (segIds.empty())
+    { acutPrintf(_T("\n%s."), (LPCTSTR)err); return; }
+
+    acutPrintf(_T("\n%d segment(s) created and tagged."), static_cast<int>(segIds.size()));
+}
+
+std::vector<AcDbObjectId> AreaTools::SplitLine(AcDbObjectId baseId,
+                                               const std::vector<AcDbObjectId>& crossIds,
+                                               const CString& targetLayer, bool tagLengths,
+                                               CString* err)
+{
+    std::vector<AcDbObjectId> segIds;
+    auto fail = [&](const TCHAR* msg) { if (err) *err = msg; return segIds; };
 
     AcGePoint3d startPt, endPt;
     std::vector<AcGePoint3d> cleanPts;
     {
         CommonTools::AcDbObjectGuard<AcDbCurve> base(baseId);
-        if (!base) { acutPrintf(_T("\nError: Cannot open base line.")); return; }
+        if (!base) return fail(_T("cannot open base line"));
         base->getStartPoint(startPt);
         base->getEndPoint(endPt);
 
-        acutPrintf(_T("\nSelect crossing lines/polylines: "));
-        ads_name ss;
-        if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-        { acutPrintf(_T("\nCommand cancelled.")); return; }
-
         std::vector<AcGePoint3d> pts = { startPt, endPt };
-        Adesk::Int32 ssLen = 0;
-        acedSSLength(ss, &ssLen);
-        CollectIntersectionPoints(base.get(), baseId, ss, ssLen, pts);
-        acedSSFree(ss);
+        CollectIntersectionPoints(base.get(), baseId, crossIds, pts);
 
         AcGeVector3d dir = endPt - startPt;
         std::sort(pts.begin(), pts.end(), [&](const AcGePoint3d& a, const AcGePoint3d& b)
@@ -620,38 +731,31 @@ void splitLineCommand()
     }
 
     if (cleanPts.size() < 2)
-    { acutPrintf(_T("\nNo valid intersections found.")); return; }
+        return fail(_T("no valid intersections found"));
 
-    const CString targetLayer(_T("doc_areas"));
-    CadInfra::EnsureLayer(targetLayer);
+    if (!targetLayer.IsEmpty()) CadInfra::EnsureLayer(targetLayer);
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    AcDbBlockTable* pBT = nullptr;
     AcDbBlockTableRecord* pBTR = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) return;
-    if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForWrite) != Acad::eOk)
-    { pBT->close(); return; }
-    pBT->close();
+    if (CommonTools::GetModelSpace(pBTR) != Acad::eOk)
+        return fail(_T("could not open model space"));
 
-    int count = 0;
-    std::vector<AcDbObjectId> segIds;
     for (size_t i = 0; i + 1 < cleanPts.size(); i++)
     {
         AcDbLine* pLine = new AcDbLine(cleanPts[i], cleanPts[i + 1]);
-        pLine->setLayer(targetLayer);
+        if (!targetLayer.IsEmpty()) pLine->setLayer(targetLayer);
         AcDbObjectId lineId;
-        pBTR->appendAcDbEntity(lineId, pLine);
-        pLine->close();
-        segIds.push_back(lineId);
-        count++;
+        if (pBTR->appendAcDbEntity(lineId, pLine) == Acad::eOk)
+        { pLine->close(); segIds.push_back(lineId); }
+        else
+            delete pLine;
     }
     pBTR->close();
 
-    for (auto& id : segIds) InsertLinearLengthOnCurve(id, targetLayer);
+    if (tagLengths)
+        for (auto& id : segIds) InsertLengthLabel(id, targetLayer);
 
     { CommonTools::AcDbObjectGuard<AcDbEntity> orig(baseId, AcDb::kForWrite); if (orig) orig->erase(); }
-
-    acutPrintf(_T("\n%d segment(s) created and tagged."), count);
+    return segIds;
 }
 
 // ============================================================================
@@ -775,25 +879,42 @@ void splitPoliCommand()
 
     AcDbObjectId baseId;
     acdbGetObjectId(baseId, baseEnt);
+    {
+        CommonTools::AcDbObjectGuard<AcDbPolyline> base(baseId);
+        if (!base) { acutPrintf(_T("\nError: Selected object is not a polyline.")); return; }
+    }
+
+    std::vector<AcDbObjectId> crossIds;
+    if (!SelectCrossingEntities(crossIds))
+    { acutPrintf(_T("\nCommand cancelled.")); return; }
+
+    CString err;
+    std::vector<AcDbObjectId> segIds = AreaTools::SplitPolyline(baseId, crossIds, _T("doc_areas"), true, &err);
+    if (segIds.empty())
+    { acutPrintf(_T("\n%s."), (LPCTSTR)err); return; }
+
+    acutPrintf(_T("\n%d segment(s) created and tagged."), static_cast<int>(segIds.size()));
+}
+
+std::vector<AcDbObjectId> AreaTools::SplitPolyline(AcDbObjectId baseId,
+                                                   const std::vector<AcDbObjectId>& crossIds,
+                                                   const CString& targetLayer, bool tagLengths,
+                                                   CString* err)
+{
+    std::vector<AcDbObjectId> segIds;
+    auto fail = [&](const TCHAR* msg) { if (err) *err = msg; return segIds; };
 
     std::vector<AcGePoint3d> rawPts;
     std::vector<double>      rawParams;
     {
         CommonTools::AcDbObjectGuard<AcDbPolyline> base(baseId);
-        if (!base) { acutPrintf(_T("\nError: Selected object is not a polyline.")); return; }
+        if (!base) return fail(_T("object is not a polyline"));
 
         AcGePoint3d sp, ep;
         base->getStartPoint(sp); base->getEndPoint(ep);
         rawPts.push_back(sp); rawPts.push_back(ep);
 
-        acutPrintf(_T("\nSelect crossing lines/polylines: "));
-        ads_name ss;
-        if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-        { acutPrintf(_T("\nCommand cancelled.")); return; }
-        Adesk::Int32 ssLen = 0;
-        acedSSLength(ss, &ssLen);
-        CollectIntersectionPoints(base.get(), baseId, ss, ssLen, rawPts);
-        acedSSFree(ss);
+        CollectIntersectionPoints(base.get(), baseId, crossIds, rawPts);
 
         for (const auto& pt : rawPts)
         { double p = -1.0; base->getParamAtPoint(pt, p); rawParams.push_back(p); }
@@ -805,7 +926,7 @@ void splitPoliCommand()
             paramPts.push_back({ rawParams[i], rawPts[i] });
 
     if (paramPts.size() < 2)
-    { acutPrintf(_T("\nNo usable intersection points found.")); return; }
+        return fail(_T("no usable intersection points found"));
 
     std::sort(paramPts.begin(), paramPts.end(),
         [](const auto& a, const auto& b){ return a.first < b.first; });
@@ -818,45 +939,38 @@ void splitPoliCommand()
             cleanPts.push_back(paramPts[i]);
 
     if (cleanPts.size() < 2)
-    { acutPrintf(_T("\nNot enough distinct intersection points.")); return; }
+        return fail(_T("not enough distinct intersection points"));
 
-    const CString targetLayer(_T("doc_areas"));
-    CadInfra::EnsureLayer(targetLayer);
+    if (!targetLayer.IsEmpty()) CadInfra::EnsureLayer(targetLayer);
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    AcDbBlockTable* pBT = nullptr;
     AcDbBlockTableRecord* pBTR = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) return;
-    if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForWrite) != Acad::eOk)
-    { pBT->close(); return; }
-    pBT->close();
+    if (CommonTools::GetModelSpace(pBTR) != Acad::eOk)
+        return fail(_T("could not open model space"));
 
-    int count = 0;
-    std::vector<AcDbObjectId> segIds;
     {
         CommonTools::AcDbObjectGuard<AcDbPolyline> base(baseId);
-        if (!base) { pBTR->close(); return; }
+        if (!base) { pBTR->close(); return fail(_T("object is not a polyline")); }
         for (size_t i = 0; i + 1 < cleanPts.size(); i++)
         {
             AcDbPolyline* pSeg = ExtractSubPolyline(base.get(),
                 cleanPts[i].first,   cleanPts[i].second,
                 cleanPts[i+1].first, cleanPts[i+1].second);
             if (!pSeg || pSeg->numVerts() < 2) { delete pSeg; continue; }
-            pSeg->setLayer(targetLayer);
+            if (!targetLayer.IsEmpty()) pSeg->setLayer(targetLayer);
             AcDbObjectId segId;
-            pBTR->appendAcDbEntity(segId, pSeg);
-            pSeg->close();
-            segIds.push_back(segId);
-            count++;
+            if (pBTR->appendAcDbEntity(segId, pSeg) == Acad::eOk)
+            { pSeg->close(); segIds.push_back(segId); }
+            else
+                delete pSeg;
         }
     }
     pBTR->close();
 
-    for (auto& id : segIds) InsertLinearLengthOnCurve(id, targetLayer);
+    if (tagLengths)
+        for (auto& id : segIds) InsertLengthLabel(id, targetLayer);
 
     { CommonTools::AcDbObjectGuard<AcDbEntity> orig(baseId, AcDb::kForWrite); if (orig) orig->erase(); }
-
-    acutPrintf(_T("\n%d segment(s) created and tagged."), count);
+    return segIds;
 }
 
 // ============================================================================
@@ -882,7 +996,7 @@ void tagAllCommand()
             if (!ent) return;
             isCurve = ent->isKindOf(AcDbCurve::desc());
         }
-        if (isCurve && InsertLinearLengthOnCurve(id)) tagged++;
+        if (isCurve && !AreaTools::InsertLengthLabel(id).isNull()) tagged++;
         else skipped++;
     });
 

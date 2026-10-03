@@ -10,6 +10,11 @@
 #include "PolylineTools.h"
 #include "AlignTools.h"
 #include "SeqNumTools.h"
+#include "DistributeTools.h"
+#include "TextTools.h"
+#include "AreaTools.h"
+#include "LayerTools.h"
+#include "SvgExportTools.h"
 
 extern "C" {
 #include "lua.h"
@@ -1190,6 +1195,472 @@ int at_patternArabescoHip(lua_State* L)
     return DrawAndCollect(L, [&] { ArabesqueTools::DrawArabescoHipSol(c, A, nT, mT, fa, D, fw, fh); });
 }
 
+// ── Tier 2 helpers ──────────────────────────────────────────────────────────
+
+// Pushes a handle, or nil + the error text, for core functions that return an
+// id and fill a CString reason. Call after all RAII scopes have closed.
+int PushIdOrError(lua_State* L, const AcDbObjectId& id, const std::string& err)
+{
+    if (id.isNull())
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        return 2;
+    }
+    PushHandle(L, id);
+    return 1;
+}
+
+int PushIdListOrError(lua_State* L, const std::vector<AcDbObjectId>& ids, const std::string& err)
+{
+    if (ids.empty())
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        return 2;
+    }
+    PushIdList(L, ids);
+    return 1;
+}
+
+int PushBoolOrError(lua_State* L, bool ok, const std::string& err)
+{
+    if (!ok)
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+const char* const kDistModes[] = { "linear", "between", "equal", nullptr };
+
+// ── Tier 2: distribute ──────────────────────────────────────────────────────
+
+// at.distribute({handle,...}, x1,y1,z1, x2,y2,z2 [, mode]) -> count | nil,err
+int at_distribute(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    AcGePoint3d a(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4));
+    AcGePoint3d b(luaL_checknumber(L, 5), luaL_checknumber(L, 6), luaL_checknumber(L, 7));
+    int mode = luaL_checkoption(L, 8, "linear", kDistModes);
+
+    int placed;
+    {
+        std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+        placed = DistributeTools::DistributeObjects(ids, a, b, mode, false);
+    }
+    if (placed < 0)
+    {
+        lua_pushnil(L);
+        lua_pushstring(L, mode == 0 ? "need at least 2 objects and two distinct points"
+                                    : "need at least 1 object and two distinct points");
+        return 2;
+    }
+    lua_pushinteger(L, placed);
+    return 1;
+}
+
+// at.distributeCopies(handle, count, x1,y1,z1, x2,y2,z2 [, mode]) -> {handle,...} | nil,err
+int at_distributeCopies(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+    lua_Integer count = luaL_checkinteger(L, 2);
+    AcGePoint3d a(luaL_checknumber(L, 3), luaL_checknumber(L, 4), luaL_checknumber(L, 5));
+    AcGePoint3d b(luaL_checknumber(L, 6), luaL_checknumber(L, 7), luaL_checknumber(L, 8));
+    int mode = luaL_checkoption(L, 9, "linear", kDistModes);
+    luaL_argcheck(L, count >= (mode == 0 ? 2 : 1) && count <= 10000, 2,
+                  "count must be >= 2 for linear, >= 1 otherwise");
+
+    std::vector<AcDbObjectId> ids;
+    {
+        AcDbObjectId src = ResolveHandle(h);
+        if (!src.isNull())
+            ids = DistributeTools::DistributeCopies(src, static_cast<int>(count), a, b, mode);
+    }
+    return PushIdListOrError(L, ids, "copy failed (unknown handle or coincident points)");
+}
+
+// ── Tier 2: text ────────────────────────────────────────────────────────────
+
+// at.getText(handle) -> string | nil
+int at_getText(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+    bool ok;
+    std::string s;
+    {
+        CString text;
+        ok = TextTools::GetText(ResolveHandle(h), text);
+        if (ok) s = ToUtf8(text);
+    }
+    if (!ok) { lua_pushnil(L); return 1; }
+    lua_pushlstring(L, s.data(), s.size());
+    return 1;
+}
+
+// at.setText(handle, text) -> true | false
+int at_setText(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+    const char* text = luaL_checkstring(L, 2);
+    bool ok;
+    {
+        CString wText(CA2T(text, CP_UTF8));
+        ok = TextTools::SetText(ResolveHandle(h), wText);
+    }
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+// at.copyTextStyle(src, {dest,...} [, includeHeight]) -> updated | nil,err
+int at_copyTextStyle(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    bool includeHeight = lua_toboolean(L, 3) != 0;
+
+    int updated;
+    {
+        std::vector<AcDbObjectId> dest = ReadHandleList(L, 2);
+        updated = TextTools::CopyTextStyle(ResolveHandle(h), dest, includeHeight);
+    }
+    if (updated < 0) { lua_pushnil(L); lua_pushstring(L, "source is not a text object"); return 2; }
+    lua_pushinteger(L, updated);
+    return 1;
+}
+
+// at.copyDimStyle(src, {dest,...}) -> updated | nil,err
+int at_copyDimStyle(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+
+    int updated;
+    {
+        std::vector<AcDbObjectId> dest = ReadHandleList(L, 2);
+        updated = TextTools::CopyDimStyle(ResolveHandle(h), dest);
+    }
+    if (updated < 0) { lua_pushnil(L); lua_pushstring(L, "source is not a dimension"); return 2; }
+    lua_pushinteger(L, updated);
+    return 1;
+}
+
+// at.sumText({handle,...}) -> sum, validCount, skippedCount
+int at_sumText(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    double sum;
+    int valid = 0, invalid = 0;
+    {
+        std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+        sum = TextTools::SumTextValues(ids, &valid, &invalid, false);
+    }
+    lua_pushnumber(L, sum);
+    lua_pushinteger(L, valid);
+    lua_pushinteger(L, invalid);
+    return 3;
+}
+
+// at.scaleText({handle,...}, factor) -> count
+int at_scaleText(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    double factor = luaL_checknumber(L, 2);
+    luaL_argcheck(L, factor > 0.0, 2, "factor must be > 0");
+    int count;
+    {
+        std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+        count = TextTools::ScaleTextHeight(ids, factor);
+    }
+    lua_pushinteger(L, count);
+    return 1;
+}
+
+// ── Tier 2: linked area / length labels ─────────────────────────────────────
+
+// Shared body for the single-curve label functions.
+template <typename Fn>
+int LabelBinding(lua_State* L, Fn&& insert)
+{
+    const char* h = luaL_checkstring(L, 1);
+    AcDbObjectId id;
+    std::string err;
+    {
+        CString wErr;
+        id = insert(ResolveHandle(h), wErr);
+        if (id.isNull()) err = wErr.IsEmpty() ? "could not create label" : ToUtf8(wErr);
+    }
+    return PushIdOrError(L, id, err);
+}
+
+int at_areaLabel(lua_State* L)
+{
+    return LabelBinding(L, [](AcDbObjectId id, CString& e) { return AreaTools::InsertAreaLabel(id, &e); });
+}
+
+int at_perimeterLabel(lua_State* L)
+{
+    return LabelBinding(L, [](AcDbObjectId id, CString& e) { return AreaTools::InsertPerimeterLabel(id, &e); });
+}
+
+int at_lengthLabel(lua_State* L)
+{
+    const char* layer = luaL_optstring(L, 2, "");
+    return LabelBinding(L, [layer](AcDbObjectId id, CString&)
+        { return AreaTools::InsertLengthLabel(id, CString(CA2T(layer, CP_UTF8))); });
+}
+
+// at.roomTag(handle, name) -> mtextHandle | nil,err
+int at_roomTag(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 2);
+    return LabelBinding(L, [name](AcDbObjectId id, CString& e)
+        { return AreaTools::InsertRoomTag(id, CString(CA2T(name, CP_UTF8)), &e); });
+}
+
+// at.sumLengthLabel({handle,...}, x,y,z) -> textHandle, total | nil,err
+int at_sumLengthLabel(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    AcGePoint3d pos(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4));
+
+    AcDbObjectId id;
+    double total = 0.0;
+    std::string err;
+    {
+        std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+        CString wErr;
+        id = AreaTools::InsertSumLengthLabel(ids, pos, &total, nullptr, &wErr);
+        if (id.isNull()) err = ToUtf8(wErr);
+    }
+    int n = PushIdOrError(L, id, err);
+    if (n == 2) return 2;
+    lua_pushnumber(L, total);
+    return 2;
+}
+
+// at.countBlocks([{handle,...}]) -> { [blockName] = count, ... }
+int at_countBlocks(lua_State* L)
+{
+    bool hasList = !lua_isnoneornil(L, 1);
+    if (hasList) luaL_checktype(L, 1, LUA_TTABLE);
+
+    std::vector<std::pair<std::string, int>> rows;
+    {
+        std::map<CString, int> counts;
+        if (hasList)
+        {
+            std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+            counts = AreaTools::CountBlocks(&ids);
+        }
+        else
+            counts = AreaTools::CountBlocks(nullptr);
+        for (const auto& kv : counts)
+            rows.emplace_back(ToUtf8(kv.first), kv.second);
+    }
+
+    lua_createtable(L, 0, static_cast<int>(rows.size()));
+    for (const auto& r : rows)
+    {
+        lua_pushinteger(L, r.second);
+        lua_setfield(L, -2, r.first.c_str());
+    }
+    return 1;
+}
+
+// Shared body for at.splitLine / at.splitPolyline.
+template <typename Fn>
+int SplitBinding(lua_State* L, Fn&& split)
+{
+    const char* h = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    bool tag = lua_isnoneornil(L, 3) ? true : (lua_toboolean(L, 3) != 0);
+    const char* layer = luaL_optstring(L, 4, "doc_areas");
+
+    std::vector<AcDbObjectId> segs;
+    std::string err;
+    {
+        std::vector<AcDbObjectId> cross = ReadHandleList(L, 2);
+        CString wErr;
+        segs = split(ResolveHandle(h), cross, CString(CA2T(layer, CP_UTF8)), tag, wErr);
+        if (segs.empty()) err = ToUtf8(wErr);
+    }
+    return PushIdListOrError(L, segs, err);
+}
+
+int at_splitLine(lua_State* L)
+{
+    return SplitBinding(L, [](AcDbObjectId base, const std::vector<AcDbObjectId>& cross,
+                              const CString& layer, bool tag, CString& e)
+        { return AreaTools::SplitLine(base, cross, layer, tag, &e); });
+}
+
+int at_splitPolyline(lua_State* L)
+{
+    return SplitBinding(L, [](AcDbObjectId base, const std::vector<AcDbObjectId>& cross,
+                              const CString& layer, bool tag, CString& e)
+        { return AreaTools::SplitPolyline(base, cross, layer, tag, &e); });
+}
+
+// ── Tier 2: layers ──────────────────────────────────────────────────────────
+
+struct LayerRow
+{
+    std::string name;
+    int  color = 7;
+    bool frozen = false, off = false, locked = false, current = false;
+};
+
+// at.layers() -> { {name=,color=,frozen=,off=,locked=,current=}, ... }
+int at_layers(lua_State* L)
+{
+    std::vector<LayerRow> rows;
+    {
+        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
+        AcDbLayerTable* pLT = nullptr;
+        if (pDb && pDb->getLayerTable(pLT, AcDb::kForRead) == Acad::eOk)
+        {
+            AcDbObjectId current = pDb->clayer();
+            AcDbLayerTableIterator* pIter = nullptr;
+            if (pLT->newIterator(pIter) == Acad::eOk)
+            {
+                for (; !pIter->done(); pIter->step())
+                {
+                    AcDbObjectId id;
+                    if (pIter->getRecordId(id) != Acad::eOk) continue;
+                    CommonTools::AcDbObjectGuard<AcDbLayerTableRecord> rec(id);
+                    if (!rec) continue;
+                    LayerRow r;
+                    AcString name;
+                    rec->getName(name);
+                    r.name    = ToUtf8(name.kwszPtr());
+                    r.color   = rec->color().colorIndex();
+                    r.frozen  = rec->isFrozen();
+                    r.off     = rec->isOff();
+                    r.locked  = rec->isLocked();
+                    r.current = (id == current);
+                    rows.push_back(r);
+                }
+                delete pIter;
+            }
+            pLT->close();
+        }
+    }
+
+    lua_createtable(L, static_cast<int>(rows.size()), 0);
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        const LayerRow& r = rows[i];
+        lua_createtable(L, 0, 6);
+        lua_pushlstring(L, r.name.data(), r.name.size()); lua_setfield(L, -2, "name");
+        lua_pushinteger(L, r.color);   lua_setfield(L, -2, "color");
+        lua_pushboolean(L, r.frozen);  lua_setfield(L, -2, "frozen");
+        lua_pushboolean(L, r.off);     lua_setfield(L, -2, "off");
+        lua_pushboolean(L, r.locked);  lua_setfield(L, -2, "locked");
+        lua_pushboolean(L, r.current); lua_setfield(L, -2, "current");
+        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    return 1;
+}
+
+// at.getCurrentLayer() -> name
+int at_getCurrentLayer(lua_State* L)
+{
+    std::string s = ToUtf8(LayerTools::GetCurrentLayer());
+    lua_pushlstring(L, s.data(), s.size());
+    return 1;
+}
+
+// at.setCurrentLayer(name [, create=true]) -> true | nil,err
+int at_setCurrentLayer(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    bool create = lua_isnoneornil(L, 2) ? true : (lua_toboolean(L, 2) != 0);
+    bool ok;
+    std::string err;
+    {
+        CString wErr;
+        ok = LayerTools::SetCurrentLayer(CString(CA2T(name, CP_UTF8)), create, nullptr, &wErr);
+        if (!ok) err = ToUtf8(wErr);
+    }
+    return PushBoolOrError(L, ok, err);
+}
+
+// Reads an optional boolean field as 1 / 0 / -1 (absent).
+int TriStateField(lua_State* L, int idx, const char* key)
+{
+    lua_getfield(L, idx, key);
+    int v = lua_isnil(L, -1) ? -1 : (lua_toboolean(L, -1) ? 1 : 0);
+    lua_pop(L, 1);
+    return v;
+}
+
+// at.setLayerState(name, {frozen=, off=, locked=}) -> true | nil,err
+int at_setLayerState(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    int frozen = TriStateField(L, 2, "frozen");
+    int off    = TriStateField(L, 2, "off");
+    int locked = TriStateField(L, 2, "locked");
+
+    bool ok;
+    std::string err;
+    {
+        CString wErr;
+        ok = LayerTools::SetLayerState(CString(CA2T(name, CP_UTF8)), frozen, off, locked, &wErr);
+        if (!ok) err = ToUtf8(wErr);
+    }
+    return PushBoolOrError(L, ok, err);
+}
+
+// ── Tier 2: SVG export ──────────────────────────────────────────────────────
+
+// True for a bare file name: no folder parts, no drive, no "..".
+bool IsPlainFileName(const CString& name)
+{
+    if (name.IsEmpty() || name.GetLength() > 200) return false;
+    if (name.FindOneOf(_T("\\/:*?\"<>|")) >= 0) return false;
+    if (name.Find(_T("..")) >= 0) return false;
+    return true;
+}
+
+// at.exportSvg({handle,...} [, fileName]) -> path, exported, skipped | nil,err
+// Always writes into the user's Documents folder; fileName must be a bare name.
+int at_exportSvg(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    const char* fileName = luaL_optstring(L, 2, "ArqaTools_Export.svg");
+
+    bool ok = false;
+    int exported = 0, skipped = 0;
+    std::string err, path;
+    {
+        CString name(CA2T(fileName, CP_UTF8));
+        name.Trim();
+        if (!IsPlainFileName(name))
+            err = "fileName must be a plain file name (no folders); files are written to Documents";
+        else
+        {
+            if (name.Right(4).CompareNoCase(_T(".svg")) != 0) name += _T(".svg");
+            CString full = SvgExportTools::DocumentsFolder() + _T("\\") + name;
+            std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+            CString wErr;
+            ok = SvgExportTools::ExportSvg(ids, full, &exported, &skipped, &wErr);
+            if (ok) path = ToUtf8(full);
+            else    err  = ToUtf8(wErr);
+        }
+    }
+    if (!ok) { lua_pushnil(L); lua_pushlstring(L, err.data(), err.size()); return 2; }
+    lua_pushlstring(L, path.data(), path.size());
+    lua_pushinteger(L, exported);
+    lua_pushinteger(L, skipped);
+    return 3;
+}
+
 // at.print(msg) - explicit alias, distinct from the overridden global print(),
 // in case a script wants to be unambiguous about which one it means.
 int at_print(lua_State* L)
@@ -1281,6 +1752,36 @@ const AtFn kFns[] = {
     { "setColor",     at_setColor,     "(handle,aci) -> true|false",           "ACI 1-255, 0 = ByBlock, 256 = ByLayer" },
     { "alignTo",      at_alignTo,      "({handle,...}, \"x\"|\"y\"|\"z\", coord) -> count", "ATALX-style: move each object (or its group) so its reference point sits at coord" },
     { "polyBoolean",  at_polyBoolean,  "(h1,h2,\"union\"|\"intersect\"|\"subtract\") -> regionHandle | nil,err", "closed polylines; subtract keeps h1 minus h2; originals untouched" },
+    { "distribute",   at_distribute,   "({handle,...}, x1,y1,z1, x2,y2,z2 [,mode]) -> count | nil,err",
+      "ATDIST*: spread objects (groups move whole) between two points; mode \"linear\" (on endpoints, default), \"between\" (inside), \"equal\" (half gap at ends)" },
+    { "distributeCopies", at_distributeCopies, "(handle, count, x1,y1,z1, x2,y2,z2 [,mode]) -> {handle,...} | nil,err",
+      "ATDISTCOPY*: place count copies between two points; same modes as distribute" },
+    // Text
+    { "getText",      at_getText,      "(handle) -> string | nil",             "TEXT or MTEXT content (MText keeps its format codes)" },
+    { "setText",      at_setText,      "(handle, text) -> true|false",         "" },
+    { "copyTextStyle", at_copyTextStyle, "(src, {dest,...} [,includeHeight]) -> count | nil,err", "ATCOPYSTYLE / ATCOPYTEXTFULL" },
+    { "copyDimStyle", at_copyDimStyle, "(src, {dest,...}) -> count | nil,err", "ATCOPYDIMSTYLE" },
+    { "sumText",      at_sumText,      "({handle,...}) -> sum, valid, skipped", "sum numeric texts (\"1,234.50\", \"$12\" ok); non-text objects ignored" },
+    { "scaleText",    at_scaleText,    "({handle,...}, factor) -> count",      "multiply TEXT/MTEXT heights" },
+    // Linked labels - update when the curve changes, erased with it, survive save/reopen
+    { "areaLabel",    at_areaLabel,    "(polyline) -> textHandle | nil,err",   "ATINSERTAREA; closed polylines" },
+    { "perimeterLabel", at_perimeterLabel, "(polyline) -> textHandle | nil,err", "ATPERIMETER; closed polylines" },
+    { "roomTag",      at_roomTag,      "(polyline, name) -> mtextHandle | nil,err", "ATROOMTAG: name + area" },
+    { "lengthLabel",  at_lengthLabel,  "(curve [,layer]) -> textHandle | nil,err", "ATLINEARLENGTH: perpendicular label at the midpoint" },
+    { "sumLengthLabel", at_sumLengthLabel, "({curve,...}, x,y,z) -> textHandle, total | nil,err", "ATSUMLENGTH" },
+    { "countBlocks",  at_countBlocks,  "([{handle,...}]) -> {[blockName]=count,...}", "whole model space when no list is given; anonymous blocks skipped" },
+    { "splitLine",    at_splitLine,    "(line, {crossing,...} [,tag=true [,layer=\"doc_areas\"]]) -> {handle,...} | nil,err",
+      "ATSPLITLINE: replaces the line (erased) by segments at its intersections, optionally length-tagged" },
+    { "splitPolyline", at_splitPolyline, "(polyline, {crossing,...} [,tag=true [,layer=\"doc_areas\"]]) -> {handle,...} | nil,err",
+      "ATSPLITPOLI: same, keeping arc segments" },
+    // Layers
+    { "layers",       at_layers,       "() -> {{name=,color=,frozen=,off=,locked=,current=},...}", "" },
+    { "getCurrentLayer", at_getCurrentLayer, "() -> name", "" },
+    { "setCurrentLayer", at_setCurrentLayer, "(name [,create=true]) -> true | nil,err", "ATNL: creates the layer (color 7) if missing" },
+    { "setLayerState", at_setLayerState, "(name, {frozen=,off=,locked=}) -> true | nil,err", "only the given fields change; cannot freeze the current layer or layer 0" },
+    // Export
+    { "exportSvg",    at_exportSvg,    "({handle,...} [,fileName]) -> path, exported, skipped | nil,err",
+      "ATSVGEXPORT; always written to Documents, fileName must be a bare name (default ArqaTools_Export.svg), existing file overwritten" },
     { "regionToPolyline", at_regionToPolyline, "(regionHandle) -> handle | nil,err", "closed polyline following one boundary loop; a region with holes gives a single loop (a warning is printed)" },
     // Measurement helpers
     { "refPoint",     at_refPoint,     "(handle) -> x,y,z | nil,err",          "the reference point used by move/copy/align" },

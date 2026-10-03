@@ -1,5 +1,8 @@
 #pragma once
 
+#include "StdAfx.h"
+#include <vector>
+
 namespace SvgExportTools
 {
     // Command: SVGEXPORT — exports user-selected entities (Line, Circle, Arc,
@@ -30,4 +33,13 @@ namespace SvgExportTools
     // exploded piece, which has no handle of its own, uses its source
     // entity's id with an index suffix).
     void svgExportCommand();
+
+    // Non-interactive core of ATSVGEXPORT: writes ids to filePath (UTF-8),
+    // overwriting it. Returns false with a reason when nothing could be
+    // exported or the file cannot be written.
+    bool ExportSvg(const std::vector<AcDbObjectId>& ids, const CString& filePath,
+                   int* exported = nullptr, int* skipped = nullptr, CString* err = nullptr);
+
+    // The user's Documents folder (where ATSVGEXPORT writes).
+    CString DocumentsFolder();
 }

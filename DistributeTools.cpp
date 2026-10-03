@@ -13,31 +13,6 @@ namespace DistributeTools
     using CommonTools::CopyEntityTo;
 
     // -------------------------------------------------------------------------
-    // CollectUniqueObjects: walk a selection set, deduplicate by group, and
-    // collect (objectId, referencePoint) pairs into parallel output arrays.
-    // -------------------------------------------------------------------------
-    static void CollectUniqueObjects(const ads_name ss, Adesk::Int32 length,
-                                     AcArray<AcDbObjectId>& objectIds,
-                                     AcArray<AcGePoint3d>&  refPoints,
-                                     const CommonTools::EntityGroupMap& groupMap)
-    {
-        AcDbObjectIdArray seenGroups;
-        CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId objId)
-        {
-            auto it = groupMap.find(objId);
-            if (it != groupMap.end())
-            {
-                if (seenGroups.contains(it->second)) return;
-                seenGroups.append(it->second);
-            }
-
-            AcGePoint3d refPt;
-            if (GetEntityReferencePoint(objId, refPt))
-            { objectIds.append(objId); refPoints.append(refPt); }
-        });
-    }
-
-    // -------------------------------------------------------------------------
     // PromptLineVector: prompt for start/end points, validate distance > 0.001,
     // and output the unit direction vector and total distance.
     // Returns false on cancellation or degenerate line.
@@ -95,31 +70,14 @@ namespace DistributeTools
         double       totalDistance;
         if (!PromptLineVector(startPt, unitVector, totalDistance)) return;
 
-        auto groupMap = CommonTools::BuildEntityGroupMap(
-            acdbHostApplicationServices()->workingDatabase());
+        std::vector<AcDbObjectId> ids;
+        CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId objId) { ids.push_back(objId); });
 
-        AcArray<AcDbObjectId> objectIds;
-        AcArray<AcGePoint3d>  refPoints;
-        CollectUniqueObjects(ssGuard.ss, length, objectIds, refPoints, groupMap);
-
-        int numObjects = objectIds.length();
-        if (numObjects < minSelect)
+        double spacing = 0.0;
+        int numObjects = DistributeObjects(ids, startPt, startPt + unitVector * totalDistance,
+                                           mode, true, &spacing);
+        if (numObjects < 0)
         { acutPrintf(_T("\nNeed at least %d valid object(s).\n"), minSelect); return; }
-        acutPrintf(_T("Distributing %d objects...\n"), numObjects);
-
-        double divisor = (mode == 0) ? (numObjects - 1)
-                       : (mode == 1) ? (numObjects + 1)
-                       :                numObjects;
-        double offset0 = (mode == 1) ? 1.0 : (mode == 2) ? 0.5 : 0.0;
-        double spacing = totalDistance / divisor;
-
-        AcDbObjectIdArray processedGroups;
-        for (int i = 0; i < numObjects; i++)
-        {
-            AcGePoint3d target = startPt + unitVector * (spacing * (i + offset0));
-            MoveEntityOrGroup(objectIds[i], target - refPoints[i], processedGroups, groupMap);
-            acutPrintf(_T("  [%d] Moved to %.2f, %.2f\n"), i + 1, target.x, target.y);
-        }
 
         if (mode == 2)
             acutPrintf(_T("\nDone! Equal spacing %.2f (%.2f from ends).\n"), spacing, spacing * 0.5);
@@ -127,6 +85,86 @@ namespace DistributeTools
             acutPrintf(_T("\nDone! Spacing %.2f between points.\n"), spacing);
         else
             acutPrintf(_T("\nDone! Spacing %.2f.\n"), spacing);
+    }
+
+    // Spacing divisor and first-slot offset for each mode (see DistributeCommand).
+    static void ModeSpacing(int mode, int count, double total, double& spacing, double& offset0)
+    {
+        double divisor = (mode == 0) ? (count - 1)
+                       : (mode == 1) ? (count + 1)
+                       :                count;
+        offset0 = (mode == 1) ? 1.0 : (mode == 2) ? 0.5 : 0.0;
+        spacing = total / divisor;
+    }
+
+    int DistributeObjects(const std::vector<AcDbObjectId>& ids,
+                          const AcGePoint3d& startPt, const AcGePoint3d& endPt,
+                          int mode, bool verbose, double* spacingOut)
+    {
+        AcGeVector3d v = endPt - startPt;
+        double totalDistance = v.length();
+        if (totalDistance < 0.001) return -1;
+        AcGeVector3d unitVector = v.normal();
+
+        auto groupMap = CommonTools::BuildEntityGroupMap(
+            acdbHostApplicationServices()->workingDatabase());
+
+        // Deduplicate by group, keep (id, reference point) pairs.
+        AcArray<AcDbObjectId> objectIds;
+        AcArray<AcGePoint3d>  refPoints;
+        AcDbObjectIdArray seenGroups;
+        for (AcDbObjectId objId : ids)
+        {
+            auto it = groupMap.find(objId);
+            if (it != groupMap.end())
+            {
+                if (seenGroups.contains(it->second)) continue;
+                seenGroups.append(it->second);
+            }
+            AcGePoint3d refPt;
+            if (GetEntityReferencePoint(objId, refPt))
+            { objectIds.append(objId); refPoints.append(refPt); }
+        }
+
+        int numObjects = objectIds.length();
+        int minSelect = (mode == 0) ? 2 : 1;
+        if (numObjects < minSelect) return -1;
+        if (verbose) acutPrintf(_T("Distributing %d objects...\n"), numObjects);
+
+        double spacing, offset0;
+        ModeSpacing(mode, numObjects, totalDistance, spacing, offset0);
+
+        AcDbObjectIdArray processedGroups;
+        for (int i = 0; i < numObjects; i++)
+        {
+            AcGePoint3d target = startPt + unitVector * (spacing * (i + offset0));
+            MoveEntityOrGroup(objectIds[i], target - refPoints[i], processedGroups, groupMap);
+            if (verbose) acutPrintf(_T("  [%d] Moved to %.2f, %.2f\n"), i + 1, target.x, target.y);
+        }
+        if (spacingOut) *spacingOut = spacing;
+        return numObjects;
+    }
+
+    std::vector<AcDbObjectId> DistributeCopies(AcDbObjectId srcId, int count,
+                                               const AcGePoint3d& startPt, const AcGePoint3d& endPt,
+                                               int mode, double* spacingOut)
+    {
+        std::vector<AcDbObjectId> newIds;
+        double total = startPt.distanceTo(endPt);
+        int minCount = (mode == 0) ? 2 : 1;
+        if (total < 0.001 || count < minCount) return newIds;
+
+        AcGeVector3d dir = (endPt - startPt).normal();
+        double spacing, offset0;
+        ModeSpacing(mode, count, total, spacing, offset0);
+
+        for (int i = 0; i < count; i++)
+        {
+            AcDbObjectId id = CopyEntityTo(srcId, startPt + dir * (spacing * (i + offset0)));
+            if (!id.isNull()) newIds.push_back(id);
+        }
+        if (spacingOut) *spacingOut = spacing;
+        return newIds;
     }
 
     void distributeLinearCommand()  { DistributeCommand(0); }
@@ -164,14 +202,8 @@ namespace DistributeTools
         double       total;
         if (!PromptLineVector(startPt, unitVector, total)) return;
 
-        double divisor = (mode == 0) ? (count - 1)
-                       : (mode == 1) ? (count + 1)
-                       :                count;
-        double offset0 = (mode == 1) ? 1.0 : (mode == 2) ? 0.5 : 0.0;
-        double spacing = total / divisor;
-
-        for (int i = 0; i < count; i++)
-            CopyEntityTo(srcId, startPt + unitVector * (spacing * (i + offset0)));
+        double spacing = 0.0;
+        DistributeCopies(srcId, count, startPt, startPt + unitVector * total, mode, &spacing);
 
         if (mode == 2)
             acutPrintf(_T("\n%d copies placed, spacing %.2f (%.2f from ends)."), count, spacing, spacing * 0.5);
@@ -221,29 +253,21 @@ namespace DistributeTools
         if (acedGetInt(_T("\nNumber of copies: "), &count) != RTNORM || count < 1)
         { acutPrintf(_T("\nNeed at least 1 copy.")); return; }
 
-        AcGeVector3d dir = (endPt - startPt).normal();
-        double total = startPt.distanceTo(endPt);
-
+        double spacing = 0.0;
         if (mode == _T("B"))
         {
-            double spacing = total / (count + 1);
-            for (int i = 1; i <= count; i++)
-                CopyEntityTo(srcId, startPt + dir * spacing * i);
+            DistributeCopies(srcId, count, startPt, endPt, 1, &spacing);
             acutPrintf(_T("\n%d copies placed between endpoints, spacing %.2f."), count, spacing);
         }
         else if (mode == _T("E"))
         {
-            double spacing = total / count;
-            for (int i = 0; i < count; i++)
-                CopyEntityTo(srcId, startPt + dir * (spacing * (i + 0.5)));
+            DistributeCopies(srcId, count, startPt, endPt, 2, &spacing);
             acutPrintf(_T("\n%d copies, equal spacing %.2f (%.2f from ends)."), count, spacing, spacing * 0.5);
         }
         else
         {
             if (count < 2) { acutPrintf(_T("\nLinear mode needs at least 2 copies.")); return; }
-            double spacing = total / (count - 1);
-            for (int i = 0; i < count; i++)
-                CopyEntityTo(srcId, startPt + dir * spacing * i);
+            DistributeCopies(srcId, count, startPt, endPt, 0, &spacing);
             acutPrintf(_T("\n%d copies from start to end, spacing %.2f."), count, spacing);
         }
     }
