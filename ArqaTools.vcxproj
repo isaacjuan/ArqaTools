@@ -131,6 +131,7 @@
     <ClCompile Include="CategorizeTools.cpp" />
     <ClCompile Include="SvgExportTools.cpp" />
     <ClCompile Include="LuaTools.cpp" />
+    <ClCompile Include="LuaCommands.cpp" />
     <!-- Vendored Lua 5.4 library source (see ThirdParty\Lua\VERSION.txt) — plain C, not using the project PCH -->
     <ClCompile Include="ThirdParty\Lua\src\lapi.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="ThirdParty\Lua\src\lauxlib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
@@ -194,6 +195,7 @@
     <ClInclude Include="CategorizeTools.h" />
     <ClInclude Include="SvgExportTools.h" />
     <ClInclude Include="LuaTools.h" />
+    <ClInclude Include="LuaCommands.h" />
     <ClInclude Include="ThirdParty\Lua\src\lapi.h" />
     <ClInclude Include="ThirdParty\Lua\src\lauxlib.h" />
     <ClInclude Include="ThirdParty\Lua\src\lcode.h" />

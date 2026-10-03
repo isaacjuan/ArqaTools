@@ -78,6 +78,24 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     `AITools::SendToGitHubCopilotWithHistory`/`GetConversationHistory`) to write Lua against the
     `at` API and runs it directly. Fully decoupled from ACML — no cross-references either
     direction.
+  - `LuaCommands` (`ATAICMD`, `ATLUACMDS`, `ATLUARELOAD`, `ATLUACMDDEL`, `ATLUAFOLDER`) — AutoCAD
+    commands written in Lua and changeable at run time. Every `*.lua` in
+    `Documents\ArqaTools\LuaCommands` (files starting with `_` first, as shared helpers) is loaded
+    at plugin start into one persistent `LuaTools::LuaEngine` (echoing `print` to the command
+    line). A file calls `at.defineCommand("NAME", fn, "description")`; `LiveDefine` registers NAME
+    in group `ARQATOOLS_LUA` through one of 128 template trampolines (`addCommand` callbacks take
+    no context, so slot N forwards to `Dispatch(N)`). Names that `lookupCmd`/`acedGetCName`
+    already know (core AutoCAD, other ARX, our C++ AT* commands) are refused, so Lua can never
+    shadow a built-in. While a file's top level runs, the engine is in loading mode: only
+    `at.defineCommand/print/format*` are usable there (enforced by the `at` proxy's `__index`).
+    `ATAICMD` asks for a name and a request, sends the API (`describeApi()`), the current source and
+    the command's last runtime error (kept by `Dispatch`, with traceback) to the AI, validates the
+    reply in a throwaway engine (must define exactly that name; every `at.X` must exist per
+    `LuaTools::hasApiFunction`) with up to two automatic correction rounds, shows the code for
+    approval, copies the previous version to `history\NAME_<timestamp>.lua`, writes the file and
+    reloads everything (`LoadAll` = fresh engine + `removeGroup` + re-register). A file that fails
+    to load unregisters whatever it defined. The sandbox: no io/os/package/debug, no
+    `dofile`/`loadfile`, `load` is text-only, and global `at` is a read-only userdata proxy.
   - `SvgExportTools` (`ATSVGEXPORT`) — selection → `.svg` file. A top-level block
     reference becomes a shared `<g>` in `<defs>` (built once per unique
     `AcDbBlockTableRecord`, geometry left in block-local space) plus one `<use

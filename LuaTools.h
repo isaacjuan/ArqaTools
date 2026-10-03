@@ -14,6 +14,8 @@
 #include "StdAfx.h"
 #include <string>
 
+struct lua_State;
+
 namespace LuaTools
 {
     // Result of one Lua script run - always a real success/failure signal,
@@ -33,6 +35,55 @@ namespace LuaTools
         long long maxInstructions = 0;
     };
 
+    // Called by at.defineCommand. `name` is already validated and upper-cased.
+    // Return false and fill err to reject the definition.
+    using DefineCommandFn = bool (*)(void* user, const char* name, const char* description,
+                                     char* err, size_t errSize);
+
+    struct LuaCtx;   // per-engine run context (LuaTools.cpp)
+
+    // A sandboxed Lua state with the `at` API. A short-lived engine backs
+    // ATLUA/ATAILUA; LuaCommands keeps one alive for the whole session so the
+    // functions registered with at.defineCommand stay callable.
+    class LuaEngine
+    {
+    public:
+        // echoOutput: print() goes straight to the command line instead of
+        // being buffered into LuaRunResult::output.
+        explicit LuaEngine(bool echoOutput = false);
+        ~LuaEngine();
+        LuaEngine(const LuaEngine&)            = delete;
+        LuaEngine& operator=(const LuaEngine&) = delete;
+
+        bool valid() const { return m_L != nullptr; }
+
+        // Compiles and runs a chunk. chunkName follows Lua conventions:
+        // "@file.lua" or "=label" (shown in error messages).
+        LuaRunResult runChunk(const std::string& code, const std::string& chunkName,
+                              const LuaRunOptions& opts = {});
+
+        // Calls the function registered via at.defineCommand(name, ...).
+        // Errors carry a Lua traceback (file:line).
+        LuaRunResult callCommand(const std::string& name, const LuaRunOptions& opts = {});
+
+        // Without a handler, at.defineCommand raises an error.
+        void setDefineCommandHandler(DefineCommandFn fn, void* user);
+
+        // While loading, only at.defineCommand/print/format* may be used at
+        // the file's top level - everything else belongs inside the command.
+        void setLoading(bool loading);
+
+    private:
+        ::lua_State* m_L   = nullptr;
+        LuaCtx*           m_ctx = nullptr;
+        void beginRun(const LuaRunOptions& opts);
+        void finishRun(int status, LuaRunResult& result);
+    };
+
+    // Strips markdown fences, a leading "CODE:" and the escaped control
+    // characters the lightweight JSON parser can leave in an AI response.
+    CString CleanAiLuaResponse(const CString& response);
+
     // Runs `code` synchronously against the working database. Restricted
     // stdlib (base/table/string/math only - no io/os/package/debug), fresh
     // lua_State per call. Safe to call directly from the command thread -
@@ -47,6 +98,10 @@ namespace LuaTools
     // table that registers the functions - so the ATAILUA prompt can never
     // drift from what is actually bound.
     std::string describeApi();
+
+    // True if `name` is an at.* function (used to reject AI code that calls
+    // functions which do not exist).
+    bool hasApiFunction(const std::string& name);
 
     // ATLUA - prompts for Lua code (or "@<path>" to load a .lua file) and
     // runs it via runLuaScript(), printing the result to the command line.

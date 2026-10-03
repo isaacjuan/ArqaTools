@@ -44,15 +44,19 @@ namespace LuaTools
 // main-thread-only access; this project simply has no other thread that could
 // call in concurrently (confirmed: no CreateThread/std::thread anywhere).
 // ─────────────────────────────────────────────────────────────────────────────
-namespace {
-
 struct LuaCtx
 {
     std::string output;
     bool        cancelled       = false;
     long long   instructions    = 0;
     long long   maxInstructions = 0;   // 0 = unlimited
+    bool        echo            = false;   // print() -> command line, not the buffer
+    bool        loading         = false;   // a command file's top level is running
+    DefineCommandFn defineFn    = nullptr;
+    void*           defineUser  = nullptr;
 };
+
+namespace {
 
 LuaCtx* ctx_from(lua_State* L)
 {
@@ -86,6 +90,8 @@ CString MakePrompt(const char* utf8, const CString& defaultText = CString())
         p.TrimRight();
         p += _T(" <") + defaultText + _T(">: ");
     }
+    else if (!p.IsEmpty() && !_istspace(p[p.GetLength() - 1]))
+        p += _T(" ");   // AI-written prompts often end in ':' with no space
     return _T("\n") + p;
 }
 
@@ -1667,28 +1673,79 @@ int at_print(lua_State* L)
 {
     LuaCtx* c = ctx_from(L);
     const char* msg = luaL_checkstring(L, 1);
-    c->output += msg;
-    c->output += "\n";
+    if (c->echo)
+        acutPrintf(_T("\n%s"), static_cast<LPCTSTR>(CA2T(msg, CP_UTF8)));
+    else
+    {
+        c->output += msg;
+        c->output += "\n";
+    }
     return 0;
 }
 
 // Overridden global print(...) - there is no console attached to the AutoCAD
 // process for this plugin, so this captures into the same buffer as at.print
-// instead of writing to stdout. Uses luaL_tolstring so it matches stock
-// print()'s __tostring-aware formatting.
+// (or echoes to the command line for a command engine) instead of writing to
+// stdout. Uses luaL_tolstring so it matches stock print()'s
+// __tostring-aware formatting.
 int lua_print_override(lua_State* L)
 {
     LuaCtx* c = ctx_from(L);
     int n = lua_gettop(L);
+    luaL_Buffer b;
+    luaL_buffinit(L, &b);
     for (int i = 1; i <= n; ++i)
     {
-        size_t len = 0;
-        const char* s = luaL_tolstring(L, i, &len);
-        c->output.append(s, len);
-        lua_pop(L, 1);
-        if (i < n) c->output += "\t";
+        luaL_tolstring(L, i, nullptr);
+        luaL_addvalue(&b);
+        if (i < n) luaL_addchar(&b, '\t');
     }
-    c->output += "\n";
+    luaL_pushresult(&b);
+    const char* line = lua_tostring(L, -1);
+    if (c->echo)
+        acutPrintf(_T("\n%s"), static_cast<LPCTSTR>(CA2T(line, CP_UTF8)));
+    else
+    {
+        c->output += line;
+        c->output += "\n";
+    }
+    return 0;
+}
+
+// at.defineCommand(name, fn [, description]) - only in command files.
+int at_defineCommand(lua_State* L)
+{
+    LuaCtx* c = ctx_from(L);
+    const char* name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    const char* desc = luaL_optstring(L, 3, "");
+
+    if (!c->defineFn)
+        return luaL_error(L, "at.defineCommand only works in command files "
+                             "(Documents\\ArqaTools\\LuaCommands); create one with ATAICMD");
+
+    // Plain C buffers only: luaL_error below must not skip C++ destructors.
+    char upper[32];
+    size_t len = strlen(name);
+    bool okName = len >= 1 && len <= 31 && isalpha(static_cast<unsigned char>(name[0]));
+    for (size_t i = 0; okName && i < len; ++i)
+    {
+        unsigned char ch = static_cast<unsigned char>(name[i]);
+        okName = isalnum(ch) || ch == '_';
+        upper[i] = static_cast<char>(toupper(ch));
+    }
+    if (!okName)
+        return luaL_error(L, "invalid command name '%s' (letters, digits, _; max 31; starts with a letter)", name);
+    upper[len] = '\0';
+
+    char err[256] = "";
+    if (!c->defineFn(c->defineUser, upper, desc, err, sizeof(err)))
+        return luaL_error(L, "cannot define %s: %s", upper, err);
+
+    luaL_getsubtable(L, LUA_REGISTRYINDEX, "arqa.commands");
+    lua_pushvalue(L, 2);
+    lua_setfield(L, -2, upper);
+    lua_pop(L, 1);
     return 0;
 }
 
@@ -1706,6 +1763,8 @@ struct AtFn
 const AtFn kFns[] = {
     // Output
     { "print",        at_print,        "(msg)",                                "show a line to the user (the global print(...) works too)" },
+    { "defineCommand", at_defineCommand, "(NAME, function() ... end [,description])",
+      "command files only: registers NAME as an AutoCAD command that runs the function" },
     // User input - ESC aborts the script; Enter returns the default, else nil
     { "getPoint",     at_getPoint,     "([prompt [,bx,by,bz]]) -> x,y,z | nil", "pick a point (rubber-band from the optional base point)" },
     { "getDistance",  at_getDistance,  "([prompt [,bx,by,bz]]) -> number | nil", "type or pick a distance" },
@@ -1789,16 +1848,68 @@ const AtFn kFns[] = {
     { "formatLength", at_formatLength, "(length) -> string",                   "formatted for the drawing's units" },
 };
 
+// What a command file's top level may touch while it loads.
+bool AllowedWhileLoading(const char* key)
+{
+    return strcmp(key, "defineCommand") == 0 || strcmp(key, "print") == 0
+        || strcmp(key, "formatArea") == 0    || strcmp(key, "formatLength") == 0;
+}
+
+// __index of the `at` proxy: upvalue 1 = LuaCtx*, upvalue 2 = the real table.
+int at_index(lua_State* L)
+{
+    LuaCtx* c = ctx_from(L);
+    const char* key = lua_tostring(L, 2);
+    if (c->loading && key && !AllowedWhileLoading(key))
+        return luaL_error(L, "at.%s cannot be used while a command file loads; "
+                             "call it inside the command function", key);
+    lua_pushvalue(L, 2);
+    lua_rawget(L, lua_upvalueindex(2));
+    return 1;
+}
+
+int at_newindex(lua_State* L)
+{
+    return luaL_error(L, "the at table is read-only");
+}
+
+// Global `at` is a userdata proxy over the real function table: scripts
+// sharing a persistent engine cannot overwrite or remove at.* for each other
+// (a userdata also defeats rawset), and the loading restriction is enforced
+// in one place.
 void registerAtTable(lua_State* L, LuaCtx* ctx)
 {
-    lua_newtable(L);                       // at = {}
+    lua_newtable(L);                       // real = {}
     for (const auto& e : kFns)
     {
         lua_pushlightuserdata(L, ctx);      // upvalue #1 = LuaCtx*
         lua_pushcclosure(L, e.fn, 1);
-        lua_setfield(L, -2, e.name);        // at[name] = closure
+        lua_setfield(L, -2, e.name);        // real[name] = closure
     }
-    lua_setglobal(L, "at");                 // _G.at = at
+    int real = lua_gettop(L);
+
+    lua_newuserdatauv(L, 0, 0);            // proxy
+    lua_createtable(L, 0, 3);              // its metatable
+    lua_pushlightuserdata(L, ctx);
+    lua_pushvalue(L, real);
+    lua_pushcclosure(L, at_index, 2);
+    lua_setfield(L, -2, "__index");
+    lua_pushcfunction(L, at_newindex);
+    lua_setfield(L, -2, "__newindex");
+    lua_pushboolean(L, 0);
+    lua_setfield(L, -2, "__metatable");    // getmetatable(at) -> false, not replaceable
+    lua_setmetatable(L, -2);
+    lua_setglobal(L, "at");                // _G.at = proxy
+    lua_pop(L, 1);                         // real (kept alive by the __index upvalue)
+}
+
+// Message handler for command calls: appends a traceback (file:line chain)
+// so a failing command - or the AI asked to fix it - can see where it broke.
+int tracebackHandler(lua_State* L)
+{
+    const char* msg = lua_tostring(L, 1);
+    luaL_traceback(L, L, msg ? msg : "(error object is not a string)", 1);
+    return 1;
 }
 
 // Count hook: lets ESC break out of a runaway loop (acedUsrBrk polls the
@@ -1839,60 +1950,157 @@ std::string describeApi()
     return s;
 }
 
+bool hasApiFunction(const std::string& name)
+{
+    for (const auto& e : kFns)
+        if (name == e.name) return true;
+    return false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// runLuaScript
+// LuaEngine
+// ─────────────────────────────────────────────────────────────────────────────
+LuaEngine::LuaEngine(bool echoOutput)
+{
+    m_L = luaL_newstate();
+    if (!m_L) return;
+
+    m_ctx = new LuaCtx;
+    m_ctx->echo = echoOutput;
+    *static_cast<LuaCtx**>(lua_getextraspace(m_L)) = m_ctx;
+    lua_sethook(m_L, instructionHook, LUA_MASKCOUNT, kHookInterval);
+
+    // Restricted stdlib: base/table/string/math only. Deliberately NOT
+    // io/os/package/debug, and base's dofile/loadfile are removed too, so an
+    // AI-authored script cannot touch the filesystem or shell out.
+    luaL_requiref(m_L, LUA_GNAME,       luaopen_base,   1); lua_pop(m_L, 1);
+    luaL_requiref(m_L, LUA_TABLIBNAME,  luaopen_table,  1); lua_pop(m_L, 1);
+    luaL_requiref(m_L, LUA_STRLIBNAME,  luaopen_string, 1); lua_pop(m_L, 1);
+    luaL_requiref(m_L, LUA_MATHLIBNAME, luaopen_math,   1); lua_pop(m_L, 1);
+    lua_pushnil(m_L); lua_setglobal(m_L, "dofile");
+    lua_pushnil(m_L); lua_setglobal(m_L, "loadfile");
+    // load() stays (handy for generated code) but text-only: precompiled
+    // bytecode is not verified by Lua and can crash the host process.
+    luaL_dostring(m_L, "local raw = load; "
+                       "load = function(chunk, name, _, env) return raw(chunk, name, 't', env) end");
+
+    lua_pushlightuserdata(m_L, m_ctx);
+    lua_pushcclosure(m_L, lua_print_override, 1);
+    lua_setglobal(m_L, "print");
+
+    registerAtTable(m_L, m_ctx);
+}
+
+LuaEngine::~LuaEngine()
+{
+    if (m_L) lua_close(m_L);
+    delete m_ctx;
+}
+
+void LuaEngine::setDefineCommandHandler(DefineCommandFn fn, void* user)
+{
+    if (!m_ctx) return;
+    m_ctx->defineFn   = fn;
+    m_ctx->defineUser = user;
+}
+
+void LuaEngine::setLoading(bool loading)
+{
+    if (m_ctx) m_ctx->loading = loading;
+}
+
+void LuaEngine::beginRun(const LuaRunOptions& opts)
+{
+    m_ctx->output.clear();
+    m_ctx->cancelled       = false;
+    m_ctx->instructions    = 0;
+    m_ctx->maxInstructions = opts.maxInstructions;
+}
+
+void LuaEngine::finishRun(int status, LuaRunResult& result)
+{
+    result.output    = m_ctx->output;
+    result.cancelled = m_ctx->cancelled;
+    result.ok        = (status == LUA_OK);
+    if (!result.ok)
+    {
+        const char* msg = lua_tostring(m_L, -1);
+        result.error = msg ? msg : "Lua runtime error.";
+    }
+}
+
+LuaRunResult LuaEngine::runChunk(const std::string& code, const std::string& chunkName,
+                                 const LuaRunOptions& opts)
+{
+    LuaRunResult result;
+    if (!m_L) { result.error = "luaL_newstate failed."; return result; }
+
+    int top = lua_gettop(m_L);
+    beginRun(opts);
+    int status = luaL_loadbuffer(m_L, code.data(), code.size(), chunkName.c_str());
+    if (status == LUA_OK)
+        status = lua_pcall(m_L, 0, 0, 0);
+    finishRun(status, result);
+    lua_settop(m_L, top);
+    return result;
+}
+
+LuaRunResult LuaEngine::callCommand(const std::string& name, const LuaRunOptions& opts)
+{
+    LuaRunResult result;
+    if (!m_L) { result.error = "luaL_newstate failed."; return result; }
+
+    int top = lua_gettop(m_L);
+    beginRun(opts);
+    lua_pushcfunction(m_L, tracebackHandler);
+    int handler = lua_gettop(m_L);
+    luaL_getsubtable(m_L, LUA_REGISTRYINDEX, "arqa.commands");
+    lua_getfield(m_L, -1, name.c_str());
+    lua_remove(m_L, -2);
+    if (!lua_isfunction(m_L, -1))
+    {
+        lua_settop(m_L, top);
+        result.error = "command " + name + " is not defined";
+        return result;
+    }
+    int status = lua_pcall(m_L, 0, 0, handler);
+    finishRun(status, result);
+    lua_settop(m_L, top);
+    return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// runLuaScript - one-shot engine for ATLUA / ATAILUA
 // ─────────────────────────────────────────────────────────────────────────────
 LuaRunResult runLuaScript(const std::string& code, const LuaRunOptions& opts)
 {
-    LuaRunResult result;
+    LuaEngine engine;
+    return engine.runChunk(code, "=ATLUA", opts);
+}
 
-    lua_State* L = luaL_newstate();
-    if (!L) { result.error = "luaL_newstate failed."; return result; }
+CString CleanAiLuaResponse(const CString& response)
+{
+    CString luaCode = response;
+    luaCode.Replace(_T("```lua"), _T(""));
+    luaCode.Replace(_T("```"), _T(""));
 
-    LuaCtx ctx;
-    ctx.maxInstructions = opts.maxInstructions;
-    *static_cast<LuaCtx**>(lua_getextraspace(L)) = &ctx;
-    lua_sethook(L, instructionHook, LUA_MASKCOUNT, kHookInterval);
+    // This project's lightweight JSON parser doesn't always unescape control
+    // characters inside the response's "content" string - the same quirk
+    // aiLispCommand works around (AITools.cpp's cleanup block). Unlike LISP
+    // (where the code gets squashed to one line anyway), Lua statements are
+    // newline/whitespace-friendly, so restore real newlines/tabs rather than
+    // collapsing to spaces.
+    luaCode.Replace(_T("\\r\\n"), _T("\n"));
+    luaCode.Replace(_T("\\n"), _T("\n"));
+    luaCode.Replace(_T("\\r"), _T("\n"));
+    luaCode.Replace(_T("\\t"), _T("\t"));
+    luaCode.Replace(_T("\\\""), _T("\""));
 
-    // Restricted stdlib: base/table/string/math only. Deliberately NOT
-    // io/os/package/debug, so an AI-authored script cannot touch the
-    // filesystem or shell out.
-    luaL_requiref(L, LUA_GNAME,       luaopen_base,   1); lua_pop(L, 1);
-    luaL_requiref(L, LUA_TABLIBNAME,  luaopen_table,  1); lua_pop(L, 1);
-    luaL_requiref(L, LUA_STRLIBNAME,  luaopen_string, 1); lua_pop(L, 1);
-    luaL_requiref(L, LUA_MATHLIBNAME, luaopen_math,   1); lua_pop(L, 1);
-
-    lua_pushlightuserdata(L, &ctx);
-    lua_pushcclosure(L, lua_print_override, 1);
-    lua_setglobal(L, "print");
-
-    registerAtTable(L, &ctx);
-
-    int loadStatus = luaL_loadstring(L, code.c_str());
-    if (loadStatus != LUA_OK)
-    {
-        const char* msg = lua_tostring(L, -1);
-        result.error = msg ? msg : "Lua load error.";
-        lua_close(L);
-        return result;
-    }
-
-    int callStatus = lua_pcall(L, 0, 0, 0);
-    result.output = ctx.output;
-    result.cancelled = ctx.cancelled;
-    if (callStatus != LUA_OK)
-    {
-        const char* msg = lua_tostring(L, -1);
-        result.error = msg ? msg : "Lua runtime error.";
-        result.ok = false;
-    }
-    else
-    {
-        result.ok = true;
-    }
-
-    lua_close(L);
-    return result;
+    luaCode.Trim();
+    if (luaCode.Find(_T("CODE:")) == 0)
+        luaCode = luaCode.Mid(5);
+    luaCode.Trim();
+    return luaCode;
 }
 
 // Prints a run's captured output and its ok / cancelled / error status.
@@ -2029,26 +2237,7 @@ void aiLuaCommand()
         return;
     }
 
-    CString luaCode = response;
-    luaCode.Replace(_T("```lua"), _T(""));
-    luaCode.Replace(_T("```"), _T(""));
-
-    // This project's lightweight JSON parser doesn't always unescape control
-    // characters inside the response's "content" string - the same quirk
-    // aiLispCommand works around (AITools.cpp's cleanup block). Unlike LISP
-    // (where the code gets squashed to one line anyway), Lua statements are
-    // newline/whitespace-friendly, so restore real newlines/tabs rather than
-    // collapsing to spaces.
-    luaCode.Replace(_T("\\r\\n"), _T("\n"));
-    luaCode.Replace(_T("\\n"), _T("\n"));
-    luaCode.Replace(_T("\\r"), _T("\n"));
-    luaCode.Replace(_T("\\t"), _T("\t"));
-    luaCode.Replace(_T("\\\""), _T("\""));
-
-    luaCode.Trim();
-    if (luaCode.Find(_T("CODE:")) == 0)
-        luaCode = luaCode.Mid(5);
-    luaCode.Trim();
+    CString luaCode = CleanAiLuaResponse(response);
 
     if (luaCode.IsEmpty())
     {

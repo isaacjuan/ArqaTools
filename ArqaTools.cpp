@@ -57,6 +57,7 @@ static void unsuppressAssertsCommand()
 #include "GoldenRectTools.h"
 #include "SvgExportTools.h"
 #include "LuaTools.h"
+#include "LuaCommands.h"
 #include "dbregion.h"
 #include "dbgroup.h"
 
@@ -183,6 +184,11 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         // Lua scripting (second, additive scripting engine alongside LISP/ACML)
         { _T("ATLUA"),              LuaTools::luaRunCommand      },
         { _T("ATAILUA"),            LuaTools::aiLuaCommand       },
+        { _T("ATAICMD"),            LuaCommands::aiCommand       },
+        { _T("ATLUACMDS"),          LuaCommands::listCommand     },
+        { _T("ATLUARELOAD"),        LuaCommands::reloadCommand   },
+        { _T("ATLUACMDDEL"),        LuaCommands::deleteCommand   },
+        { _T("ATLUAFOLDER"),        LuaCommands::folderCommand   },
     };
 
     for (const auto& cmd : kCommands)
@@ -194,6 +200,7 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
 #endif
 
     InitAreaToolsPersistence();
+    LuaCommands::Init();
 
     acutPrintf(_T("\n=== ArqaTools 2025 Plugin Loaded ===\n"));
     acutPrintf(_T("%s\n"), GetVersionString());
@@ -207,6 +214,7 @@ AcRx::AppRetCode CArqaToolsApp::On_kUnloadAppMsg(void* pAppData)
     AcRx::AppRetCode retCode = AcRxArxApp::On_kUnloadAppMsg(pAppData);
 
     UninitAreaToolsPersistence();
+    LuaCommands::Uninit();
     acedRegCmds->removeGroup(_T("ARQATOOLS_COMMANDS"));
     acutPrintf(_T("\nArqaTools plugin unloaded.\n"));
     
@@ -803,6 +811,9 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("\n--- LUA SCRIPTING ---\n"));
     acutPrintf(_T("ATLUA       - Run a Lua script (inline or @path\\to\\file.lua) against the \"at\" API\n"));
     acutPrintf(_T("ATAILUA     - Ask the AI to write and run a Lua script for a natural-language request\n"));
+    acutPrintf(_T("ATAICMD     - Ask the AI to create or change a Lua command (saved, reloaded live)\n"));
+    acutPrintf(_T("ATLUACMDS   - List Lua commands      ATLUARELOAD - Reload the command files\n"));
+    acutPrintf(_T("ATLUACMDDEL - Remove a Lua command   ATLUAFOLDER - Open the command files folder\n"));
 
     acutPrintf(_T("\n--- PLUGIN MANAGEMENT ---\n"));
     acutPrintf(_T("ATVERSION   - Display plugin version and build info\n"));
