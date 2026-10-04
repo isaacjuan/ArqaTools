@@ -29,6 +29,7 @@ namespace CadInfra
     struct LayerProps
     {
         std::string color;          // "" = default; "#RRGGBB" or named
+        int         colorIndex = -1;    // ACI 1-255; used when `color` is empty
         std::string linetype;       // "" = Continuous
         double      lineweight = -1.0;  // -1 = default; ≥ 0 = explicit mm
         std::string description;    // "" = none
@@ -36,7 +37,9 @@ namespace CadInfra
         bool        locked = false;
     };
 
-    void EnsureLayer(const CString& name, const LayerProps& props = LayerProps{});
+    // Creates the layer with props if it does not exist (an existing layer is
+    // left untouched). Returns true only when it was created.
+    bool EnsureLayer(const CString& name, const LayerProps& props = LayerProps{});
 
     // ── Linetype ─────────────────────────────────────────────────────────────
     // Ensures `name` is loaded in the current database's linetype table.

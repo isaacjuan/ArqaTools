@@ -1,6 +1,7 @@
 #include "StdAfx.h"
 #include "LayerTools.h"
 #include "CommonTools.h"
+#include "CadInfra.h"
 
 namespace LayerTools
 {
@@ -108,31 +109,25 @@ namespace LayerTools
         AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
         if (!pDb) return fail(_T("no active database"));
 
-        AcDbLayerTable* pLayerTable = nullptr;
-        if (pDb->getLayerTable(pLayerTable, create ? AcDb::kForWrite : AcDb::kForRead) != Acad::eOk)
-            return fail(_T("cannot access layer table"));
+        if (create)
+        {
+            // New layer, default color white/7 (same as ATNL always did).
+            CadInfra::LayerProps props;
+            props.colorIndex = 7;
+            bool made = CadInfra::EnsureLayer(name, props);
+            if (created) *created = made;
+        }
 
         AcDbObjectId layerId;
-        if (pLayerTable->getAt(name, layerId) != Acad::eOk)
         {
-            if (!create) { pLayerTable->close(); return fail(_T("layer not found")); }
-
-            // New layer, default color white/7 (same as ATNL always did).
-            AcDbLayerTableRecord* pNewLayer = new AcDbLayerTableRecord();
-            pNewLayer->setName(name);
-            AcCmColor color;
-            color.setColorIndex(7);
-            pNewLayer->setColor(color);
-            if (pLayerTable->add(layerId, pNewLayer) != Acad::eOk)
-            {
-                delete pNewLayer;
-                pLayerTable->close();
-                return fail(_T("could not create layer"));
-            }
-            pNewLayer->close();
-            if (created) *created = true;
+            AcDbLayerTable* pLayerTable = nullptr;
+            if (pDb->getLayerTable(pLayerTable, AcDb::kForRead) != Acad::eOk)
+                return fail(_T("cannot access layer table"));
+            Acad::ErrorStatus es = pLayerTable->getAt(name, layerId);
+            pLayerTable->close();
+            if (es != Acad::eOk)
+                return fail(create ? _T("could not create layer") : _T("layer not found"));
         }
-        pLayerTable->close();
 
         if (pDb->setClayer(layerId) != Acad::eOk)
             return fail(_T("could not set layer as current (is it frozen?)"));

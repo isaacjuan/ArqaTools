@@ -85,12 +85,13 @@ AcDb::LineWeight MmToLineWeight(double mm)
 
 // ── Layer ────────────────────────────────────────────────────────────────────
 
-void EnsureLayer(const CString& name, const LayerProps& props)
+bool EnsureLayer(const CString& name, const LayerProps& props)
 {
     AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
     AcDbLayerTable* pLT = nullptr;
-    if (pDb->getLayerTable(pLT, AcDb::kForWrite) != Acad::eOk) return;
+    if (pDb->getLayerTable(pLT, AcDb::kForWrite) != Acad::eOk) return false;
 
+    bool created = false;
     if (!pLT->has(name))
     {
         AcDbLayerTableRecord* pRec = new AcDbLayerTableRecord();
@@ -108,6 +109,12 @@ void EnsureLayer(const CString& name, const LayerProps& props)
                          static_cast<Adesk::UInt8>(b));
                 pRec->setColor(c);
             }
+        }
+        else if (props.colorIndex >= 1 && props.colorIndex <= 255)
+        {
+            AcCmColor c;
+            c.setColorIndex(static_cast<Adesk::UInt16>(props.colorIndex));
+            pRec->setColor(c);
         }
 
         // ── Linetype ─────────────────────────────────────────────────────────
@@ -140,10 +147,16 @@ void EnsureLayer(const CString& name, const LayerProps& props)
         pRec->setIsPlottable(props.plot);
         pRec->setIsLocked(props.locked);
 
-        pLT->add(pRec);
-        pRec->close();
+        if (pLT->add(pRec) == Acad::eOk)
+        {
+            pRec->close();
+            created = true;
+        }
+        else
+            delete pRec;   // e.g. invalid layer name: never added
     }
     pLT->close();
+    return created;
 }
 
 // ── Linetype ─────────────────────────────────────────────────────────────────
