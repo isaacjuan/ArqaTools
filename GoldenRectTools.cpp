@@ -15,9 +15,10 @@ namespace
         AcDbBlockTableRecord* pModelSpace = nullptr;
         if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
         { delete pEnt; return; }
-        pModelSpace->appendAcDbEntity(pEnt);
-        pEnt->close();
+        Acad::ErrorStatus es = pModelSpace->appendAcDbEntity(pEnt);
         pModelSpace->close();
+        if (es == Acad::eOk) pEnt->close();
+        else                 delete pEnt;   // never added: close() would be invalid
     }
 
     void DrawPolyRect(const AcGePoint3d pts[4])
