@@ -28,9 +28,7 @@ namespace ArabesqueTools
                           center.y + R * sin(angle),
                           center.z);
             AcDbCircle* pCirc = new AcDbCircle(c, AcGeVector3d::kZAxis, R);
-            AcDbObjectId oid;
-            pBTR->appendAcDbEntity(oid, pCirc);
-            pCirc->close();
+            CommonTools::AppendEntity(pBTR, pCirc);
         }
         pBTR->close();
     }
@@ -61,9 +59,7 @@ namespace ArabesqueTools
         }
         pPoly->setClosed(Adesk::kTrue);
 
-        AcDbObjectId oid;
-        pBTR->appendAcDbEntity(oid, pPoly);
-        pPoly->close();
+        CommonTools::AppendEntity(pBTR, pPoly);
         pBTR->close();
     }
 
@@ -95,9 +91,7 @@ namespace ArabesqueTools
             pPoly->addVertexAt(1, B, bulgeFactor, 0.0, 0.0);
             pPoly->setClosed(Adesk::kTrue);
 
-            AcDbObjectId oid;
-            pBTR->appendAcDbEntity(oid, pPoly);
-            pPoly->close();
+            CommonTools::AppendEntity(pBTR, pPoly);
         }
         pBTR->close();
     }
@@ -238,9 +232,7 @@ namespace ArabesqueTools
         pLeaf->addVertexAt(1, AcGePoint2d(x2, y2), bulge, 0.0, 0.0);
         pLeaf->setClosed(Adesk::kTrue);
 
-        AcDbObjectId oid;
-        pBTR->appendAcDbEntity(oid, pLeaf);
-        pLeaf->close();
+        CommonTools::AppendEntity(pBTR, pLeaf);
     }
 
     void DrawHojaNazari(const AcGePoint3d& origin,
@@ -388,9 +380,7 @@ namespace ArabesqueTools
         AcDbPolyline* pP = new AcDbPolyline(n);
         for (int i = 0; i < n; i++)
             pP->addVertexAt(i, pts[i], 0, 0, 0);
-        AcDbObjectId oid;
-        pBTR->appendAcDbEntity(oid, pP);
-        pP->close();
+        CommonTools::AppendEntity(pBTR, pP);
     }
 
     // Dibuja una baldosa con esquina inferior-izquierda (ox, oy)
@@ -560,9 +550,7 @@ namespace ArabesqueTools
         AcDbFace* pFace = new AcDbFace(q0, q1, q2, q3,
                                        Adesk::kFalse, Adesk::kFalse,
                                        Adesk::kFalse, Adesk::kFalse);
-        AcDbObjectId oid;
-        pBTR->appendAcDbEntity(oid, pFace);
-        pFace->close();
+        CommonTools::AppendEntity(pBTR, pFace);
     }
 
     // Generate top + left wall + right wall faces for one strap sub-segment

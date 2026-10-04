@@ -562,38 +562,10 @@ void TextTools::sumTextCommand()
     pNewText->setTextString(sumText);
     pNewText->setTextStyle(textStyleId);
     
-    // Add to model space
-    AcDbBlockTable* pBlockTable = nullptr;
-    if (pDb->getBlockTable(pBlockTable, AcDb::kForRead) == Acad::eOk)
-    {
-        AcDbBlockTableRecord* pModelSpace = nullptr;
-        if (pBlockTable->getAt(ACDB_MODEL_SPACE, pModelSpace, AcDb::kForWrite) == Acad::eOk)
-        {
-            AcDbObjectId newTextId;
-            if (pModelSpace->appendAcDbEntity(newTextId, pNewText) == Acad::eOk)
-            {
-                acutPrintf(_T("\nSum text created: %s\n"), (LPCTSTR)sumText);
-                pNewText->close();
-            }
-            else
-            {
-                acutPrintf(_T("\nError: Could not add text to drawing.\n"));
-                delete pNewText;
-            }
-            pModelSpace->close();
-        }
-        else
-        {
-            acutPrintf(_T("\nError: Could not open model space.\n"));
-            delete pNewText;
-        }
-        pBlockTable->close();
-    }
+    if (CommonTools::AppendToModelSpace(pNewText).isNull())
+        acutPrintf(_T("\nError: Could not add text to drawing.\n"));
     else
-    {
-        acutPrintf(_T("\nError: Could not access block table.\n"));
-        delete pNewText;
-    }
+        acutPrintf(_T("\nSum text created: %s\n"), (LPCTSTR)sumText);
 }
 
 // SCALETEXT command - Scale text height of selected objects by a factor

@@ -86,17 +86,9 @@ namespace PolylineTools
         if (es != Acad::eOk)
         { delete pRegion1; return fail(_T("boolean operation failed")); }
 
-        AcDbBlockTableRecord* pModelSpace = nullptr;
-        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
-        { delete pRegion1; return fail(_T("could not add result to drawing")); }
-
         pRegion1->setColorIndex(3); // Green
-        AcDbObjectId resultId;
-        es = pModelSpace->appendAcDbEntity(resultId, pRegion1);
-        pModelSpace->close();
-        if (es != Acad::eOk)
-        { delete pRegion1; return fail(_T("could not add result to drawing")); }
-        pRegion1->close();
+        AcDbObjectId resultId = CommonTools::AppendToModelSpace(pRegion1);
+        if (resultId.isNull()) return fail(_T("could not add result to drawing"));
         return resultId;
     }
 
@@ -273,16 +265,8 @@ namespace PolylineTools
         pPoly->setClosed(Adesk::kTrue);
         pPoly->setColorIndex(3); // Green
 
-        AcDbBlockTableRecord* pModelSpace = nullptr;
-        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
-        { delete pPoly; return fail(_T("could not add polyline to drawing")); }
-
-        AcDbObjectId polyId;
-        Acad::ErrorStatus es = pModelSpace->appendAcDbEntity(polyId, pPoly);
-        pModelSpace->close();
-        if (es != Acad::eOk)
-        { delete pPoly; return fail(_T("could not add polyline to drawing")); }
-        pPoly->close();
+        AcDbObjectId polyId = CommonTools::AppendToModelSpace(pPoly);
+        if (polyId.isNull()) return fail(_T("could not add polyline to drawing"));
         return polyId;
     }
 }

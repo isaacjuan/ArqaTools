@@ -174,27 +174,7 @@ void EnsureLinetype(const CString& name)
 
 // ── Entity insertion ─────────────────────────────────────────────────────────
 
-// Internal: append any new entity to model space and return its ObjectId.
-static AcDbObjectId AppendToModelSpace(AcDbEntity* pEnt)
-{
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    AcDbBlockTable* pBT = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk)
-    { delete pEnt; return AcDbObjectId::kNull; }
-
-    AcDbBlockTableRecord* pBTR = nullptr;
-    if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForWrite) != Acad::eOk)
-    { pBT->close(); delete pEnt; return AcDbObjectId::kNull; }
-    pBT->close();
-
-    AcDbObjectId id;
-    if (pBTR->appendAcDbEntity(id, pEnt) != Acad::eOk)
-    { pBTR->close(); delete pEnt; return AcDbObjectId::kNull; }
-
-    pEnt->close();
-    pBTR->close();
-    return id;
-}
+using CommonTools::AppendToModelSpace;
 
 double ResolveTextHeight(AcDbDatabase* pDb)
 {

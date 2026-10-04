@@ -15,6 +15,7 @@
 #include "StdAfx.h"
 #include "dbgroup.h"
 #include <map>
+#include <vector>
 
 namespace CommonTools
 {
@@ -28,10 +29,48 @@ namespace CommonTools
 
     // -------------------------------------------------------------------------
     // GetModelSpace
-    // Opens model space for writing from the active working database.
-    // Caller MUST call pModelSpace->close() after use.
+    // Opens model space (for writing unless told otherwise) from the active
+    // working database. Caller MUST call pModelSpace->close() after use.
     // -------------------------------------------------------------------------
-    Acad::ErrorStatus GetModelSpace(AcDbBlockTableRecord*& pModelSpace);
+    Acad::ErrorStatus GetModelSpace(AcDbBlockTableRecord*& pModelSpace,
+                                    AcDb::OpenMode mode = AcDb::kForWrite);
+
+    // All entity ids in model space, in drawing order (opened for read only).
+    std::vector<AcDbObjectId> ModelSpaceIds(AcDbDatabase* pDb = nullptr);
+
+    // -------------------------------------------------------------------------
+    // AppendEntity / AppendToModelSpace - the one way to add a new entity.
+    // On success the entity is closed and its id returned; on failure it is
+    // deleted (it never reached the database) and kNull is returned. Either
+    // way the caller must not touch pEnt afterwards.
+    // AppendEntity takes an already-open block table record, for loops that
+    // add many entities; AppendToModelSpace opens and closes model space itself.
+    // -------------------------------------------------------------------------
+    AcDbObjectId AppendEntity(AcDbBlockTableRecord* pBTR, AcDbEntity* pEnt);
+    AcDbObjectId AppendToModelSpace(AcDbEntity* pEnt);
+
+    // -------------------------------------------------------------------------
+    // Selection helpers
+    // SelectIds prompts with acedSSGet (optional DXF-0 type filter such as
+    // _T("TEXT,MTEXT")) and returns the picked ids; empty when nothing was
+    // selected or the user cancelled (cancelled tells the two apart).
+    // SelectionIds converts an existing selection set.
+    // -------------------------------------------------------------------------
+    std::vector<AcDbObjectId> SelectIds(const TCHAR* dxfFilter = nullptr, bool* cancelled = nullptr);
+    std::vector<AcDbObjectId> SelectionIds(const ads_name ss);
+
+    // -------------------------------------------------------------------------
+    // Small shared queries
+    // -------------------------------------------------------------------------
+    // Hex handle string <-> ObjectId (pDb defaults to the working database).
+    CString      HandleString(AcDbObjectId id);
+    AcDbObjectId IdFromHandle(const CString& hex, AcDbDatabase* pDb = nullptr);
+
+    // Full length of any curve (line, arc, polyline, spline...).
+    bool CurveLength(const AcDbCurve* pCurve, double& length);
+
+    // Name of the block a reference points at ("" if it cannot be read).
+    CString BlockName(const AcDbBlockReference* pRef);
 
     // -------------------------------------------------------------------------
     // GetEntityGroups

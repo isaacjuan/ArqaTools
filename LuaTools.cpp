@@ -152,28 +152,7 @@ bool ClassMatches(AcRxClass* pClass, const CString& filter)
     return dxf && filter.CompareNoCase(dxf) == 0;
 }
 
-// Local copy of the AppendToModelSpace pattern used throughout this project
-// (GoldenRectTools.cpp, CadInfra.cpp) - returns the new entity's ObjectId so
-// callers can hand a handle string back to Lua.
-AcDbObjectId AppendToModelSpace(AcDbEntity* pEnt)
-{
-    AcDbBlockTableRecord* pModelSpace = nullptr;
-    if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
-    {
-        delete pEnt;
-        return AcDbObjectId::kNull;
-    }
-    AcDbObjectId id;
-    if (pModelSpace->appendAcDbEntity(id, pEnt) != Acad::eOk)
-    {
-        pModelSpace->close();
-        delete pEnt;
-        return AcDbObjectId::kNull;
-    }
-    pEnt->close();
-    pModelSpace->close();
-    return id;
-}
+using CommonTools::AppendToModelSpace;
 
 // Resolves a hex handle string (as returned by at.drawLine/at.copyEntity, …)
 // to an AcDbObjectId in the working database. AcDbHandle(const ACHAR*) parses

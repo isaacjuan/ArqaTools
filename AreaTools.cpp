@@ -743,11 +743,8 @@ std::vector<AcDbObjectId> AreaTools::SplitLine(AcDbObjectId baseId,
     {
         AcDbLine* pLine = new AcDbLine(cleanPts[i], cleanPts[i + 1]);
         if (!targetLayer.IsEmpty()) pLine->setLayer(targetLayer);
-        AcDbObjectId lineId;
-        if (pBTR->appendAcDbEntity(lineId, pLine) == Acad::eOk)
-        { pLine->close(); segIds.push_back(lineId); }
-        else
-            delete pLine;
+        AcDbObjectId lineId = CommonTools::AppendEntity(pBTR, pLine);
+        if (!lineId.isNull()) segIds.push_back(lineId);
     }
     pBTR->close();
 
@@ -957,11 +954,8 @@ std::vector<AcDbObjectId> AreaTools::SplitPolyline(AcDbObjectId baseId,
                 cleanPts[i+1].first, cleanPts[i+1].second);
             if (!pSeg || pSeg->numVerts() < 2) { delete pSeg; continue; }
             if (!targetLayer.IsEmpty()) pSeg->setLayer(targetLayer);
-            AcDbObjectId segId;
-            if (pBTR->appendAcDbEntity(segId, pSeg) == Acad::eOk)
-            { pSeg->close(); segIds.push_back(segId); }
-            else
-                delete pSeg;
+            AcDbObjectId segId = CommonTools::AppendEntity(pBTR, pSeg);
+            if (!segId.isNull()) segIds.push_back(segId);
         }
     }
     pBTR->close();

@@ -10,16 +10,7 @@ namespace
     constexpr double kGoldenRatio = 1.618033988749895;
     constexpr int    kRecurrences = 6;
 
-    void AppendToModelSpace(AcDbEntity* pEnt)
-    {
-        AcDbBlockTableRecord* pModelSpace = nullptr;
-        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
-        { delete pEnt; return; }
-        Acad::ErrorStatus es = pModelSpace->appendAcDbEntity(pEnt);
-        pModelSpace->close();
-        if (es == Acad::eOk) pEnt->close();
-        else                 delete pEnt;   // never added: close() would be invalid
-    }
+    using CommonTools::AppendToModelSpace;
 
     void DrawPolyRect(const AcGePoint3d pts[4])
     {

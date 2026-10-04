@@ -79,11 +79,7 @@ namespace SeqNumTools
         AcDbCircle* pCircle = new AcDbCircle(center, AcGeVector3d::kZAxis, radius);
         pCircle->setColorIndex(2); // Yellow
         
-        AcDbObjectId circleId;
-        pModelSpace->appendAcDbEntity(circleId, pCircle);
-        pCircle->close();
-        
-        return circleId;
+        return CommonTools::AppendEntity(pModelSpace, pCircle);
     }
 
     // Helper: Create and add centered text entity to model space, returns ObjectId
@@ -135,11 +131,7 @@ namespace SeqNumTools
         if (verbose) acutPrintf(_T("  [TEXT CREATED] Text='%s' Height=%.2f WidthFactor=%.3f\n"), 
                    text, height, pText->widthFactor());
         
-        AcDbObjectId textId;
-        pModelSpace->appendAcDbEntity(textId, pText);
-        pText->close();
-        
-        return textId;
+        return CommonTools::AppendEntity(pModelSpace, pText);
     }
 
     // Helper: Create a group containing circle and text

@@ -16,7 +16,7 @@ namespace CommonTools
     // -------------------------------------------------------------------------
     // GetModelSpace
     // -------------------------------------------------------------------------
-    Acad::ErrorStatus GetModelSpace(AcDbBlockTableRecord*& pModelSpace)
+    Acad::ErrorStatus GetModelSpace(AcDbBlockTableRecord*& pModelSpace, AcDb::OpenMode mode)
     {
         pModelSpace = nullptr;
         AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
@@ -28,9 +28,134 @@ namespace CommonTools
         if (es != Acad::eOk)
             return es;
 
-        es = pBT->getAt(ACDB_MODEL_SPACE, pModelSpace, AcDb::kForWrite);
+        es = pBT->getAt(ACDB_MODEL_SPACE, pModelSpace, mode);
         pBT->close();
         return es;
+    }
+
+    // -------------------------------------------------------------------------
+    // ModelSpaceIds
+    // -------------------------------------------------------------------------
+    std::vector<AcDbObjectId> ModelSpaceIds(AcDbDatabase* pDb)
+    {
+        std::vector<AcDbObjectId> ids;
+        if (!pDb) pDb = acdbHostApplicationServices()->workingDatabase();
+        if (!pDb) return ids;
+
+        AcDbBlockTable* pBT = nullptr;
+        if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) return ids;
+        AcDbBlockTableRecord* pMS = nullptr;
+        Acad::ErrorStatus es = pBT->getAt(ACDB_MODEL_SPACE, pMS, AcDb::kForRead);
+        pBT->close();
+        if (es != Acad::eOk) return ids;
+
+        AcDbBlockTableRecordIterator* pRaw = nullptr;
+        if (pMS->newIterator(pRaw) == Acad::eOk)
+        {
+            AcDbIteratorGuard<AcDbBlockTableRecordIterator> it(pRaw);
+            for (; !it->done(); it->step())
+            {
+                AcDbObjectId id;
+                if (it->getEntityId(id) == Acad::eOk) ids.push_back(id);
+            }
+        }
+        pMS->close();
+        return ids;
+    }
+
+    // -------------------------------------------------------------------------
+    // AppendEntity / AppendToModelSpace
+    // -------------------------------------------------------------------------
+    AcDbObjectId AppendEntity(AcDbBlockTableRecord* pBTR, AcDbEntity* pEnt)
+    {
+        if (!pEnt) return AcDbObjectId::kNull;
+        AcDbObjectId id;
+        if (!pBTR || pBTR->appendAcDbEntity(id, pEnt) != Acad::eOk)
+        {
+            delete pEnt;   // never added: close() would be invalid
+            return AcDbObjectId::kNull;
+        }
+        pEnt->close();
+        return id;
+    }
+
+    AcDbObjectId AppendToModelSpace(AcDbEntity* pEnt)
+    {
+        AcDbBlockTableRecord* pMS = nullptr;
+        if (GetModelSpace(pMS) != Acad::eOk)
+        {
+            delete pEnt;
+            return AcDbObjectId::kNull;
+        }
+        AcDbObjectId id = AppendEntity(pMS, pEnt);
+        pMS->close();
+        return id;
+    }
+
+    // -------------------------------------------------------------------------
+    // Selection helpers
+    // -------------------------------------------------------------------------
+    std::vector<AcDbObjectId> SelectionIds(const ads_name ss)
+    {
+        std::vector<AcDbObjectId> ids;
+        Adesk::Int32 len = 0;
+        if (acedSSLength(ss, &len) != RTNORM) return ids;
+        ids.reserve(len);
+        ForEachSsEntity(ss, len, [&](AcDbObjectId id) { ids.push_back(id); });
+        return ids;
+    }
+
+    std::vector<AcDbObjectId> SelectIds(const TCHAR* dxfFilter, bool* cancelled)
+    {
+        resbuf* pFilter = dxfFilter ? acutBuildList(RTDXF0, dxfFilter, RTNONE) : nullptr;
+        SelectionSetGuard guard;
+        int rc = acedSSGet(NULL, NULL, NULL, pFilter, guard.ss);
+        if (pFilter) acutRelRb(pFilter);
+        if (cancelled) *cancelled = (rc == RTCAN);
+        guard.acquired = (rc == RTNORM);
+        return guard.acquired ? SelectionIds(guard.ss) : std::vector<AcDbObjectId>();
+    }
+
+    // -------------------------------------------------------------------------
+    // Small shared queries
+    // -------------------------------------------------------------------------
+    CString HandleString(AcDbObjectId id)
+    {
+        TCHAR buf[AcDbHandle::kStrSiz] = {};
+        id.handle().getIntoAsciiBuffer(buf, AcDbHandle::kStrSiz);
+        return CString(buf);
+    }
+
+    AcDbObjectId IdFromHandle(const CString& hex, AcDbDatabase* pDb)
+    {
+        if (hex.IsEmpty()) return AcDbObjectId::kNull;
+        if (!pDb) pDb = acdbHostApplicationServices()->workingDatabase();
+        if (!pDb) return AcDbObjectId::kNull;
+
+        AcDbHandle h(static_cast<LPCTSTR>(hex));
+        AcDbObjectId id;
+        if (pDb->getAcDbObjectId(id, Adesk::kFalse, h) != Acad::eOk)
+            return AcDbObjectId::kNull;
+        return id;
+    }
+
+    bool CurveLength(const AcDbCurve* pCurve, double& length)
+    {
+        length = 0.0;
+        double endParam = 0.0;
+        return pCurve
+            && pCurve->getEndParam(endParam) == Acad::eOk
+            && pCurve->getDistAtParam(endParam, length) == Acad::eOk;
+    }
+
+    CString BlockName(const AcDbBlockReference* pRef)
+    {
+        if (!pRef) return CString();
+        AcDbObjectGuard<AcDbBlockTableRecord> btr(pRef->blockTableRecord());
+        if (!btr) return CString();
+        AcString name;
+        btr->getName(name);
+        return CString(name.kwszPtr());
     }
 
     // -------------------------------------------------------------------------

@@ -409,7 +409,7 @@ namespace AlignTools
                         {
                             AcDbEntity* pCopy = AcDbEntity::cast(ent->clone());
                             if (pCopy)
-                            { pCopy->transformBy(transform); pModelSpace->appendAcDbEntity(pCopy); pCopy->close(); }
+                            { pCopy->transformBy(transform); CommonTools::AppendEntity(pModelSpace, pCopy); }
                         }
                     }
                 }
@@ -422,7 +422,7 @@ namespace AlignTools
             {
                 AcDbEntity* pCopy = AcDbEntity::cast(ent->clone());
                 if (pCopy)
-                { pCopy->transformBy(transform); pModelSpace->appendAcDbEntity(pCopy); pCopy->close(); }
+                { pCopy->transformBy(transform); CommonTools::AppendEntity(pModelSpace, pCopy); }
             }
         }
     }
