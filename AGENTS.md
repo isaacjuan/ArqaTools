@@ -141,7 +141,7 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
   use) does not hit. Confirmed via `SvgExportTools`' `explode()` fallback on an `AEC_WALL`.
 - Every new `.cpp` must include `StdAfx.h` as its first include and be listed in
   `ArqaTools.vcxproj` under both `<ClCompile>` (source) and `<ClInclude>` (header).
-- **Command names are prefixed `AT`** (e.g. `ATHELLO`, `ATGOLDENRECT`) — follow this for any
+- **Command names are prefixed `AT`** (e.g. `ATSEQNUM`, `ATGOLDENRECT`) — follow this for any
   new command added to `kCommands[]` in `On_kInitAppMsg()`, and update the `ATHELP` listing.
 
 ## Adding a new command

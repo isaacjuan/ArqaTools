@@ -26,8 +26,6 @@ public:
     virtual AcRx::AppRetCode On_kUnloadAppMsg(void* pAppData) override;
     virtual void RegisterServerComponents() override;
 
-    static void helloWorldCommand();
-    static void drawBoxCommand();
     static void booleanPolyCommand();
     static void subtractPolyCommand();
     static void intersectPolyCommand();

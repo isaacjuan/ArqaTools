@@ -2,8 +2,6 @@
 // Demonstrates ObjectARX Module Framework (OMF) with AcRxArxApp
 //
 // Commands:
-//   HELLO    - Creates a red circle with cross at specified point
-//   DRAWBOX  - Creates a 3D wireframe box (blue)
 //   BOOLPOLY - Boolean operations on polylines (union/intersection/subtract)
 
 #include "StdAfx.h"
@@ -98,8 +96,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
     static const struct { const TCHAR* name; AcRxFunctionPtr func; } kCommands[] =
     {
         // Core
-        { _T("ATHELLO"),            helloWorldCommand           },
-        { _T("ATDRAWBOX"),          drawBoxCommand              },
         { _T("ATHELP"),             arqaHelpCommand             },
         { _T("ATVERSION"),          versionCommand              },
         { _T("ATRELOAD"),           reloadCommand               },
@@ -230,185 +226,6 @@ void CArqaToolsApp::RegisterServerComponents()
 // OMF entry point — DllMain is provided by mfc140(u/ud).lib (UseOfMfc=Dynamic)
 IMPLEMENT_ARX_ENTRYPOINT(CArqaToolsApp)
 
-// Helper function: Add entity to model space with color
-static Acad::ErrorStatus AddEntityToModelSpace(AcDbEntity* pEntity, int colorIndex, AcDbBlockTableRecord* pModelSpace)
-{
-    if (!pEntity || !pModelSpace)
-        return Acad::eNullPtr;
-    
-    pEntity->setColorIndex(colorIndex);
-    Acad::ErrorStatus es = pModelSpace->appendAcDbEntity(pEntity);
-    pEntity->close();
-    
-    return es;
-}
-
-// Helper function: Create a line entity
-static AcDbLine* CreateLine(const AcGePoint3d& start, const AcGePoint3d& end)
-{
-    return new AcDbLine(start, end);
-}
-
-// Helper function: Draw a cross (horizontal and vertical lines) at a point
-static void DrawCross(const AcGePoint3d& center, double halfLength, int colorIndex, AcDbBlockTableRecord* pModelSpace)
-{
-    const AcGeVector3d offsetX(halfLength, 0.0, 0.0);
-    const AcGeVector3d offsetY(0.0, halfLength, 0.0);
-    
-    // Horizontal line
-    AcDbLine* pLineH = CreateLine(center - offsetX, center + offsetX);
-    AddEntityToModelSpace(pLineH, colorIndex, pModelSpace);
-    
-    // Vertical line
-    AcDbLine* pLineV = CreateLine(center - offsetY, center + offsetY);
-    AddEntityToModelSpace(pLineV, colorIndex, pModelSpace);
-}
-
-// Helper function: Display welcome message
-static void DisplayWelcomeMessage()
-{
-    acutPrintf(_T("\n==========================================\n"));
-    acutPrintf(_T("   Hello World from AutoCAD 2025!      \n"));
-    acutPrintf(_T("   Simple ObjectARX Plugin Example     \n"));
-    acutPrintf(_T("==========================================\n"));
-}
-
-// Helper function: Draw circle with cross at specified point
-static Acad::ErrorStatus DrawCircleWithCross(const AcGePoint3d& center, double radius, int colorIndex)
-{
-    // Get model space
-    AcDbBlockTableRecord* pModelSpace = nullptr;
-    Acad::ErrorStatus es = CommonTools::GetModelSpace(pModelSpace);
-    if (es != Acad::eOk)
-        return es;
-    
-    // Create and add circle
-    AcDbCircle* pCircle = new AcDbCircle(center, AcGeVector3d::kZAxis, radius);
-    AddEntityToModelSpace(pCircle, colorIndex, pModelSpace);
-    
-    // Draw cross at center
-    const double crossHalfLength = 0.16 * radius;
-    DrawCross(center, crossHalfLength, colorIndex, pModelSpace);
-    
-    pModelSpace->close();
-    return Acad::eOk;
-}
-
-// Command implementation
-void CArqaToolsApp::helloWorldCommand()
-{
-    DisplayWelcomeMessage();
-
-    // Get a point from the user
-    ads_point pt;
-    int result = acedGetPoint(NULL, _T("\nPick a point (or press ESC): "), pt);
-    
-    if (result != RTNORM)
-    {
-        acutPrintf(_T("\nCommand cancelled.\n"));
-        return;
-    }
-
-    acutPrintf(_T("\nYou picked point: X=%.2f, Y=%.2f, Z=%.2f\n"), 
-               pt[X], pt[Y], pt[Z]);
-    
-    // Draw the circle with cross
-    const AcGePoint3d center(pt[X], pt[Y], pt[Z]);
-    const double radius = 100.0;
-    const int redColor = 1;
-    
-    if (DrawCircleWithCross(center, radius, redColor) != Acad::eOk)
-    {
-        acutPrintf(_T("\nError: Could not create entities.\n"));
-        return;
-    }
-    
-    acutPrintf(_T("\nCircle with cross created at the selected point!\n"));
-}
-
-// Helper function: Draw a 3D wireframe box at specified point
-static Acad::ErrorStatus DrawBox(const AcGePoint3d& corner, double width, double height, double depth, int colorIndex)
-{
-    // Get model space
-    AcDbBlockTableRecord* pModelSpace = nullptr;
-    Acad::ErrorStatus es = CommonTools::GetModelSpace(pModelSpace);
-    if (es != Acad::eOk)
-        return es;
-    
-    // Calculate the 8 corners of the box
-    AcGePoint3d p1 = corner;                                        // Bottom front left
-    AcGePoint3d p2(corner.x + width, corner.y, corner.z);         // Bottom front right
-    AcGePoint3d p3(corner.x + width, corner.y + height, corner.z); // Bottom back right
-    AcGePoint3d p4(corner.x, corner.y + height, corner.z);        // Bottom back left
-    AcGePoint3d p5(corner.x, corner.y, corner.z + depth);         // Top front left
-    AcGePoint3d p6(corner.x + width, corner.y, corner.z + depth); // Top front right
-    AcGePoint3d p7(corner.x + width, corner.y + height, corner.z + depth); // Top back right
-    AcGePoint3d p8(corner.x, corner.y + height, corner.z + depth); // Top back left
-    
-    // Create the 12 lines of the 3D wireframe box
-    // Bottom face
-    AcDbLine* lines[12];
-    lines[0] = CreateLine(p1, p2);
-    lines[1] = CreateLine(p2, p3);
-    lines[2] = CreateLine(p3, p4);
-    lines[3] = CreateLine(p4, p1);
-    // Top face
-    lines[4] = CreateLine(p5, p6);
-    lines[5] = CreateLine(p6, p7);
-    lines[6] = CreateLine(p7, p8);
-    lines[7] = CreateLine(p8, p5);
-    // Vertical lines
-    lines[8] = CreateLine(p1, p5);
-    lines[9] = CreateLine(p2, p6);
-    lines[10] = CreateLine(p3, p7);
-    lines[11] = CreateLine(p4, p8);
-    
-    // Add all lines to model space
-    for (int i = 0; i < 12; i++)
-    {
-        AddEntityToModelSpace(lines[i], colorIndex, pModelSpace);
-    }
-    
-    pModelSpace->close();
-    return Acad::eOk;
-}
-
-// DRAWBOX command implementation
-void CArqaToolsApp::drawBoxCommand()
-{
-    acutPrintf(_T("\n==========================================\n"));
-    acutPrintf(_T("   Draw Box Command                     \n"));
-    acutPrintf(_T("==========================================\n"));
-
-    // Get first corner from the user
-    ads_point pt;
-    int result = acedGetPoint(NULL, _T("\nPick first corner (or press ESC): "), pt);
-    
-    if (result != RTNORM)
-    {
-        acutPrintf(_T("\nCommand cancelled.\n"));
-        return;
-    }
-
-    acutPrintf(_T("\nFirst corner: X=%.2f, Y=%.2f, Z=%.2f\n"), 
-               pt[X], pt[Y], pt[Z]);
-    
-    // Draw the 3D wireframe box
-    const AcGePoint3d corner(pt[X], pt[Y], pt[Z]);
-    const double width = 150.0;
-    const double height = 100.0;
-    const double depth = 75.0;
-    const int blueColor = 5;
-    
-    if (DrawBox(corner, width, height, depth, blueColor) != Acad::eOk)
-    {
-        acutPrintf(_T("\nError: Could not create box.\n"));
-        return;
-    }
-    
-    acutPrintf(_T("\n3D wireframe box created! Width=%.2f, Height=%.2f, Depth=%.2f\n"), width, height, depth);
-}
-
 // BOOLPOLY command implementation
 void CArqaToolsApp::booleanPolyCommand()
 {
@@ -524,13 +341,17 @@ void CArqaToolsApp::reloadCommand()
     {
         if (GetModuleFileName(hModule, arxPath, MAX_PATH) > 0)
         {
+            // LISP strings treat '\' as an escape character, so the pasteable
+            // (arxload ...) form needs forward slashes.
+            CString lispPath(arxPath);
+            lispPath.Replace(_T('\\'), _T('/'));
+
             acutPrintf(_T("Plugin path: %s\n\n"), arxPath);
             acutPrintf(_T("NOTE: Cannot unload ARX while command is running.\n"));
-            acutPrintf(_T("Copy and paste this LISP command after RELOAD completes:\n\n"));
-            acutPrintf(_T("(progn (arxunload \"ArqaTools.arx\") (arxload \"%s\"))\n\n"), arxPath);
-            acutPrintf(_T("Or use these commands:\n"));
-            acutPrintf(_T("  ARX UNLOAD ArqaTools.arx\n"));
-            acutPrintf(_T("  NETLOAD %s\n"), arxPath);
+            acutPrintf(_T("Copy and paste this LISP command after ATRELOAD completes:\n\n"));
+            acutPrintf(_T("(progn (arxunload \"ArqaTools.arx\") (arxload \"%s\"))\n\n"), (LPCTSTR)lispPath);
+            acutPrintf(_T("Or: ARX > Unload > ArqaTools.arx, then APPLOAD and browse to the path above.\n"));
+            acutPrintf(_T("(RELOADHW from ReloadArqaTools.lsp does both in one step.)\n"));
         }
         else
         {
@@ -712,8 +533,6 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("====================================\n"));
     
     acutPrintf(_T("\n--- DRAWING COMMANDS ---\n"));
-    acutPrintf(_T("ATHELLO     - Create red circle with cross\n"));
-    acutPrintf(_T("ATDRAWBOX   - Create 3D wireframe box\n"));
     
     acutPrintf(_T("\n--- POLYLINE BOOLEAN OPERATIONS ---\n"));
     acutPrintf(_T("ATBOOLPOLY  - Boolean operations menu (union/subtract/intersect)\n"));
