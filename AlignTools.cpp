@@ -32,30 +32,6 @@ namespace AlignTools
     }
 
     // -------------------------------------------------------------------------
-    // MoveEntityPreservingType: type-aware translation.
-    // AcDbCircle / AcDbText use property setters to preserve internal state;
-    // all other types use the generic transformBy.
-    // -------------------------------------------------------------------------
-    static void MoveEntityPreservingType(AcDbEntity* pEnt, const AcGeVector3d& delta)
-    {
-        if (pEnt->isKindOf(AcDbCircle::desc()))
-        {
-            AcDbCircle* p = static_cast<AcDbCircle*>(pEnt);
-            p->setCenter(p->center() + delta);
-        }
-        else if (pEnt->isKindOf(AcDbText::desc()))
-        {
-            AcDbText* p = static_cast<AcDbText*>(pEnt);
-            p->setPosition(p->position() + delta);
-            p->setAlignmentPoint(p->alignmentPoint() + delta);
-        }
-        else
-        {
-            pEnt->transformBy(AcGeMatrix3d::translation(delta));
-        }
-    }
-
-    // -------------------------------------------------------------------------
     // GetGroupCircleCenter: returns the center of the first AcDbCircle found
     // inside a group. Used as the alignment reference point for SEQNUM groups.
     // -------------------------------------------------------------------------
@@ -101,7 +77,7 @@ namespace AlignTools
         for (; !iter->done(); iter->next())
         {
             CommonTools::AcDbObjectGuard<AcDbEntity> ent(iter->objectId(), AcDb::kForWrite);
-            if (ent) { MoveEntityPreservingType(ent.get(), delta); moved++; }
+            if (ent) { ent->transformBy(AcGeMatrix3d::translation(delta)); moved++; }
         }
 
         int numAfter = group->numEntities();
