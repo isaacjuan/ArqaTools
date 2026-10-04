@@ -92,6 +92,16 @@ namespace CadInfra
 
     // Scan model space of pDb and return all {curveId, textId} pairs that
     // carry xData under appName.
+    // A curve carrying appName xdata: the label it points at (handle) and the
+    // first string stored with it (ATROOMTAG keeps the room name there).
+    struct XDataLink
+    {
+        AcDbObjectId curveId;
+        AcDbObjectId labelId;
+        CString      text;
+    };
+    std::vector<XDataLink> CollectXDataLinks(AcDbDatabase* pDb, const TCHAR* appName);
+
     void CollectXDataPairs(AcDbDatabase* pDb, const TCHAR* appName,
                            std::vector<std::pair<AcDbObjectId,
                                                  AcDbObjectId>>& pairs);

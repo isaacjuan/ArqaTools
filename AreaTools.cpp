@@ -306,17 +306,10 @@ void sumLengthCommand()
 {
     acutPrintf(_T("\nSUMLENGTH - Insert sum of lengths for selected curves"));
 
-    ads_name ss;
-    if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    Adesk::Int32 ssLen = 0;
-    acedSSLength(ss, &ssLen);
-    if (ssLen == 0) { acedSSFree(ss); acutPrintf(_T("\nNo objects selected.")); return; }
-
-    std::vector<AcDbObjectId> candidates;
-    CommonTools::ForEachSsEntity(ss, ssLen, [&](AcDbObjectId id) { candidates.push_back(id); });
-    acedSSFree(ss);
+    bool cancelled = false;
+    std::vector<AcDbObjectId> candidates = CommonTools::SelectIds(nullptr, &cancelled);
+    if (cancelled) { acutPrintf(_T("\nCommand cancelled.")); return; }
+    if (candidates.empty()) { acutPrintf(_T("\nNo objects selected.")); return; }
 
     std::vector<AcDbObjectId> ids;
     double total = 0.0;
@@ -573,14 +566,8 @@ void countBlocksCommand()
         blockCount = AreaTools::CountBlocks(nullptr);
     else
     {
-        ads_name ss;
-        if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-        { acutPrintf(_T("\nNo objects selected.")); return; }
-        Adesk::Int32 len = 0;
-        acedSSLength(ss, &len);
-        std::vector<AcDbObjectId> ids;
-        CommonTools::ForEachSsEntity(ss, len, [&](AcDbObjectId id) { ids.push_back(id); });
-        acedSSFree(ss);
+        std::vector<AcDbObjectId> ids = CommonTools::SelectIds();
+        if (ids.empty()) { acutPrintf(_T("\nNo objects selected.")); return; }
         blockCount = AreaTools::CountBlocks(&ids);
     }
 
@@ -618,22 +605,7 @@ std::map<CString, int> AreaTools::CountBlocks(const std::vector<AcDbObjectId>* i
         return blockCount;
     }
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    AcDbBlockTable* pBT = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) return blockCount;
-    AcDbBlockTableRecord* pBTR = nullptr;
-    if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForRead) != Acad::eOk)
-    { pBT->close(); return blockCount; }
-    pBT->close();
-    std::vector<AcDbObjectId> all;
-    {
-        AcDbBlockTableRecordIterator* pRaw = nullptr;
-        pBTR->newIterator(pRaw);
-        CommonTools::AcDbIteratorGuard<AcDbBlockTableRecordIterator> pIter(pRaw);
-        for (; !pIter->done(); pIter->step())
-        { AcDbObjectId id; pIter->getEntityId(id); all.push_back(id); }
-    }
-    pBTR->close();
+    std::vector<AcDbObjectId> all = CommonTools::ModelSpaceIds();
     for (AcDbObjectId id : all) countEntity(id);
     return blockCount;
 }
@@ -661,13 +633,8 @@ static void CollectIntersectionPoints(AcDbCurve* pBase, AcDbObjectId baseId,
 static bool SelectCrossingEntities(std::vector<AcDbObjectId>& crossIds)
 {
     acutPrintf(_T("\nSelect crossing lines/polylines: "));
-    ads_name ss;
-    if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM) return false;
-    Adesk::Int32 ssLen = 0;
-    acedSSLength(ss, &ssLen);
-    CommonTools::ForEachSsEntity(ss, ssLen, [&](AcDbObjectId id) { crossIds.push_back(id); });
-    acedSSFree(ss);
-    return true;
+    crossIds = CommonTools::SelectIds();
+    return !crossIds.empty();
 }
 
 // ============================================================================
@@ -974,27 +941,21 @@ void tagAllCommand()
 {
     acutPrintf(_T("\nTAGALL - Insert length text on all selected lines/polylines"));
 
-    ads_name ss;
-    if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-    { acutPrintf(_T("\nNo objects selected.")); return; }
-
-    Adesk::Int32 len = 0;
-    acedSSLength(ss, &len);
+    std::vector<AcDbObjectId> ids = CommonTools::SelectIds();
+    if (ids.empty()) { acutPrintf(_T("\nNo objects selected.")); return; }
 
     int tagged = 0, skipped = 0;
-    CommonTools::ForEachSsEntity(ss, len, [&](AcDbObjectId id)
+    for (AcDbObjectId id : ids)
     {
         bool isCurve = false;
         {
             CommonTools::AcDbObjectGuard<AcDbEntity> ent(id);
-            if (!ent) return;
+            if (!ent) continue;
             isCurve = ent->isKindOf(AcDbCurve::desc());
         }
         if (isCurve && !AreaTools::InsertLengthLabel(id).isNull()) tagged++;
         else skipped++;
-    });
-
-    acedSSFree(ss);
+    }
     acutPrintf(_T("\nTAGALL complete: %d tagged, %d skipped."), tagged, skipped);
 }
 

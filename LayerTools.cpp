@@ -29,40 +29,23 @@ namespace LayerTools
         acutPrintf(_T("Current layer: %s\n"), (LPCTSTR)currentLayerName);
         acutPrintf(_T("Select objects to change to this layer:\n"));
         
-        // Select objects
-        ads_name ss;
-        if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
+        std::vector<AcDbObjectId> ids = CommonTools::SelectIds();
+        if (ids.empty())
         {
             acutPrintf(_T("No objects selected.\n"));
             return;
         }
-        
-        // Get selection set length
-        Adesk::Int32 length = 0;
-        acedSSLength(ss, &length);
-        
-        if (length == 0)
-        {
-            acedSSFree(ss);
-            acutPrintf(_T("Selection set is empty.\n"));
-            return;
-        }
-        
-        acutPrintf(_T("Processing %d objects...\n"), length);
-        
+        acutPrintf(_T("Processing %d objects...\n"), static_cast<int>(ids.size()));
+
         int successCount = 0;
         int failCount = 0;
-        
-        // Process each object
-        CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId objId)
+        for (AcDbObjectId objId : ids)
         {
             CommonTools::AcDbObjectGuard<AcDbEntity> ent(objId, AcDb::kForWrite);
-            if (ent) { if (ent->setLayer(currentLayerId) == Acad::eOk) successCount++; else failCount++; }
+            if (ent && ent->setLayer(currentLayerId) == Acad::eOk) successCount++;
             else failCount++;
-        });
-        
-        acedSSFree(ss);
-        
+        }
+
         acutPrintf(_T("\n✓ Changed %d objects to layer '%s'\n"), successCount, (LPCTSTR)currentLayerName);
         if (failCount > 0)
         {
@@ -251,21 +234,16 @@ void LayerTools::matchLayerCommand()
     acutPrintf(_T("Source layer: %s\n"), (LPCTSTR)layerName);
     acutPrintf(_T("Select objects to move to this layer:\n"));
 
-    ads_name ss;
-    if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-    { acutPrintf(_T("\nNo objects selected.\n")); return; }
+    std::vector<AcDbObjectId> ids = CommonTools::SelectIds();
+    if (ids.empty()) { acutPrintf(_T("\nNo objects selected.\n")); return; }
 
-    Adesk::Int32 len = 0;
-    acedSSLength(ss, &len);
     int count = 0;
-
-    CommonTools::ForEachSsEntity(ss, len, [&](AcDbObjectId objId)
+    for (AcDbObjectId objId : ids)
     {
-        if (objId == srcId) return; // skip source itself
+        if (objId == srcId) continue; // skip source itself
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(objId, AcDb::kForWrite);
         if (ent) { ent->setLayer(layerName); count++; }
-    });
+    }
 
-    acedSSFree(ss);
     acutPrintf(_T("\nLayer matched to '%s' on %d object(s).\n"), (LPCTSTR)layerName, count);
 }

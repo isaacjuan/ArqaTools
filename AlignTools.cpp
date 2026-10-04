@@ -270,8 +270,7 @@ namespace AlignTools
         acedSSLength(ssGuard.ss, &length);
         acutPrintf(_T("Selected %d objects. Aligning...\n"), length);
 
-        std::vector<AcDbObjectId> ids;
-        CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId objId) { ids.push_back(objId); });
+        std::vector<AcDbObjectId> ids = CommonTools::SelectionIds(ssGuard.ss);
 
         int aligned = AlignObjects(ids, axis, coord, true);
 

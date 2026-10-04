@@ -120,23 +120,19 @@ namespace
 {
     void PlaceRectsInContainer(bool goldenProportion)
     {
-        ads_name ss;
-        TCHAR prompt[] = _T("\nSelect containing rectangle: ");
-        if (acedSSGet(_T(":S"), NULL, NULL, NULL, ss) != RTNORM)
-        { acutPrintf(_T("\nNothing selected.\n")); return; }
-
-        Adesk::Int32 len = 0;
-        acedSSLength(ss, &len);
-        if (len == 0) { acedSSFree(ss); acutPrintf(_T("\nNothing selected.\n")); return; }
-
-        ads_name ename;
-        acedSSName(ss, 0, ename);
-        acedSSFree(ss);
-
+        acutPrintf(_T("\nSelect containing rectangle: "));
         AcDbObjectId objId;
+        {
+            CommonTools::SelectionSetGuard guard;
+            guard.acquired = (acedSSGet(_T(":S"), NULL, NULL, NULL, guard.ss) == RTNORM);
+            std::vector<AcDbObjectId> picked;
+            if (guard.acquired) picked = CommonTools::SelectionIds(guard.ss);
+            if (picked.empty()) { acutPrintf(_T("\nNothing selected.\n")); return; }
+            objId = picked[0];
+        }
+
         AcDbPolyline* pPline = nullptr;
-        if (acdbGetObjectId(objId, ename) != Acad::eOk ||
-            acdbOpenObject(pPline, objId, AcDb::kForRead) != Acad::eOk)
+        if (acdbOpenObject(pPline, objId, AcDb::kForRead) != Acad::eOk)
         { acutPrintf(_T("\nSelected object is not a polyline.\n")); return; }
 
         if (!pPline->isClosed())

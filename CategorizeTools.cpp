@@ -1,5 +1,6 @@
 #include "StdAfx.h"
 #include "CategorizeTools.h"
+#include "CommonTools.h"
 #include "dbmain.h"
 #include "dbents.h"
 #include "dbsymtb.h"
@@ -24,42 +25,12 @@ void DBObjectMap::populate(AcDbDatabase* pDb)
     if (!pDb)
         return;
 
-    AcDbBlockTable* pBT = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk)
-        return;
-
-    AcDbBlockTableRecord* pMS = nullptr;
-    if (pBT->getAt(ACDB_MODEL_SPACE, pMS, AcDb::kForRead) != Acad::eOk)
+    for (AcDbObjectId id : CommonTools::ModelSpaceIds(pDb))
     {
-        pBT->close();
-        return;
+        AcRxClass* pClass = id.objectClass();
+        std::wstring typeName = pClass ? pClass->name() : L"Unknown";
+        m_objectsByType[typeName].push_back(id);
     }
-    pBT->close();
-
-    AcDbBlockTableRecordIterator* pIter = nullptr;
-    if (pMS->newIterator(pIter) != Acad::eOk)
-    {
-        pMS->close();
-        return;
-    }
-
-    for (; !pIter->done(); pIter->step())
-    {
-        AcDbEntity* pEnt = nullptr;
-        if (pIter->getEntity(pEnt, AcDb::kForRead) == Acad::eOk)
-        {
-            AcDbObjectId id = pEnt->id();
-            pEnt->close();
-            // Use objectClass() on the ID to get the real ODA-level class,
-            // not the IcArx bridge wrapper class returned by isA().
-            AcRxClass* pClass = id.objectClass();
-            std::wstring typeName = pClass ? pClass->name() : L"Unknown";
-            m_objectsByType[typeName].push_back(id);
-        }
-    }
-
-    delete pIter;
-    pMS->close();
 }
 
 // ---------------------------------------------------------------------------

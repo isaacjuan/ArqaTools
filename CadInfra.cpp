@@ -331,28 +331,13 @@ void StoreRoomXData(AcDbObjectId curveId, AcDbObjectId textId,
     if (pRb) { curve->setXData(pRb); acutRelRb(pRb); }
 }
 
-void CollectXDataPairs(AcDbDatabase* pDb, const TCHAR* appName,
-                       std::vector<std::pair<AcDbObjectId, AcDbObjectId>>& pairs)
+std::vector<XDataLink> CollectXDataLinks(AcDbDatabase* pDb, const TCHAR* appName)
 {
-    AcDbBlockTable* pBT = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) return;
-    AcDbBlockTableRecord* pBTR = nullptr;
-    if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForRead) != Acad::eOk)
-    { pBT->close(); return; }
-    pBT->close();
-
-    AcDbBlockTableRecordIterator* pRawIter = nullptr;
-    pBTR->newIterator(pRawIter);
-    pBTR->close();
-    if (!pRawIter) return;
-
-    for (; !pRawIter->done(); pRawIter->step())
+    std::vector<XDataLink> links;
+    for (AcDbObjectId id : CommonTools::ModelSpaceIds(pDb))
     {
-        AcDbObjectId entId, textId;
+        XDataLink link;
         {
-            AcDbObjectId id;
-            pRawIter->getEntityId(id);
-
             CommonTools::AcDbObjectGuard<AcDbEntity> ent(id);
             if (!ent || !ent->isKindOf(AcDbCurve::desc())) continue;
 
@@ -361,20 +346,25 @@ void CollectXDataPairs(AcDbDatabase* pDb, const TCHAR* appName,
 
             for (resbuf* p = pRb; p; p = p->rbnext)
             {
-                if (p->restype == AcDb::kDxfXdHandle)
-                {
-                    AcDbHandle h(p->resval.rstring);
-                    pDb->getAcDbObjectId(textId, Adesk::kFalse, h);
-                    break;
-                }
+                if (p->restype == AcDb::kDxfXdHandle && link.labelId.isNull())
+                    link.labelId = CommonTools::IdFromHandle(p->resval.rstring, pDb);
+                else if (p->restype == AcDb::kDxfXdAsciiString && link.text.IsEmpty())
+                    link.text = p->resval.rstring;
             }
             acutRelRb(pRb);
-            entId = id;
         }
-        if (!entId.isNull() && !textId.isNull())
-            pairs.push_back({ entId, textId });
+        if (link.labelId.isNull()) continue;
+        link.curveId = id;
+        links.push_back(link);
     }
-    delete pRawIter;
+    return links;
+}
+
+void CollectXDataPairs(AcDbDatabase* pDb, const TCHAR* appName,
+                       std::vector<std::pair<AcDbObjectId, AcDbObjectId>>& pairs)
+{
+    for (const XDataLink& link : CollectXDataLinks(pDb, appName))
+        pairs.push_back({ link.curveId, link.labelId });
 }
 
 } // namespace CadInfra

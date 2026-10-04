@@ -276,19 +276,6 @@ namespace TextTools
     // ENTITY SELECTION HELPERS
     // ============================================================================
     
-    // Select a single entity with user prompt
-    static bool SelectSourceEntity(ads_name& ent, const TCHAR* prompt = _T("\nSelect source text: "))
-    {
-        ads_point pickPt;
-        return acedEntSel(prompt, ent, pickPt) == RTNORM;
-    }
-
-    // Select multiple entities (returns selection set)
-    static bool SelectDestinationEntities(ads_name& ss)
-    {
-        return acedSSGet(nullptr, nullptr, nullptr, nullptr, ss) == RTNORM;
-    }
-
     // ============================================================================
     // COMMANDS
     // ============================================================================
@@ -401,13 +388,8 @@ namespace TextTools {
 
         if (!helper.SelectDestinations()) { helper.PrintNoDestinations(); return; }
 
-        const ads_name& ss = helper.GetDestinationSet();
-        Adesk::Int32 length = 0;
-        acedSSLength(ss, &length);
-        acutPrintf(_T("Processing %d destination object(s)...\n"), length);
-
-        std::vector<AcDbObjectId> destIds;
-        CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { destIds.push_back(id); });
+        std::vector<AcDbObjectId> destIds = CommonTools::SelectionIds(helper.GetDestinationSet());
+        acutPrintf(_T("Processing %d destination object(s)...\n"), static_cast<int>(destIds.size()));
 
         int skipped = 0;
         int updated = CopyTextStyle(sourceId, destIds, includeHeight, &skipped);
@@ -450,13 +432,8 @@ void TextTools::copyDimStyleCommand()
 
     if (!helper.SelectDestinations()) { helper.PrintNoDestinations(); return; }
 
-    const ads_name& ss = helper.GetDestinationSet();
-    Adesk::Int32 length = 0;
-    acedSSLength(ss, &length);
-    acutPrintf(_T("Processing %d destination object(s)...\n"), length);
-
-    std::vector<AcDbObjectId> destIds;
-    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { destIds.push_back(id); });
+    std::vector<AcDbObjectId> destIds = CommonTools::SelectionIds(helper.GetDestinationSet());
+    acutPrintf(_T("Processing %d destination object(s)...\n"), static_cast<int>(destIds.size()));
 
     int skipped = 0;
     int updated = CopyDimStyle(sourceId, destIds, &skipped);
@@ -473,37 +450,13 @@ void TextTools::sumTextCommand()
     acutPrintf(_T("\n=== SUM TEXT VALUES ===\n"));
     acutPrintf(_T("Select text objects containing numeric values:\n"));
     
-    // Select text objects
-    ads_name ss;
-    struct resbuf* filter = acutBuildList(
-        RTDXF0, _T("TEXT,MTEXT"),
-        RTNONE
-    );
-    
-    if (acedSSGet(NULL, NULL, NULL, filter, ss) != RTNORM)
+    std::vector<AcDbObjectId> ids = CommonTools::SelectIds(_T("TEXT,MTEXT"));
+    if (ids.empty())
     {
-        acutRelRb(filter);
         acutPrintf(_T("No objects selected.\n"));
         return;
     }
-    acutRelRb(filter);
-    
-    // Get selection set length
-    Adesk::Int32 length = 0;
-    acedSSLength(ss, &length);
-    
-    if (length == 0)
-    {
-        acedSSFree(ss);
-        acutPrintf(_T("Selection set is empty.\n"));
-        return;
-    }
-    
-    acutPrintf(_T("Processing %d text object(s)...\n"), length);
-    
-    std::vector<AcDbObjectId> ids;
-    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { ids.push_back(id); });
-    acedSSFree(ss);
+    acutPrintf(_T("Processing %d text object(s)...\n"), static_cast<int>(ids.size()));
 
     int validCount = 0, invalidCount = 0;
     double totalSum = SumTextValues(ids, &validCount, &invalidCount, true);
@@ -580,19 +533,10 @@ void TextTools::scaleTextCommand()
     if (factor <= 0.0)
     { acutPrintf(_T("\nError: Scale factor must be > 0.\n")); return; }
 
-    // Select text objects
-    ads_name ss;
-    if (acedSSGet(NULL, NULL, NULL, NULL, ss) != RTNORM)
-    { acutPrintf(_T("\nNo objects selected.\n")); return; }
+    std::vector<AcDbObjectId> ids = CommonTools::SelectIds();
+    if (ids.empty()) { acutPrintf(_T("\nNo objects selected.\n")); return; }
 
-    Adesk::Int32 length = 0;
-    acedSSLength(ss, &length);
-
-    std::vector<AcDbObjectId> ids;
-    CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId id) { ids.push_back(id); });
     int count = ScaleTextHeight(ids, factor);
-
-    acedSSFree(ss);
     acutPrintf(_T("\nScaled text height x%.2f on %d object(s).\n"), factor, count);
 }
 

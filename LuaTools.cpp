@@ -574,17 +574,8 @@ int at_getSelection(lua_State* L)
         ssGuard.acquired = (rc == RTNORM);
         if (pFilter) acutRelRb(pFilter);
 
-        Adesk::Int32 len = 0;
-        if (ssGuard.acquired && acedSSLength(ssGuard.ss, &len) == RTNORM)
-        {
-            for (Adesk::Int32 i = 0; i < len; ++i)
-            {
-                ads_name en;
-                AcDbObjectId id;
-                if (acedSSName(ssGuard.ss, i, en) == RTNORM && acdbGetObjectId(id, en) == Acad::eOk)
-                    ids.push_back(id);
-            }
-        }
+        if (ssGuard.acquired)
+            ids = CommonTools::SelectionIds(ssGuard.ss);
     }
     if (rc == RTCAN) return RaiseCancelled(L);
 
@@ -604,22 +595,9 @@ int at_entities(lua_State* L)
     std::vector<AcDbObjectId> ids;
     {
         CString wFilter = filter ? CString(CA2T(filter, CP_UTF8)) : CString();
-        AcDbBlockTableRecord* pMS = nullptr;
-        if (CommonTools::GetModelSpace(pMS) == Acad::eOk)
-        {
-            AcDbBlockTableRecordIterator* pIter = nullptr;
-            if (pMS->newIterator(pIter) == Acad::eOk)
-            {
-                for (; !pIter->done(); pIter->step())
-                {
-                    AcDbObjectId id;
-                    if (pIter->getEntityId(id) == Acad::eOk && ClassMatches(id.objectClass(), wFilter))
-                        ids.push_back(id);
-                }
-                delete pIter;
-            }
-            pMS->close();
-        }
+        for (AcDbObjectId id : CommonTools::ModelSpaceIds())
+            if (ClassMatches(id.objectClass(), wFilter))
+                ids.push_back(id);
     }
 
     PushIdList(L, ids);

@@ -70,8 +70,7 @@ namespace DistributeTools
         double       totalDistance;
         if (!PromptLineVector(startPt, unitVector, totalDistance)) return;
 
-        std::vector<AcDbObjectId> ids;
-        CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId objId) { ids.push_back(objId); });
+        std::vector<AcDbObjectId> ids = CommonTools::SelectionIds(ssGuard.ss);
 
         double spacing = 0.0;
         int numObjects = DistributeObjects(ids, startPt, startPt + unitVector * totalDistance,

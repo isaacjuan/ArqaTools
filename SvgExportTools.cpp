@@ -871,9 +871,7 @@ void SvgExportTools::svgExportCommand()
     if (length == 0)
     { acutPrintf(CommonTools::MSG_NO_SELECTION); return; }
 
-    std::vector<AcDbObjectId> ids;
-    ids.reserve(length);
-    CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId id) { ids.push_back(id); });
+    std::vector<AcDbObjectId> ids = CommonTools::SelectionIds(ssGuard.ss);
 
     CString filePath = DocumentsFolder() + _T("\\ArqaTools_Export.svg");
     int exported = 0, skipped = 0;

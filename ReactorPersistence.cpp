@@ -67,55 +67,13 @@ static void RebuildRoom(AcDbDatabase* pDb)
     std::set<AcDbObjectId> already;
     for (auto* r : g_room) already.insert(r->getCurveId());
 
-    // Room xData also carries a room-name string — must scan manually.
-    AcDbBlockTable* pBT = nullptr;
-    if (pDb->getBlockTable(pBT, AcDb::kForRead) != Acad::eOk) return;
-    AcDbBlockTableRecord* pBTR = nullptr;
-    if (pBT->getAt(ACDB_MODEL_SPACE, pBTR, AcDb::kForRead) != Acad::eOk)
-    { pBT->close(); return; }
-    pBT->close();
-
-    AcDbBlockTableRecordIterator* pRawIter = nullptr;
-    pBTR->newIterator(pRawIter);
-    pBTR->close();
-    if (!pRawIter) return;
-
-    for (; !pRawIter->done(); pRawIter->step())
+    for (const auto& link : CadInfra::CollectXDataLinks(pDb, CadInfra::ROOM_APP_NAME))
     {
-        AcDbObjectId entId, textId;
-        CString roomName;
-        {
-            AcDbObjectId id;
-            pRawIter->getEntityId(id);
-            if (already.count(id)) continue;
-
-            CommonTools::AcDbObjectGuard<AcDbEntity> ent(id);
-            if (!ent || !ent->isKindOf(AcDbCurve::desc())) continue;
-
-            resbuf* pRb = ent->xData(CadInfra::ROOM_APP_NAME);
-            if (!pRb) continue;
-
-            for (resbuf* p = pRb; p; p = p->rbnext)
-            {
-                if (p->restype == AcDb::kDxfXdHandle)
-                {
-                    AcDbHandle h(p->resval.rstring);
-                    pDb->getAcDbObjectId(textId, Adesk::kFalse, h);
-                }
-                else if (p->restype == AcDb::kDxfXdAsciiString)
-                    roomName = p->resval.rstring;
-            }
-            acutRelRb(pRb);
-            entId = id;
-        }
-        if (entId.isNull() || textId.isNull()) continue;
-        {
-            CommonTools::AcDbObjectGuard<AcDbEntity> t(textId);
-            if (!t || !t->isKindOf(AcDbMText::desc())) continue;
-        }
-        g_room.push_back(new RoomTagReactor(entId, textId, roomName));
+        if (already.count(link.curveId)) continue;
+        CommonTools::AcDbObjectGuard<AcDbEntity> t(link.labelId);
+        if (!t || !t->isKindOf(AcDbMText::desc())) continue;
+        g_room.push_back(new RoomTagReactor(link.curveId, link.labelId, link.text));
     }
-    delete pRawIter;
 }
 
 static void RebuildSum(AcDbDatabase* pDb)
