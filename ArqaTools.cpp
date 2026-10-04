@@ -56,6 +56,7 @@ static void unsuppressAssertsCommand()
 #include "SvgExportTools.h"
 #include "LuaTools.h"
 #include "LuaCommands.h"
+#include "McpBridge.h"
 #include "dbregion.h"
 #include "dbgroup.h"
 
@@ -185,6 +186,11 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATLUARELOAD"),        LuaCommands::reloadCommand   },
         { _T("ATLUACMDDEL"),        LuaCommands::deleteCommand   },
         { _T("ATLUAFOLDER"),        LuaCommands::folderCommand   },
+        // MCP bridge for ArqaToolsMcp.exe (ATMCPRUN is internal)
+        { _T("ATMCPSTART"),         McpBridge::startCommand      },
+        { _T("ATMCPSTOP"),          McpBridge::stopCommand       },
+        { _T("ATMCPSTATUS"),        McpBridge::statusCommand     },
+        { _T("ATMCPRUN"),           McpBridge::runCommand        },
     };
 
     for (const auto& cmd : kCommands)
@@ -210,6 +216,7 @@ AcRx::AppRetCode CArqaToolsApp::On_kUnloadAppMsg(void* pAppData)
     AcRx::AppRetCode retCode = AcRxArxApp::On_kUnloadAppMsg(pAppData);
 
     UninitAreaToolsPersistence();
+    McpBridge::Uninit();
     LuaCommands::Uninit();
     acedRegCmds->removeGroup(_T("ARQATOOLS_COMMANDS"));
     acutPrintf(_T("\nArqaTools plugin unloaded.\n"));
@@ -633,6 +640,10 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATAICMD     - Ask the AI to create or change a Lua command (saved, reloaded live)\n"));
     acutPrintf(_T("ATLUACMDS   - List Lua commands      ATLUARELOAD - Reload the command files\n"));
     acutPrintf(_T("ATLUACMDDEL - Remove a Lua command   ATLUAFOLDER - Open the command files folder\n"));
+
+    acutPrintf(_T("\n--- MCP (AI agents such as Claude Code, via ArqaToolsMcp.exe) ---\n"));
+    acutPrintf(_T("ATMCPSTART  - Let MCP clients connect   ATMCPSTOP - Disconnect them\n"));
+    acutPrintf(_T("ATMCPSTATUS - Show the bridge pipe name, connection and request count\n"));
 
     acutPrintf(_T("\n--- PLUGIN MANAGEMENT ---\n"));
     acutPrintf(_T("ATVERSION   - Display plugin version and build info\n"));

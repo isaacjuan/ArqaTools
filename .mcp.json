@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "arqatools": {
+      "command": "mcp/ArqaToolsMcp/bin/Release/net8.0/ArqaToolsMcp.exe",
+      "args": []
+    }
+  }
+}

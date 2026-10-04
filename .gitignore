@@ -30,3 +30,7 @@ ipch/
 
 # Local config (paths are in User.props)
 # User.props is intentionally tracked (without secrets)
+
+# .NET (mcp\ArqaToolsMcp)
+bin/
+obj/

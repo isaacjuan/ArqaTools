@@ -52,6 +52,12 @@ struct LuaCtx
     long long   maxInstructions = 0;   // 0 = unlimited
     bool        echo            = false;   // print() -> command line, not the buffer
     bool        loading         = false;   // a command file's top level is running
+    bool        readOnly        = false;   // query functions only (LuaRunOptions::readOnly)
+    bool        capture         = false;   // buffer print() even when echoing
+    bool        scripted        = false;   // at.get* read LuaRunOptions::answers
+    int         answerNext      = 1;
+    int         answerCount     = 0;
+    std::string asked;                     // scripted inputs requested so far, for errors
     DefineCommandFn defineFn    = nullptr;
     void*           defineUser  = nullptr;
 };
@@ -368,6 +374,177 @@ int at_rotateEntity(lua_State* L)
 // (aborting the script, reported as cancelled rather than as an error), Enter
 // with no input returns the default when one was given, else nil.
 
+// Scripted input (LuaRunOptions::answers): pushes the next answer, nil for
+// Enter, and returns true; false when the run is interactive. Call it after the
+// binding's argument checks and before any C++ object is created - it raises
+// when the answers ran out.
+bool NextAnswer(lua_State* L, const char* fn, const char* prompt)
+{
+    LuaCtx* c = ctx_from(L);
+    if (!c->scripted) return false;
+    {
+        char line[320];
+        sprintf_s(line, "  #%d at.%s(\"%.250s\")\n", c->answerNext, fn, prompt);
+        c->asked += line;
+    }
+    if (c->answerNext > c->answerCount)
+        luaL_error(L, "input #%d at.%s(\"%s\") has no answer; %d given. Inputs asked so far:\n%s",
+                   c->answerNext, fn, prompt, c->answerCount, c->asked.c_str());
+    lua_getfield(L, LUA_REGISTRYINDEX, "arqa.answers");
+    lua_rawgeti(L, -1, c->answerNext++);
+    lua_remove(L, -2);
+    return true;
+}
+
+[[noreturn]] void BadAnswer(lua_State* L, const char* fn, const char* expected)
+{
+    luaL_error(L, "answer #%d for at.%s must be %s, got %s",
+               ctx_from(L)->answerNext - 1, fn, expected, luaL_typename(L, -1));
+    for (;;) {}   // not reached: luaL_error longjmps
+}
+
+// Number answer at the top of the stack; nil -> default (Enter) or nil.
+int ScriptedNumber(lua_State* L, const char* fn, bool hasDef, double def, bool integer)
+{
+    if (lua_isnil(L, -1))
+    {
+        if (!hasDef) return 1;   // the nil itself
+        if (integer) lua_pushinteger(L, static_cast<lua_Integer>(def)); else lua_pushnumber(L, def);
+        return 1;
+    }
+    if (!lua_isnumber(L, -1)) BadAnswer(L, fn, "a number");
+    if (integer)
+    {
+        int isInt = 0;
+        lua_Integer v = lua_tointegerx(L, -1, &isInt);
+        if (!isInt) BadAnswer(L, fn, "an integer");
+        lua_pushinteger(L, v);
+    }
+    else
+        lua_pushnumber(L, lua_tonumber(L, -1));
+    return 1;
+}
+
+// at.getPoint answer: {x,y[,z]} or {x=,y=[,z=]}; nil = Enter.
+int ScriptedPoint(lua_State* L)
+{
+    if (lua_isnil(L, -1)) return 1;
+    if (!lua_istable(L, -1)) BadAnswer(L, "getPoint", "a point {x,y,z}");
+    int t = lua_gettop(L);
+    double v[3] = { 0.0, 0.0, 0.0 };
+    const char* keys[3] = { "x", "y", "z" };
+    for (int i = 0; i < 3; ++i)
+    {
+        if (lua_rawgeti(L, t, i + 1) == LUA_TNIL)
+        {
+            lua_pop(L, 1);
+            lua_getfield(L, t, keys[i]);
+        }
+        if (lua_isnumber(L, -1))       v[i] = lua_tonumber(L, -1);
+        else if (i < 2 || !lua_isnil(L, -1)) { lua_settop(L, t); BadAnswer(L, "getPoint", "a point {x,y,z}"); }
+        lua_pop(L, 1);
+    }
+    lua_pushnumber(L, v[0]); lua_pushnumber(L, v[1]); lua_pushnumber(L, v[2]);
+    return 3;
+}
+
+// at.getString / at.getKeyword answer; nil = Enter (default, else nilValue).
+int ScriptedText(lua_State* L, const char* fn, const char* def, bool emptyOnEnter)
+{
+    if (lua_isnil(L, -1))
+    {
+        if (def)               lua_pushstring(L, def);
+        else if (emptyOnEnter) lua_pushstring(L, "");
+        else                   return 1;
+        return 1;
+    }
+    if (!lua_isstring(L, -1)) BadAnswer(L, fn, "a string");
+    lua_pushstring(L, lua_tostring(L, -1));
+    return 1;
+}
+
+// at.getKeyword answer must be one of the space-separated keywords (any case);
+// returns the keyword as declared.
+int ScriptedKeyword(lua_State* L, const char* keywords, const char* def)
+{
+    if (lua_isnil(L, -1))
+    {
+        if (!def) return 1;
+        lua_pushstring(L, def);
+        return 1;
+    }
+    if (!lua_isstring(L, -1)) BadAnswer(L, "getKeyword", "a string");
+    const char* answer = lua_tostring(L, -1);
+    size_t alen = strlen(answer);
+    for (const char* p = keywords; *p; )
+    {
+        while (*p == ' ') ++p;
+        const char* end = p;
+        while (*end && *end != ' ') ++end;
+        if (end > p && static_cast<size_t>(end - p) == alen && _strnicmp(p, answer, alen) == 0)
+        {
+            lua_pushlstring(L, p, alen);
+            return 1;
+        }
+        p = end;
+    }
+    return luaL_error(L, "answer \"%s\" for at.getKeyword is not one of: %s", answer, keywords);
+}
+
+// at.getEntity answer: a handle string -> handle, x, y, z (its reference point).
+int ScriptedEntity(lua_State* L)
+{
+    if (lua_isnil(L, -1)) return 1;
+    if (!lua_isstring(L, -1)) BadAnswer(L, "getEntity", "a handle string");
+    const char* handle = lua_tostring(L, -1);
+    AcGePoint3d p;
+    bool found;
+    {
+        AcDbObjectId id = ResolveHandle(handle);
+        found = !id.isNull();
+        if (found && !CommonTools::GetEntityReferencePoint(id, p)) p = AcGePoint3d::kOrigin;
+    }
+    if (!found) return luaL_error(L, "answer for at.getEntity: handle %s not found", handle);
+    lua_pushstring(L, handle);
+    lua_pushnumber(L, p.x); lua_pushnumber(L, p.y); lua_pushnumber(L, p.z);
+    return 4;
+}
+
+// at.getSelection answer: {handle,...}; unknown handles and entities not
+// matching typeFilter are dropped, as a real selection would. nil = none.
+int ScriptedSelection(lua_State* L, const char* filter)
+{
+    if (lua_isnil(L, -1)) { lua_newtable(L); return 1; }
+    if (!lua_istable(L, -1)) BadAnswer(L, "getSelection", "a list of handles");
+    int t = lua_gettop(L);
+    lua_newtable(L);
+    int out = lua_gettop(L), n = 0;
+    lua_Integer len = luaL_len(L, t);
+    for (lua_Integer i = 1; i <= len; ++i)
+    {
+        lua_rawgeti(L, t, i);
+        const char* handle = lua_tostring(L, -1);
+        bool keep = false;
+        if (handle)
+        {
+            AcDbObjectId id = ResolveHandle(handle);
+            if (!id.isNull())
+            {
+                CString wFilter = filter ? CString(CA2T(filter, CP_UTF8)) : CString();
+                keep = !filter;
+                for (int start = 0; !keep && start >= 0; )
+                {
+                    CString token = wFilter.Tokenize(_T(","), start);
+                    if (start >= 0 && ClassMatches(id.objectClass(), token.Trim())) keep = true;
+                }
+            }
+        }
+        if (keep) { lua_pushvalue(L, -1); lua_rawseti(L, out, ++n); }
+        lua_pop(L, 1);
+    }
+    return 1;
+}
+
 // at.getPoint([prompt [, bx, by, bz]]) -> x, y, z (WCS) | nil
 int at_getPoint(lua_State* L)
 {
@@ -376,6 +553,7 @@ int at_getPoint(lua_State* L)
     AcGePoint3d base;
     if (hasBase)
         base.set(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_optnumber(L, 4, 0.0));
+    if (NextAnswer(L, "getPoint", prompt)) return ScriptedPoint(L);
 
     int rc;
     ads_point pt;
@@ -401,6 +579,7 @@ int at_getDistance(lua_State* L)
     AcGePoint3d base;
     if (hasBase)
         base.set(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_optnumber(L, 4, 0.0));
+    if (NextAnswer(L, "getDistance", prompt)) return ScriptedNumber(L, "getDistance", false, 0.0, false);
 
     int rc;
     double d = 0.0;
@@ -422,6 +601,7 @@ int at_getReal(lua_State* L)
     const char* prompt = luaL_optstring(L, 1, "Enter a number: ");
     bool hasDef = !lua_isnoneornil(L, 2);
     double def = hasDef ? luaL_checknumber(L, 2) : 0.0;
+    if (NextAnswer(L, "getReal", prompt)) return ScriptedNumber(L, "getReal", hasDef, def, false);
 
     int rc;
     double v = 0.0;
@@ -445,6 +625,7 @@ int at_getInt(lua_State* L)
     const char* prompt = luaL_optstring(L, 1, "Enter an integer: ");
     bool hasDef = !lua_isnoneornil(L, 2);
     int def = hasDef ? static_cast<int>(luaL_checkinteger(L, 2)) : 0;
+    if (NextAnswer(L, "getInt", prompt)) return ScriptedNumber(L, "getInt", hasDef, def, true);
 
     int rc;
     int v = 0;
@@ -467,6 +648,7 @@ int at_getString(lua_State* L)
 {
     const char* prompt = luaL_optstring(L, 1, "Enter text: ");
     const char* def    = luaL_optstring(L, 2, nullptr);
+    if (NextAnswer(L, "getString", prompt)) return ScriptedText(L, "getString", def, true);
 
     int rc;
     std::string v;
@@ -490,6 +672,7 @@ int at_getKeyword(lua_State* L)
     const char* prompt   = luaL_checkstring(L, 1);
     const char* keywords = luaL_checkstring(L, 2);
     const char* def      = luaL_optstring(L, 3, nullptr);
+    if (NextAnswer(L, "getKeyword", prompt)) return ScriptedKeyword(L, keywords, def);
 
     int rc;
     std::string v;
@@ -513,6 +696,7 @@ int at_getKeyword(lua_State* L)
 int at_getEntity(lua_State* L)
 {
     const char* prompt = luaL_optstring(L, 1, "Select object: ");
+    if (NextAnswer(L, "getEntity", prompt)) return ScriptedEntity(L);
 
     int rc;
     ads_name ename;
@@ -539,6 +723,7 @@ int at_getSelection(lua_State* L)
 {
     const char* prompt = luaL_optstring(L, 1, "Select objects: ");
     const char* filter = luaL_optstring(L, 2, nullptr);
+    if (NextAnswer(L, "getSelection", prompt)) return ScriptedSelection(L, filter);
 
     int rc;
     std::vector<AcDbObjectId> ids;
@@ -1598,19 +1783,26 @@ int at_exportSvg(lua_State* L)
     return 3;
 }
 
+// One printed line: to the command line for an echoing engine, into the
+// result buffer otherwise (or as well, with LuaRunOptions::captureOutput).
+void Emit(LuaCtx* c, const char* line)
+{
+    if (c->echo)
+        acutPrintf(_T("\n%s"), static_cast<LPCTSTR>(CA2T(line, CP_UTF8)));
+    if (!c->echo || c->capture)
+    {
+        c->output += line;
+        c->output += "\n";
+    }
+}
+
 // at.print(msg) - explicit alias, distinct from the overridden global print(),
 // in case a script wants to be unambiguous about which one it means.
 int at_print(lua_State* L)
 {
     LuaCtx* c = ctx_from(L);
     const char* msg = luaL_checkstring(L, 1);
-    if (c->echo)
-        acutPrintf(_T("\n%s"), static_cast<LPCTSTR>(CA2T(msg, CP_UTF8)));
-    else
-    {
-        c->output += msg;
-        c->output += "\n";
-    }
+    Emit(c, msg);
     return 0;
 }
 
@@ -1632,14 +1824,7 @@ int lua_print_override(lua_State* L)
         if (i < n) luaL_addchar(&b, '\t');
     }
     luaL_pushresult(&b);
-    const char* line = lua_tostring(L, -1);
-    if (c->echo)
-        acutPrintf(_T("\n%s"), static_cast<LPCTSTR>(CA2T(line, CP_UTF8)));
-    else
-    {
-        c->output += line;
-        c->output += "\n";
-    }
+    Emit(c, lua_tostring(L, -1));
     return 0;
 }
 
@@ -1794,6 +1979,8 @@ int at_index(lua_State* L)
     if (c->loading && key && !AllowedWhileLoading(key))
         return luaL_error(L, "at.%s cannot be used while a command file loads; "
                              "call it inside the command function", key);
+    if (c->readOnly && key && !isReadOnlyFunction(key))
+        return luaL_error(L, "at.%s is not available in read-only mode", key);
     lua_pushvalue(L, 2);
     lua_rawget(L, lua_upvalueindex(2));
     return 1;
@@ -1888,6 +2075,18 @@ bool hasApiFunction(const std::string& name)
     return false;
 }
 
+// Queries only: no drawing changes, no user input, no files written.
+bool isReadOnlyFunction(const char* name)
+{
+    static const char* const kReadOnly[] = {
+        "print", "listEntities", "entities", "getProps", "getText", "sumText",
+        "countBlocks", "layers", "getCurrentLayer", "refPoint", "formatArea", "formatLength",
+    };
+    for (const char* n : kReadOnly)
+        if (strcmp(name, n) == 0) return true;
+    return false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LuaEngine
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1940,12 +2139,46 @@ void LuaEngine::setLoading(bool loading)
     if (m_ctx) m_ctx->loading = loading;
 }
 
-void LuaEngine::beginRun(const LuaRunOptions& opts)
+bool LuaEngine::beginRun(const LuaRunOptions& opts, LuaRunResult& result)
 {
     m_ctx->output.clear();
     m_ctx->cancelled       = false;
     m_ctx->instructions    = 0;
     m_ctx->maxInstructions = opts.maxInstructions;
+    m_ctx->readOnly        = opts.readOnly;
+    m_ctx->capture         = opts.captureOutput;
+    m_ctx->scripted        = false;
+    m_ctx->answerNext      = 1;
+    m_ctx->answerCount     = 0;
+    m_ctx->asked.clear();
+    if (opts.answers.empty()) return true;
+
+    // The answers are a table constructor; evaluate it with an empty
+    // environment so it can only produce data.
+    int top = lua_gettop(m_L);
+    std::string chunk = "return " + opts.answers;
+    int status = luaL_loadbufferx(m_L, chunk.data(), chunk.size(), "=answers", "t");
+    if (status == LUA_OK)
+    {
+        lua_newtable(m_L);
+        lua_setupvalue(m_L, -2, 1);   // _ENV = {}
+        status = lua_pcall(m_L, 0, 1, 0);
+    }
+    if (status != LUA_OK || !lua_istable(m_L, -1))
+    {
+        const char* msg = status != LUA_OK ? lua_tostring(m_L, -1) : "not a table";
+        result.error = std::string("invalid answers: ") + (msg ? msg : "?");
+        lua_settop(m_L, top);
+        return false;
+    }
+    lua_getfield(m_L, -1, "n");
+    m_ctx->answerCount = lua_isinteger(m_L, -1) ? static_cast<int>(lua_tointeger(m_L, -1))
+                                                : static_cast<int>(luaL_len(m_L, -2));
+    lua_pop(m_L, 1);
+    lua_setfield(m_L, LUA_REGISTRYINDEX, "arqa.answers");
+    lua_settop(m_L, top);
+    m_ctx->scripted = true;
+    return true;
 }
 
 void LuaEngine::finishRun(int status, LuaRunResult& result)
@@ -1967,7 +2200,7 @@ LuaRunResult LuaEngine::runChunk(const std::string& code, const std::string& chu
     if (!m_L) { result.error = "luaL_newstate failed."; return result; }
 
     int top = lua_gettop(m_L);
-    beginRun(opts);
+    if (!beginRun(opts, result)) return result;
     int status = luaL_loadbuffer(m_L, code.data(), code.size(), chunkName.c_str());
     if (status == LUA_OK)
         status = lua_pcall(m_L, 0, 0, 0);
@@ -1982,7 +2215,7 @@ LuaRunResult LuaEngine::callCommand(const std::string& name, const LuaRunOptions
     if (!m_L) { result.error = "luaL_newstate failed."; return result; }
 
     int top = lua_gettop(m_L);
-    beginRun(opts);
+    if (!beginRun(opts, result)) return result;
     lua_pushcfunction(m_L, tracebackHandler);
     int handler = lua_gettop(m_L);
     luaL_getsubtable(m_L, LUA_REGISTRYINDEX, "arqa.commands");

@@ -15,9 +15,32 @@
 
 #pragma once
 #include "StdAfx.h"
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace LuaCommands
 {
+    // Read-only views for McpBridge.
+    struct CommandSummary
+    {
+        CString name;
+        CString description;
+        CString file;
+        CString lastError;   // last failed run; empty when fine
+    };
+    std::vector<CommandSummary> Commands();
+    std::vector<std::pair<CString, CString>> FailedFiles();   // file, load error
+
+    // UTF-8 source of a Lua command, or of NAME.lua when that file failed to load.
+    bool CommandSource(const CString& name, std::string& source, CString& err);
+
+    // Runs a Lua command without prompting: `answers` is a Lua table
+    // constructor fed to its at.get* calls (LuaRunOptions::answers). Output is
+    // echoed and also returned. Records lastError like a normal run.
+    bool RunScripted(const CString& name, const std::string& answers,
+                     std::string& output, std::string& error, bool& cancelled);
+
     // Plugin lifecycle (ArqaTools.cpp On_kInitAppMsg / On_kUnloadAppMsg).
     void Init();
     void Uninit();

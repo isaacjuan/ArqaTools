@@ -97,6 +97,13 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     to load unregisters whatever it defined and is remembered in `g_failedFiles` with its error;
     `ATAICMD NAME` then repairs `NAME.lua` from its source and load error instead of starting over. The sandbox: no io/os/package/debug, no
     `dofile`/`loadfile`, `load` is text-only, and global `at` is a read-only userdata proxy.
+  - `McpBridge` (`ATMCPSTART`, `ATMCPSTOP`, `ATMCPSTATUS`, internal `ATMCPRUN`) — named pipe
+    `\\.\pipe\ArqaTools.<pid>` for the C# MCP server in `mcp\ArqaToolsMcp` (see `MCP_DESIGN.md`).
+    The pipe thread never touches ObjectARX: it hands each request to a message-only window on
+    the main thread; queries are answered there, Lua runs go through `sendStringToExecute
+    ("_ATMCPRUN ")` only when the document `isQuiescent()` (typing into an active prompt would feed
+    it the string). MCP Lua runs use `LuaRunOptions::readOnly` (`isReadOnlyFunction` whitelist).
+    This is the only background thread in the project.
   - `SvgExportTools` (`ATSVGEXPORT`) — selection → `.svg` file. A top-level block
     reference becomes a shared `<g>` in `<defs>` (built once per unique
     `AcDbBlockTableRecord`, geometry left in block-local space) plus one `<use

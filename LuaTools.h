@@ -33,6 +33,17 @@ namespace LuaTools
         // Hard cap on executed Lua VM instructions; 0 = unlimited. ESC always
         // aborts a running script regardless of this value.
         long long maxInstructions = 0;
+        // Only the query functions (isReadOnlyFunction) may be used; anything
+        // that changes the drawing, asks for input or writes a file raises.
+        bool readOnly = false;
+        // Scripted input (MCP run_command): a Lua table constructor such as
+        // "{n=3,[1]={0,0,0},[3]=4}". Each at.get* call takes the next entry
+        // instead of prompting; a missing entry is Enter (default or nil);
+        // asking for more than n inputs raises. Empty = prompt the user.
+        std::string answers;
+        // Collect print() output in LuaRunResult::output even when the engine
+        // echoes it to the command line.
+        bool captureOutput = false;
     };
 
     // Called by at.defineCommand. `name` is already validated and upper-cased.
@@ -76,7 +87,7 @@ namespace LuaTools
     private:
         ::lua_State* m_L   = nullptr;
         LuaCtx*           m_ctx = nullptr;
-        void beginRun(const LuaRunOptions& opts);
+        bool beginRun(const LuaRunOptions& opts, LuaRunResult& result);   // false: bad answers
         void finishRun(int status, LuaRunResult& result);
     };
 
@@ -86,10 +97,8 @@ namespace LuaTools
 
     // Runs `code` synchronously against the working database. Restricted
     // stdlib (base/table/string/math only - no io/os/package/debug), fresh
-    // lua_State per call. Safe to call directly from the command thread -
-    // this project has no background threads, so there is no cross-thread
-    // ObjectARX-access concern to guard against (unlike DevTools' IntelliCAD
-    // build, which routes AI-tool execution through a main-thread queue).
+    // lua_State per call. Main thread only: McpBridge's pipe thread never
+    // calls this directly, it goes through the ATMCPRUN command.
     // Runs inside the calling command, so everything a script does is a
     // single UNDO step.
     LuaRunResult runLuaScript(const std::string& code, const LuaRunOptions& opts = {});
@@ -102,6 +111,9 @@ namespace LuaTools
     // True if `name` is an at.* function (used to reject AI code that calls
     // functions which do not exist).
     bool hasApiFunction(const std::string& name);
+
+    // True if at.<name> is usable with LuaRunOptions::readOnly.
+    bool isReadOnlyFunction(const char* name);
 
     // ATLUA - prompts for Lua code (or "@<path>" to load a .lua file) and
     // runs it via runLuaScript(), printing the result to the command line.

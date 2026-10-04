@@ -485,6 +485,57 @@ void Uninit()
     g_engine.reset();
 }
 
+std::vector<CommandSummary> Commands()
+{
+    std::vector<CommandSummary> out;
+    for (const auto& kv : g_cmds)
+        out.push_back({ kv.second.name, kv.second.description, kv.second.file, kv.second.lastError });
+    return out;
+}
+
+std::vector<std::pair<CString, CString>> FailedFiles()
+{
+    return std::vector<std::pair<CString, CString>>(g_failedFiles.begin(), g_failedFiles.end());
+}
+
+bool CommandSource(const CString& name, std::string& source, CString& err)
+{
+    CString upper = name;
+    upper.Trim();
+    upper.MakeUpper();
+    if (!IsValidCommandName(upper)) { err = _T("invalid command name"); return false; }
+
+    auto it = g_cmds.find(upper);
+    CString file = it != g_cmds.end() ? it->second.file
+                                      : CommandsFolder() + _T("\\") + upper + _T(".lua");
+    if (it == g_cmds.end() && GetFileAttributes(file) == INVALID_FILE_ATTRIBUTES)
+    { err = upper + _T(" is not a Lua command"); return false; }
+    if (!ReadFileUtf8(file, source)) { err = _T("cannot read ") + file; return false; }
+    return true;
+}
+
+bool RunScripted(const CString& name, const std::string& answers,
+                 std::string& output, std::string& error, bool& cancelled)
+{
+    CString upper = name;
+    upper.Trim();
+    upper.MakeUpper();
+    auto it = g_cmds.find(upper);
+    if (!g_engine || it == g_cmds.end()) { error = ToUtf8(upper) + " is not a Lua command"; return false; }
+
+    LuaTools::LuaRunOptions opts;
+    opts.answers       = answers.empty() ? "{n=0}" : answers;   // never fall back to prompting
+    opts.captureOutput = true;
+    opts.maxInstructions = 50000000;
+    LuaTools::LuaRunResult r = g_engine->callCommand(ToUtf8(upper), opts);
+
+    output    = r.output;
+    error     = r.error;
+    cancelled = r.cancelled;
+    it->second.lastError = r.ok ? CString() : FromUtf8(r.error);
+    return r.ok;
+}
+
 // ATLUACMDS
 void listCommand()
 {
