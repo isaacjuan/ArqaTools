@@ -227,14 +227,21 @@ AcDbObjectId InsertText(const AcGePoint3d& pos, const CString& str,
     double h = ResolveTextHeight(pDb);
 
     AcDbText* pText = new AcDbText();
-    pText->setPosition(pos);
-    pText->setAlignmentPoint(pos);
     pText->setTextString(str);
     pText->setHeight(h);
     pText->setRotation(rotation);
+    pText->setTextStyle(pDb->textstyle());
+    // Justification BEFORE the alignment point: AutoCAD ignores
+    // setAlignmentPoint while the text is still left/base justified (the
+    // default), and the label then lands at the drawing origin.
     pText->setHorizontalMode(horzMode);
     pText->setVerticalMode(vertMode);
-    pText->setTextStyle(pDb->textstyle());
+    pText->setPosition(pos);
+    if (horzMode != AcDb::kTextLeft || vertMode != AcDb::kTextBase)
+    {
+        pText->setAlignmentPoint(pos);
+        pText->adjustAlignment(pDb);   // recompute position from the alignment point
+    }
     if (!layerName.IsEmpty()) pText->setLayer(layerName);
 
     return AppendToModelSpace(pText);
