@@ -2173,7 +2173,7 @@ void aiLuaCommand()
     if (!AITools::IsTokenConfigured())
     {
         acutPrintf(_T("Error: API token not configured.\n"));
-        acutPrintf(_T("Use AISETTOKEN command to set your GitHub token first.\n"));
+        acutPrintf(_T("Use ATAISETTOKEN command to set your API key first.\n"));
         return;
     }
 
@@ -2210,7 +2210,7 @@ void aiLuaCommand()
 
     acutPrintf(_T("\nAsking AI to generate Lua code...\n"));
 
-    std::vector<AITools::ChatMessage>& history = AITools::GetConversationHistory();
+    std::vector<AITools::ChatMessage>& history = AITools::GetLuaConversationHistory();
     std::vector<AITools::ChatMessage> messages;
 
     bool isFirstInteraction = (history.size() == 0);
@@ -2270,7 +2270,7 @@ void aiLuaCommand()
     while (history.size() > kMaxLuaHistorySize * 2)
         history.erase(history.begin());
 
-    acutPrintf(_T("(Conversation history: %d interactions. Use AICLEAR to reset)\n"),
+    acutPrintf(_T("(Conversation history: %d interactions. Use ATAICLEAR to reset)\n"),
                static_cast<int>(history.size() / 2));
 }
 

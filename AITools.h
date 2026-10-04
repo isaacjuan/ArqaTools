@@ -39,5 +39,7 @@ namespace AITools
     CString GetCustomCommandsKnowledgeBase();
     bool ExecuteLispCode(const CString& lispCode);
     void ClearConversationHistory();
-    std::vector<ChatMessage>& GetConversationHistory();
+    std::vector<ChatMessage>& GetConversationHistory();      // ATAILISP / ATAIFIX
+    std::vector<ChatMessage>& GetLuaConversationHistory();   // ATAILUA
+    // ClearConversationHistory (ATAICLEAR) clears both.
 }

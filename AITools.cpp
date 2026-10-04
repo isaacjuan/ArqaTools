@@ -34,11 +34,22 @@ namespace AITools
     {
         return conversationHistory;
     }
+
+    // ATAILUA keeps its own thread: its first message carries the Lua
+    // instructions, which must not be skipped because a LISP command already
+    // started the shared history (and vice versa).
+    static std::vector<ChatMessage> luaConversationHistory;
+
+    std::vector<ChatMessage>& GetLuaConversationHistory()
+    {
+        return luaConversationHistory;
+    }
     
     // Clear conversation history
     void ClearConversationHistory()
     {
         conversationHistory.clear();
+        luaConversationHistory.clear();
     }
     
     // Set the API token in registry
@@ -375,7 +386,7 @@ namespace AITools
             return error;
         }
         if (statusCode == 401)
-            return _T("Error: Unauthorized (HTTP 401). Check your API token with AISETTOKEN command.");
+            return _T("Error: Unauthorized (HTTP 401). Check your API token with ATAISETTOKEN command.");
         if (statusCode == 403)
             return _T("Error: Forbidden (HTTP 403). Your token may not have proper permissions.");
         CString error;
@@ -516,7 +527,7 @@ namespace AITools
         {
             CString token = GetAPIToken();
             if (token.IsEmpty())
-                return _T("Error: API token not configured. Use AISETTOKEN command first.");
+                return _T("Error: API token not configured. Use ATAISETTOKEN command first.");
         }
 
         CString host; INTERNET_PORT port; bool useHttps;
@@ -575,7 +586,7 @@ namespace AITools
         {
             CString token = GetAPIToken();
             if (token.IsEmpty())
-                return _T("Error: API token not configured. Use AISETTOKEN command first.");
+                return _T("Error: API token not configured. Use ATAISETTOKEN command first.");
         }
 
         // Gemini: flatten history into a labelled single prompt.
@@ -623,7 +634,7 @@ namespace AITools
         return ExtractContent(response);
     }
     
-    // AISETTOKEN command - Set GitHub API token
+    // ATAISETTOKEN command - Set GitHub API token
     void aiSetTokenCommand()
     {
         acutPrintf(_T("\n=== SET GITHUB COPILOT API TOKEN ===\n"));
@@ -654,7 +665,7 @@ namespace AITools
         }
     }
     
-    // AISETENDPOINT command - Set API endpoint
+    // ATAISETENDPOINT command - Set API endpoint
     void aiSetEndpointCommand()
     {
         acutPrintf(_T("\n=== SET API ENDPOINT ===\n"));
@@ -709,7 +720,7 @@ namespace AITools
         {
             newEndpoint = _T("localhost:11434");
             acutPrintf(_T("\nOllama selected. No API token required.\n"));
-            acutPrintf(_T("Set your model with AISETMODEL (e.g. llama3.2, mistral, codellama).\n"));
+            acutPrintf(_T("Set your model with ATAISETMODEL (e.g. llama3.2, mistral, codellama).\n"));
             acutPrintf(_T("Make sure Ollama is running: ollama serve\n"));
         }
         else if (choice == _T("7"))
@@ -739,11 +750,11 @@ namespace AITools
         if (SetAPIEndpoint(newEndpoint))
         {
             acutPrintf(_T("Endpoint: %s\n"), (LPCTSTR)newEndpoint);
-            acutPrintf(_T("\nNow test the connection with AITEST command.\n"));
+            acutPrintf(_T("\nNow test the connection with ATAITEST command.\n"));
         }
     }
     
-    // AITEST command - Test API connection
+    // ATAITEST command - Test API connection
     void aiTestCommand()
     {
         acutPrintf(_T("\n=== TEST API CONNECTION ===\n"));
@@ -754,7 +765,7 @@ namespace AITools
 
         if (!IsTokenConfigured())
         {
-            acutPrintf(_T("Error: API token not configured. Use AISETTOKEN command first.\n"));
+            acutPrintf(_T("Error: API token not configured. Use ATAISETTOKEN command first.\n"));
             return;
         }
 
@@ -769,12 +780,12 @@ namespace AITools
         acutPrintf(_T("--- End Response ---\n"));
 
         if (isGemini)
-            acutPrintf(_T("\nTip: Use AILISTMODELS to see all available Gemini/Ollama models.\n"));
+            acutPrintf(_T("\nTip: Use ATAILISTMODELS to see all available Gemini/Ollama models.\n"));
         else if (ollama)
-            acutPrintf(_T("\nTip: Use AILISTMODELS to see locally installed Ollama models.\n"));
+            acutPrintf(_T("\nTip: Use ATAILISTMODELS to see locally installed Ollama models.\n"));
     }
     
-    // AILISTMODELS command - List available models (Gemini or Ollama)
+    // ATAILISTMODELS command - List available models (Gemini or Ollama)
     void aiListModelsCommand()
     {
         acutPrintf(_T("\n=== LIST AVAILABLE MODELS ===\n"));
@@ -785,7 +796,7 @@ namespace AITools
 
         if (!IsTokenConfigured())
         {
-            acutPrintf(_T("Error: API token not configured. Use AISETTOKEN command first.\n"));
+            acutPrintf(_T("Error: API token not configured. Use ATAISETTOKEN command first.\n"));
             return;
         }
 
@@ -843,7 +854,7 @@ namespace AITools
             std::vector<wchar_t> wb(wl);
             MultiByteToWideChar(CP_UTF8, 0, body.c_str(), -1, wb.data(), wl);
             acutPrintf(_T("--- Installed Ollama Models ---\n%s\n--- End List ---\n"), wb.data());
-            acutPrintf(_T("Use AISETMODEL to select a model (e.g. llama3.2, mistral).\n"));
+            acutPrintf(_T("Use ATAISETMODEL to select a model (e.g. llama3.2, mistral).\n"));
             return;
         }
 
@@ -950,7 +961,7 @@ namespace AITools
             acutPrintf(_T("--- End List ---\n"));
     }
     
-    // AIASK command - Ask Copilot a question
+    // ATAIASK command - Ask Copilot a question
     void aiAskCommand()
     {
         acutPrintf(_T("\n=== ASK GITHUB COPILOT ===\n"));
@@ -958,7 +969,7 @@ namespace AITools
         if (!IsTokenConfigured())
         {
             acutPrintf(_T("Error: API token not configured.\n"));
-            acutPrintf(_T("Use AISETTOKEN command to set your GitHub token first.\n"));
+            acutPrintf(_T("Use ATAISETTOKEN command to set your API key first.\n"));
             return;
         }
         
@@ -1026,37 +1037,35 @@ namespace AITools
     {
         CString kb;
         kb = _T("Available CUSTOM ArqaTools Plugin commands:\n");
-        kb += _T("- HELLO: Creates a red circle with cross at specified point\n");
-        kb += _T("- DRAWBOX: Creates a 3D wireframe box\n");
-        kb += _T("- BOOLPOLY: Boolean operations on polylines (union/subtract/intersect)\n");
-        kb += _T("- UNIONPOLY: Union of two polylines\n");
-        kb += _T("- SUBPOLY: Subtract second polyline from first\n");
-        kb += _T("- INPOLY: Intersection of two polylines\n");
-        kb += _T("- ALX/ALY/ALZ: Align objects by X/Y/Z coordinate\n");
-        kb += _T("- MX/MY/MZ: Move objects in X/Y/Z direction only (restricted movement)\n");
-        kb += _T("- CX/CY/CZ: Copy objects in X/Y/Z direction only (restricted copy)\n");
-        kb += _T("- DISTLINE: Distribute objects evenly along a line between two points\n");
-        kb += _T("- DISTBETWEEN: Distribute objects between two points (excludes endpoints)\n");
-        kb += _T("- DISTEQUAL: Distribute with equal spacing (half-space at ends)\n");
-        kb += _T("- SEQNUM: Add sequential numbers to selected objects\n");
-        kb += _T("- INSERTAREA: Insert auto-updating area text in closed polyline\n");
-        kb += _T("- SUMLENGTH: Insert auto-updating sum of lengths for multiple curves\n");
-        kb += _T("- COPYTEXT: Copy text content from one text to others\n");
-        kb += _T("- COPYSTYLE: Copy text style properties\n");
-        kb += _T("- COPYDIMSTYLE: Copy dimension style\n\n");
+        kb += _T("- ATBOOLPOLY: Boolean operations on polylines (union/subtract/intersect)\n");
+        kb += _T("- ATUNIONPOLY: Union of two polylines\n");
+        kb += _T("- ATSUBPOLY: Subtract second polyline from first\n");
+        kb += _T("- ATINPOLY: Intersection of two polylines\n");
+        kb += _T("- ATALX/ATALY/ATALZ: Align objects by X/Y/Z coordinate\n");
+        kb += _T("- ATMX/ATMY/ATMZ: Move objects in X/Y/Z direction only (restricted movement)\n");
+        kb += _T("- ATCX/ATCY/ATCZ: Copy objects in X/Y/Z direction only (restricted copy)\n");
+        kb += _T("- ATDISTLINE: Distribute objects evenly along a line between two points\n");
+        kb += _T("- ATDISTBETWEEN: Distribute objects between two points (excludes endpoints)\n");
+        kb += _T("- ATDISTEQUAL: Distribute with equal spacing (half-space at ends)\n");
+        kb += _T("- ATSEQNUM: Add sequential numbers to selected objects\n");
+        kb += _T("- ATINSERTAREA: Insert auto-updating area text in closed polyline\n");
+        kb += _T("- ATSUMLENGTH: Insert auto-updating sum of lengths for multiple curves\n");
+        kb += _T("- ATCOPYTEXT: Copy text content from one text to others\n");
+        kb += _T("- ATCOPYSTYLE: Copy text style properties\n");
+        kb += _T("- ATCOPYDIMSTYLE: Copy dimension style\n\n");
         kb += _T("IMPORTANT: When user asks for:\n");
-        kb += _T("- 'number objects' or 'sequential numbers' → use SEQNUM\n");
-        kb += _T("- 'distribute evenly' or 'space objects' → use DISTLINE or DISTEQUAL\n");
-        kb += _T("- 'align objects' → use ALX/ALY/ALZ\n");
-        kb += _T("- 'move only in X/Y/Z' → use MX/MY/MZ\n");
-        kb += _T("- 'copy only in X/Y/Z' → use CX/CY/CZ\n");
-        kb += _T("- 'show area' or 'area label' → use INSERTAREA\n");
-        kb += _T("- 'sum of lengths' → use SUMLENGTH\n");
-        kb += _T("- 'combine polylines' or 'merge polylines' → use UNIONPOLY\n");
+        kb += _T("- 'number objects' or 'sequential numbers' → use ATSEQNUM\n");
+        kb += _T("- 'distribute evenly' or 'space objects' → use ATDISTLINE or ATDISTEQUAL\n");
+        kb += _T("- 'align objects' → use ATALX/ATALY/ATALZ\n");
+        kb += _T("- 'move only in X/Y/Z' → use ATMX/ATMY/ATMZ\n");
+        kb += _T("- 'copy only in X/Y/Z' → use ATCX/ATCY/ATCZ\n");
+        kb += _T("- 'show area' or 'area label' → use ATINSERTAREA\n");
+        kb += _T("- 'sum of lengths' → use ATSUMLENGTH\n");
+        kb += _T("- 'combine polylines' or 'merge polylines' → use ATUNIONPOLY\n");
         return kb;
     }
     
-    // AIDRAW command - Natural language to AutoCAD drawing
+    // ATAIDRAW command - Natural language to AutoCAD drawing
     void aiDrawCommand()
     {
         acutPrintf(_T("\n=== AI NATURAL LANGUAGE DRAWING ===\n"));
@@ -1064,7 +1073,7 @@ namespace AITools
         if (!IsTokenConfigured())
         {
             acutPrintf(_T("Error: API token not configured.\n"));
-            acutPrintf(_T("Use AISETTOKEN command to set your GitHub token first.\n"));
+            acutPrintf(_T("Use ATAISETTOKEN command to set your API key first.\n"));
             return;
         }
         
@@ -1137,7 +1146,7 @@ namespace AITools
         acutPrintf(_T("Or type them manually to execute.\n"));
     }
     
-    // AIHELP command - Show AI knowledge base
+    // ATAIHELP command - Show AI knowledge base
     void aiHelpCommand()
     {
         acutPrintf(_T("\n=== AI KNOWLEDGE BASE ===\n"));
@@ -1147,7 +1156,7 @@ namespace AITools
         acutPrintf(_T("%s\n"), (LPCTSTR)kb);
         
         acutPrintf(_T("\n=== HOW TO USE ===\n"));
-        acutPrintf(_T("Type AIDRAW and describe what you want in natural language.\n"));
+        acutPrintf(_T("Type ATAIDRAW and describe what you want in natural language.\n"));
         acutPrintf(_T("Examples:\n"));
         acutPrintf(_T("  'number the selected objects from 1 to 10'\n"));
         acutPrintf(_T("  'distribute 5 circles evenly between two points'\n"));
@@ -1269,7 +1278,7 @@ namespace AITools
         return true;
     }
     
-    // AILISP command - Natural language to LISP code
+    // ATAILISP command - Natural language to LISP code
     void aiLispCommand()
     {
         acutPrintf(_T("\n=== AI LISP CODE GENERATOR ===\n"));
@@ -1277,7 +1286,7 @@ namespace AITools
         if (!IsTokenConfigured())
         {
             acutPrintf(_T("Error: API token not configured.\n"));
-            acutPrintf(_T("Use AISETTOKEN command to set your GitHub token first.\n"));
+            acutPrintf(_T("Use ATAISETTOKEN command to set your API key first.\n"));
             return;
         }
         
@@ -1615,7 +1624,7 @@ namespace AITools
                 history.erase(history.begin());
             }
             
-            acutPrintf(_T("(Conversation history: %d interactions. Use AICLEAR to reset)\n"), history.size() / 2);
+            acutPrintf(_T("(Conversation history: %d interactions. Use ATAICLEAR to reset)\n"), history.size() / 2);
         }
         else
         {
@@ -1624,7 +1633,7 @@ namespace AITools
         }
     }
     
-    // AIFIX command - Report error and ask AI to fix the last generated code
+    // ATAIFIX command - Report error and ask AI to fix the last generated code
     void aiFixCommand()
     {
         acutPrintf(_T("\n=== AI ERROR REPORTER & FIXER ===\n"));
@@ -1633,7 +1642,7 @@ namespace AITools
         
         if (history.size() == 0)
         {
-            acutPrintf(_T("Error: No conversation history. Use AILISP first.\n"));
+            acutPrintf(_T("Error: No conversation history. Use ATAILISP first.\n"));
             return;
         }
         
@@ -1852,7 +1861,7 @@ namespace AITools
         }
     }
     
-    // AICLEAR command - Clear conversation history
+    // ATAICLEAR command - Clear conversation history
     void aiClearHistoryCommand()
     {
         ClearConversationHistory();
@@ -1860,7 +1869,7 @@ namespace AITools
         acutPrintf(_T("AI will start fresh with no memory of previous interactions.\n"));
     }
 
-    // AISETMODEL command - Set the active AI model name
+    // ATAISETMODEL command - Set the active AI model name
     void aiSetModelCommand()
     {
         acutPrintf(_T("\n=== SET AI MODEL ===\n"));
@@ -1890,6 +1899,6 @@ namespace AITools
         { acutPrintf(_T("\nError: Model name cannot be empty.\n")); return; }
 
         SetAPIModel(model);
-        acutPrintf(_T("Model set to '%s'. Use AITEST to verify.\n"), (LPCTSTR)model);
+        acutPrintf(_T("Model set to '%s'. Use ATAITEST to verify.\n"), (LPCTSTR)model);
     }
 }
