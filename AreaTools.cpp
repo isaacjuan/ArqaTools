@@ -457,9 +457,9 @@ AcDbObjectId AreaTools::InsertPerimeterLabel(AcDbObjectId polyId, CString* err)
     }
 
     AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    double offset = pDb->textsize() * 1.5;
-    double minOff = (pDb->insunits() == AcDb::kUnitsMillimeters) ? 150.0 : 3.75;
-    if (offset < minOff) offset = minOff;
+    // 1.5 text heights below the centroid (the height rule already applies
+    // the style height and the per-unit minimum).
+    double offset = CadInfra::ResolveTextHeight(pDb) * 1.5;
     AcGePoint3d textPos(centroid.x, centroid.y - offset, centroid.z);
 
     CString label;

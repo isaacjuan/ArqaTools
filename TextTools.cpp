@@ -4,18 +4,12 @@
 #include "ArqaTools.h"
 #include "TextTools.h"
 #include "CommonTools.h"
+#include "CadInfra.h"
 #include "dbmtext.h"
 #include "dbdim.h"
 
 namespace TextTools
 {
-    // ============================================================================
-    // CONSTANTS
-    // ============================================================================
-    
-    // Maximum text buffer size (characters)
-    const size_t MAX_TEXT_BUFFER = 2048;
-
     // ============================================================================
     // COMMAND HELPER CLASS - Static Members
     // ============================================================================
@@ -152,98 +146,12 @@ namespace TextTools
     // TEXT CONTENT MANIPULATION HELPERS
     // ============================================================================
     
-    // Get text length without extracting content (for validation)
-    static size_t GetTextLength(AcDbEntity* pEnt)
-    {
-        if (!pEnt)
-            return 0;
-
-        AcDbText* pText = nullptr;
-        AcDbMText* pMText = nullptr;
-        TextType type = GetTextType(pEnt, &pText, &pMText);
-
-        const TCHAR* textStr = nullptr;
-
-        switch (type)
-        {
-        case TextType_DbText:
-            textStr = pText ? pText->textString() : nullptr;
-            break;
-
-        case TextType_MText:
-            textStr = pMText ? pMText->contents() : nullptr;
-            break;
-
-        default:
-            return 0;
-        }
-
-        return textStr ? _tcslen(textStr) : 0;
-    }
-
-    // Extract text content from a text entity into buffer
-    // Supports both AcDbText and AcDbMText
-    static bool GetTextContent(AcDbEntity* pEnt, TCHAR* buffer, size_t bufferSize)
-    {
-        if (!pEnt || !buffer)
-            return false;
-
-        AcDbText* pText = nullptr;
-        AcDbMText* pMText = nullptr;
-        TextType type = GetTextType(pEnt, &pText, &pMText);
-
-        const TCHAR* textStr = nullptr;
-
-        // Extract text string based on type
-        switch (type)
-        {
-        case TextType_DbText:
-            textStr = pText ? pText->textString() : nullptr;
-            break;
-
-        case TextType_MText:
-            textStr = pMText ? pMText->contents() : nullptr;
-            break;
-
-        default:
-            return false;
-        }
-
-        // Copy text to buffer if valid with length check
-        if (textStr)
-        {
-            size_t textLen = _tcslen(textStr);
-            
-            // Validate length before copying
-            if (textLen >= bufferSize)
-            {
-                acutPrintf(_T("\nWarning: Text content exceeds buffer size (%d chars). Truncating...\n"), textLen);
-                // Copy what we can (truncated)
-                _tcsncpy_s(buffer, bufferSize, textStr, bufferSize - 1);
-                buffer[bufferSize - 1] = _T('\0');
-                return true; // Still return true but with truncated content
-            }
-            
-            _tcscpy_s(buffer, bufferSize, textStr);
-            return true;
-        }
-
-        return false;
-    }
-
     // Set text content to a text entity
     // Supports both AcDbText and AcDbMText
     static bool SetTextContent(AcDbEntity* pEnt, const TCHAR* content)
     {
         if (!pEnt || !content)
             return false;
-
-        // Validate content length (informational only - AutoCAD handles large text)
-        size_t contentLen = _tcslen(content);
-        if (contentLen >= MAX_TEXT_BUFFER)
-        {
-            acutPrintf(_T("  Info: Setting text with %d characters\n"), contentLen);
-        }
 
         AcDbText* pText = nullptr;
         AcDbMText* pMText = nullptr;
@@ -302,59 +210,32 @@ namespace TextTools
             return;
         }
         
-        CommonTools::AcDbObjectGuard<AcDbEntity> srcEnt(sourceId);
-        if (!srcEnt) { acutPrintf(_T("\nError: Could not open source entity.\n")); return; }
-        AcDbEntity* pSourceEnt = srcEnt.get();
-        
-        // Check text length before extraction
-        size_t textLength = GetTextLength(pSourceEnt);
-        if (textLength >= MAX_TEXT_BUFFER)
-        {
-            acutPrintf(_T("\nWarning: Source text is %d characters (max %d). Text will be truncated.\n"), 
-                      textLength, MAX_TEXT_BUFFER - 1);
-        }
-        
-        TCHAR sourceText[MAX_TEXT_BUFFER] = {0};
-        bool isValidSource = GetTextContent(pSourceEnt, sourceText, MAX_TEXT_BUFFER);
-        
-        if (!isValidSource)
+        CString sourceText;
+        if (!GetText(sourceId, sourceText))
         {
             acutPrintf(_T("\nError: Selected entity is not a text object.\n"));
             return;
         }
-        
-        acutPrintf(_T("Source text: \"%s\"\n"), sourceText);
+
+        acutPrintf(_T("Source text: \"%s\"\n"), (LPCTSTR)sourceText);
         acutPrintf(_T("\nSelect destination text objects...\n"));
-        
-        // Select destination text entities
+
         if (!helper.SelectDestinations())
         {
             helper.PrintNoDestinations();
             return;
         }
-        
-        // Get selection count
-        const ads_name& ss = helper.GetDestinationSet();
-        Adesk::Int32 length;
-        acedSSLength(ss, &length);
-        acutPrintf(_T("Selected %d destination objects.\n"), length);
-        
+
+        std::vector<AcDbObjectId> destIds = CommonTools::SelectionIds(helper.GetDestinationSet());
+        acutPrintf(_T("Selected %d destination objects.\n"), static_cast<int>(destIds.size()));
+
         int updatedCount = 0;
         int skippedCount = 0;
-        
-        // Process each selected destination
-        CommonTools::ForEachSsEntity(ss, length, [&](AcDbObjectId objId)
+        for (AcDbObjectId objId : destIds)
         {
-            if (objId == sourceId) { skippedCount++; return; }
-
-            CommonTools::AcDbObjectGuard<AcDbEntity> pEnt(objId, AcDb::kForWrite);
-            if (!pEnt) { skippedCount++; return; }
-
-            if (SetTextContent(pEnt.get(), sourceText))
-                updatedCount++;
-            else
-                skippedCount++;
-        });
+            if (objId != sourceId && SetText(objId, sourceText)) updatedCount++;
+            else                                                 skippedCount++;
+        }
 
         acutPrintf(_T("\nCopy complete: %d text objects updated, %d skipped\n"), updatedCount, skippedCount);
     }
@@ -499,15 +380,9 @@ void TextTools::sumTextCommand()
     }
     
     AcDbObjectId textStyleId = pDb->textstyle();
-    double textHeight = 2.5;  // Default height
-    
-    // Try to get TEXTSIZE system variable
-    struct resbuf rb;
-    if (acedGetVar(_T("TEXTSIZE"), &rb) == RTNORM)
-    {
-        textHeight = rb.resval.rreal;
-    }
-    
+    // Same height rule as every other label (style height, TEXTSIZE, unit minimum).
+    double textHeight = CadInfra::ResolveTextHeight(pDb);
+
     // Create new text entity
     AcDbText* pNewText = new AcDbText();
     pNewText->setPosition(position);
