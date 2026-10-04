@@ -292,8 +292,7 @@ void EnsureAppRegistered(AcDbDatabase* pDb, const TCHAR* appName)
 static void WriteCurveTextXData(AcDbObjectId curveId, AcDbObjectId textId,
                                  const TCHAR* appName)
 {
-    TCHAR handleBuf[64] = {};
-    textId.handle().getIntoAsciiBuffer(handleBuf);
+    CString handle = CommonTools::HandleString(textId);
 
     CommonTools::AcDbObjectGuard<AcDbEntity> curve(curveId, AcDb::kForWrite);
     if (!curve) return;
@@ -302,7 +301,7 @@ static void WriteCurveTextXData(AcDbObjectId curveId, AcDbObjectId textId,
 
     resbuf* pRb = acutBuildList(
         AcDb::kDxfRegAppName, appName,
-        AcDb::kDxfXdHandle,   handleBuf,
+        AcDb::kDxfXdHandle,   (LPCTSTR)handle,
         RTNONE);
     if (pRb) { curve->setXData(pRb); acutRelRb(pRb); }
 }
@@ -315,8 +314,7 @@ void StoreLinearLengthXData(AcDbObjectId c, AcDbObjectId t) { WriteCurveTextXDat
 void StoreRoomXData(AcDbObjectId curveId, AcDbObjectId textId,
                     const CString& roomName)
 {
-    TCHAR handleBuf[64] = {};
-    textId.handle().getIntoAsciiBuffer(handleBuf);
+    CString handle = CommonTools::HandleString(textId);
 
     CommonTools::AcDbObjectGuard<AcDbEntity> curve(curveId, AcDb::kForWrite);
     if (!curve) return;
@@ -325,7 +323,7 @@ void StoreRoomXData(AcDbObjectId curveId, AcDbObjectId textId,
 
     resbuf* pRb = acutBuildList(
         AcDb::kDxfRegAppName,    ROOM_APP_NAME,
-        AcDb::kDxfXdHandle,      handleBuf,
+        AcDb::kDxfXdHandle,      (LPCTSTR)handle,
         AcDb::kDxfXdAsciiString, (LPCTSTR)roomName,
         RTNONE);
     if (pRb) { curve->setXData(pRb); acutRelRb(pRb); }

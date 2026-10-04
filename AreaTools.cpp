@@ -56,9 +56,8 @@ void PerimeterReactor::updateLabel()
     CommonTools::AcDbObjectGuard<AcDbCurve> curve(m_curveId);
     if (!curve) return;
 
-    double length = 0.0, endParam;
-    curve->getEndParam(endParam);
-    curve->getDistAtParam(endParam, length);
+    double length = 0.0;
+    CommonTools::CurveLength(curve.get(), length);
 
     AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
     CString label;
@@ -84,7 +83,7 @@ void LinearLengthReactor::updateLabel()
         double startParam, endParam;
         curve->getStartParam(startParam);
         curve->getEndParam(endParam);
-        curve->getDistAtParam(endParam, length);
+        CommonTools::CurveLength(curve.get(), length);
 
         double midParam = (startParam + endParam) * 0.5;
         curve->getPointAtParam(midParam, midPt);
@@ -184,10 +183,8 @@ void PolylineSumLengthReactor::updateSumLengthText()
     {
         CommonTools::AcDbObjectGuard<AcDbCurve> curve(id);
         if (!curve) continue;
-        double start, end, len = 0.0;
-        if (curve->getStartParam(start) == Acad::eOk &&
-            curve->getEndParam(end)     == Acad::eOk &&
-            curve->getDistAtParam(end, len) == Acad::eOk)
+        double len = 0.0;
+        if (CommonTools::CurveLength(curve.get(), len))
             total += len;
     }
     AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
@@ -278,10 +275,8 @@ static bool CollectCurveLengths(const std::vector<AcDbObjectId>& candidates,
     {
         CommonTools::AcDbObjectGuard<AcDbCurve> curve(objId);
         if (!curve) continue;
-        double s, e, len = 0.0;
-        if (curve->getStartParam(s) == Acad::eOk &&
-            curve->getEndParam(e)   == Acad::eOk &&
-            curve->getDistAtParam(e, len) == Acad::eOk)
+        double len = 0.0;
+        if (CommonTools::CurveLength(curve.get(), len))
         {
             totalLength += len;
             ids.push_back(objId);
@@ -457,9 +452,7 @@ AcDbObjectId AreaTools::InsertPerimeterLabel(AcDbObjectId polyId, CString* err)
         CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polyId);
         if (!poly) return fail(_T("object is not a polyline"));
         if (!poly->isClosed()) return fail(_T("polyline must be closed"));
-        double endParam;
-        poly->getEndParam(endParam);
-        poly->getDistAtParam(endParam, length);
+        CommonTools::CurveLength(poly.get(), length);
         CadInfra::GetPolylineCentroid(poly.get(), centroid);
     }
 
@@ -500,7 +493,7 @@ AcDbObjectId AreaTools::InsertLengthLabel(AcDbObjectId curveId, const CString& l
         double startParam, endParam;
         curve->getStartParam(startParam);
         curve->getEndParam(endParam);
-        curve->getDistAtParam(endParam, length);
+        CommonTools::CurveLength(curve.get(), length);
 
         double midParam = (startParam + endParam) * 0.5;
         curve->getPointAtParam(midParam, midPt);
@@ -589,12 +582,7 @@ std::map<CString, int> AreaTools::CountBlocks(const std::vector<AcDbObjectId>* i
     {
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(id);
         if (!ent || !ent->isKindOf(AcDbBlockReference::desc())) return;
-        auto* pRef = static_cast<AcDbBlockReference*>(ent.get());
-        CommonTools::AcDbObjectGuard<AcDbBlockTableRecord> btr(pRef->blockTableRecord());
-        if (!btr) return;
-        const ACHAR* bName = nullptr;
-        btr->getName(bName);
-        CString name(bName);
+        CString name = CommonTools::BlockName(static_cast<AcDbBlockReference*>(ent.get()));
         if (!name.IsEmpty() && name[0] != _T('*'))
             blockCount[name]++;
     };

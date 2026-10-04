@@ -154,37 +154,16 @@ bool ClassMatches(AcRxClass* pClass, const CString& filter)
 
 using CommonTools::AppendToModelSpace;
 
-// Resolves a hex handle string (as returned by at.drawLine/at.copyEntity, …)
-// to an AcDbObjectId in the working database. AcDbHandle(const ACHAR*) parses
-// the ascii hex digits directly (confirmed usage: ReactorPersistence.cpp:102,
-// CadInfra.cpp:386); AcDbDatabase::getAcDbObjectId does the handle -> id
-// lookup (confirmed usage: ReactorPersistence.cpp:103).
+// Lua-side handle strings are UTF-8 std::string; the conversion itself is
+// CommonTools::IdFromHandle / HandleString.
 AcDbObjectId ResolveHandle(const std::string& hex)
 {
-    if (hex.empty())
-        return AcDbObjectId::kNull;
-
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    if (!pDb)
-        return AcDbObjectId::kNull;
-
-    CA2T wHex(hex.c_str(), CP_UTF8);
-    AcDbHandle h(static_cast<LPCTSTR>(wHex));
-
-    AcDbObjectId id;
-    if (pDb->getAcDbObjectId(id, Adesk::kFalse, h) != Acad::eOk)
-        return AcDbObjectId::kNull;
-    return id;
+    return CommonTools::IdFromHandle(CString(CA2T(hex.c_str(), CP_UTF8)));
 }
 
-// Reverse direction: ObjectId -> ascii hex handle string (confirmed usage:
-// CadInfra.cpp:316/339 - objId.handle().getIntoAsciiBuffer(buf)).
 std::string HandleToString(const AcDbObjectId& id)
 {
-    TCHAR buf[AcDbHandle::kStrSiz];
-    id.handle().getIntoAsciiBuffer(buf, AcDbHandle::kStrSiz);
-    CT2A narrow(buf, CP_UTF8);
-    return std::string(static_cast<const char*>(narrow));
+    return ToUtf8(CommonTools::HandleString(id));
 }
 
 void PushHandle(lua_State* L, const AcDbObjectId& id)
@@ -666,12 +645,7 @@ void PushTypeSpecificProps(lua_State* L, AcDbEntity* pEnt)
     }
     else if (auto* p = AcDbBlockReference::cast(pEnt))
     {
-        AcString name;
-        {
-            CommonTools::AcDbObjectGuard<AcDbBlockTableRecord> btr(p->blockTableRecord());
-            if (btr) btr->getName(name);
-        }
-        SetStringField(L, "name", name.kwszPtr());
+        SetStringField(L, "name", CommonTools::BlockName(p));
         SetPointField(L, "position", p->position());
         SetNumberField(L, "rotation", RadToDeg(p->rotation()));
         AcGeScale3d s = p->scaleFactors();
@@ -682,8 +656,8 @@ void PushTypeSpecificProps(lua_State* L, AcDbEntity* pEnt)
     // when it encloses one.
     if (auto* c = AcDbCurve::cast(pEnt))
     {
-        double endParam = 0.0, len = 0.0;
-        if (c->getEndParam(endParam) == Acad::eOk && c->getDistAtParam(endParam, len) == Acad::eOk)
+        double len = 0.0;
+        if (CommonTools::CurveLength(c, len))
             SetNumberField(L, "length", len);
         double area = 0.0;
         if (c->isClosed() && c->getArea(area) == Acad::eOk)
