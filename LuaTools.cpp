@@ -51,6 +51,10 @@ struct LuaCtx
     bool        cancelled       = false;
     long long   instructions    = 0;
     long long   maxInstructions = 0;   // 0 = unlimited
+    bool        aborted         = false;   // ESC or instruction limit: pcall/xpcall re-raise
+    std::string abortMsg;
+    size_t      memoryUsed      = 0;       // bytes held by the Lua state (cappedAlloc)
+    bool        memoryHit       = false;   // an allocation was refused this run
     bool        echo            = false;   // print() -> command line, not the buffer
     bool        loading         = false;   // a command file's top level is running
     bool        readOnly        = false;   // query functions only (LuaRunOptions::readOnly)
@@ -2352,18 +2356,90 @@ int tracebackHandler(lua_State* L)
 // instructions, never inside an at.* binding, so raising here is safe.
 const int kHookInterval = 50000;
 
+// An abort is sticky for the rest of the run: every later hook raises again,
+// and the pcall/xpcall replacements below re-raise instead of returning false,
+// so `while true do pcall(f) end` cannot swallow it.
 void instructionHook(lua_State* L, lua_Debug*)
 {
     LuaCtx* c = *static_cast<LuaCtx**>(lua_getextraspace(L));
     c->instructions += kHookInterval;
-    if (acedUsrBrk())
+    if (!c->aborted)
     {
-        c->cancelled = true;
-        luaL_error(L, "cancelled by user");
+        if (acedUsrBrk())
+        {
+            c->cancelled = true;
+            c->aborted   = true;
+            c->abortMsg  = "cancelled by user";
+        }
+        else if (c->maxInstructions > 0 && c->instructions > c->maxInstructions)
+        {
+            c->aborted  = true;
+            c->abortMsg = "instruction limit exceeded (" + std::to_string(c->maxInstructions)
+                        + ") - infinite loop?";
+        }
     }
-    if (c->maxInstructions > 0 && c->instructions > c->maxInstructions)
-        luaL_error(L, "instruction limit exceeded (%I) - infinite loop?",
-                   static_cast<lua_Integer>(c->maxInstructions));
+    if (c->aborted)
+        luaL_error(L, "%s", c->abortMsg.c_str());
+}
+
+// Hard cap on the memory one Lua state may hold. The default allocator would
+// let a script take gigabytes from AutoCAD's process in a single string.rep
+// or table growth, before the instruction hook ever runs.
+const size_t kMemoryLimit = 256u << 20;
+
+void* cappedAlloc(void* ud, void* ptr, size_t osize, size_t nsize)
+{
+    LuaCtx* c = static_cast<LuaCtx*>(ud);
+    size_t old = ptr ? osize : 0;   // without ptr, osize is a type tag
+    if (nsize == 0)
+    {
+        free(ptr);
+        c->memoryUsed -= old;
+        return nullptr;
+    }
+    if (nsize > old && c->memoryUsed - old + nsize > kMemoryLimit)
+    {
+        c->memoryHit = true;   // Lua raises "not enough memory"
+        return nullptr;
+    }
+    void* p = realloc(ptr, nsize);
+    if (p) c->memoryUsed = c->memoryUsed - old + nsize;
+    return p;
+}
+
+// pcall/xpcall replacements: same results as the originals, except that an
+// abort (ESC, instruction limit) or a memory error is re-raised, never caught.
+int safePcall(lua_State* L)
+{
+    LuaCtx* c = ctx_from(L);
+    luaL_checkany(L, 1);
+    int status = lua_pcall(L, lua_gettop(L) - 1, LUA_MULTRET, 0);
+    if (c->aborted || status == LUA_ERRMEM)
+        return lua_error(L);
+    lua_pushboolean(L, status == LUA_OK);
+    lua_insert(L, 1);
+    return lua_gettop(L);
+}
+
+int safeXpcall(lua_State* L)
+{
+    LuaCtx* c = ctx_from(L);
+    int n = lua_gettop(L);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    lua_pushvalue(L, 1);    // f, msgh, args..., f
+    lua_insert(L, 3);       // f, msgh, f, args...
+    int status = lua_pcall(L, n - 2, LUA_MULTRET, 2);
+    if (c->aborted || status == LUA_ERRMEM)
+        return lua_error(L);
+    if (status != LUA_OK)
+    {
+        lua_pushboolean(L, 0);
+        lua_insert(L, -2);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    lua_insert(L, 3);
+    return lua_gettop(L) - 2;
 }
 
 } // namespace
@@ -2409,10 +2485,10 @@ bool isReadOnlyFunction(const char* name)
 // ─────────────────────────────────────────────────────────────────────────────
 LuaEngine::LuaEngine(bool echoOutput)
 {
-    m_L = luaL_newstate();
-    if (!m_L) return;
+    m_ctx = new LuaCtx;   // first: cappedAlloc counts into it
+    m_L = lua_newstate(cappedAlloc, m_ctx);
+    if (!m_L) { delete m_ctx; m_ctx = nullptr; return; }
 
-    m_ctx = new LuaCtx;
     m_ctx->echo = echoOutput;
     *static_cast<LuaCtx**>(lua_getextraspace(m_L)) = m_ctx;
     lua_sethook(m_L, instructionHook, LUA_MASKCOUNT, kHookInterval);
@@ -2430,6 +2506,20 @@ LuaEngine::LuaEngine(bool echoOutput)
     // bytecode is not verified by Lua and can crash the host process.
     luaL_dostring(m_L, "local raw = load; "
                        "load = function(chunk, name, _, env) return raw(chunk, name, 't', env) end");
+    // No __gc finalizers: Lua runs them with hooks off, so a loop in one
+    // escapes ESC and the instruction limit. Lua only registers a finalizer if
+    // __gc is present when the metatable is set, so checking here is enough.
+    luaL_dostring(m_L, "local raw, rawget, type, error = setmetatable, rawget, type, error; "
+                       "setmetatable = function(t, mt) "
+                       "if type(mt) == 'table' and rawget(mt, '__gc') ~= nil then "
+                       "error('__gc finalizers are not allowed', 2) end "
+                       "return raw(t, mt) end");
+    lua_pushlightuserdata(m_L, m_ctx);
+    lua_pushcclosure(m_L, safePcall, 1);
+    lua_setglobal(m_L, "pcall");
+    lua_pushlightuserdata(m_L, m_ctx);
+    lua_pushcclosure(m_L, safeXpcall, 1);
+    lua_setglobal(m_L, "xpcall");
 
     lua_pushlightuserdata(m_L, m_ctx);
     lua_pushcclosure(m_L, lua_print_override, 1);
@@ -2502,6 +2592,9 @@ bool LuaEngine::beginRun(const LuaRunOptions& opts, LuaRunResult& result)
 {
     m_ctx->output.clear();
     m_ctx->cancelled       = false;
+    m_ctx->aborted         = false;
+    m_ctx->abortMsg.clear();
+    m_ctx->memoryHit       = false;
     m_ctx->instructions    = 0;
     m_ctx->maxInstructions = opts.maxInstructions;
     m_ctx->readOnly        = opts.readOnly;
@@ -2539,6 +2632,13 @@ void LuaEngine::finishRun(int status, LuaRunResult& result)
     {
         const char* msg = lua_tostring(m_L, -1);
         result.error = msg ? msg : "Lua runtime error.";
+        // An xpcall handler may have replaced the abort message.
+        if (m_ctx->aborted && result.error.find(m_ctx->abortMsg) == std::string::npos)
+            result.error = m_ctx->abortMsg;
+        if (m_ctx->memoryHit && (status == LUA_ERRMEM || status == LUA_ERRERR
+                                 || result.error.find("not enough memory") != std::string::npos))
+            result.error = "memory limit exceeded (" + std::to_string(kMemoryLimit >> 20)
+                         + " MB): " + result.error;
     }
 }
 

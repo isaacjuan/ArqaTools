@@ -72,7 +72,10 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     destructors: in bindings, check args before opening any `AcDbObjectGuard`/creating a
     `CString`, and raise errors only after those scopes close. A count hook polls `acedUsrBrk()`
     (ESC breaks runaway loops) and enforces `LuaRunOptions::maxInstructions` (`ATAILUA` caps AI
-    code at 500M instructions). A run is a single UNDO step (it executes inside the calling
+    code at 500M instructions). Aborts are sticky: global `pcall`/`xpcall` are C replacements that
+    re-raise ESC, the instruction limit and memory errors; `setmetatable` refuses `__gc` (finalizers
+    run with hooks off). Each state has a 256 MB cap via a custom
+    allocator (`cappedAlloc`, `kMemoryLimit`). A run is a single UNDO step (it executes inside the calling
     command). `ATLUA` runs inline code or `@path\to\file.lua` (see `test.lua`,
     `test_foundations.lua`, `test_tier1.lua`, `test_tier2.lua`); `ATAILUA` asks the configured AI (reusing
     `AITools::SendToGitHubCopilotWithHistory`/`GetConversationHistory`) to write Lua against the
