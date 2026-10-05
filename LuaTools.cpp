@@ -26,6 +26,7 @@ extern "C" {
 #include "dbents.h"
 #include "dbsymtb.h"
 #include "dbxutil.h"
+#include <algorithm>
 #include <sstream>
 #include <cstdio>
 
@@ -54,6 +55,7 @@ struct LuaCtx
     bool        loading         = false;   // a command file's top level is running
     bool        readOnly        = false;   // query functions only (LuaRunOptions::readOnly)
     bool        capture         = false;   // buffer print() even when echoing
+    bool        testRun         = false;   // LuaRunOptions::testRun
     bool        scripted        = false;   // at.get* read LuaRunOptions::answers
     int         answerNext      = 1;
     int         answerCount     = 0;
@@ -188,35 +190,56 @@ void PushIdList(lua_State* L, const std::vector<AcDbObjectId>& ids)
     }
 }
 
-// Records the database's last entity on construction; collect() then walks
+// Records model space's last entity on construction; collect() then walks
 // everything appended after it. Lets void "draw a pattern" core functions
 // (ArabesqueTools, GoldenRectTools) hand Lua the handles they created without
-// changing their signatures.
+// changing their signatures. Works on the working database (not the ads
+// acdbEntLast/acdbEntNext, which always read the open document), so it also
+// works in CommandTester's scratch drawing.
 class NewEntityTracker
 {
 public:
-    NewEntityTracker() { m_hasLast = (acdbEntLast(m_last) == RTNORM); }
+    NewEntityTracker() { m_last = LastId(); }
 
     std::vector<AcDbObjectId> collect() const
     {
         std::vector<AcDbObjectId> ids;
-        ads_name cur, next;
-        int rc = m_hasLast ? acdbEntNext(m_last, next) : acdbEntNext(nullptr, next);
-        while (rc == RTNORM)
+        AcDbBlockTableRecord* pMS = nullptr;
+        if (CommonTools::GetModelSpace(pMS, AcDb::kForRead) != Acad::eOk) return ids;
+        AcDbBlockTableRecordIterator* pRaw = nullptr;
+        if (pMS->newIterator(pRaw, /*atBeginning=*/false) == Acad::eOk)
         {
-            AcDbObjectId id;
-            if (acdbGetObjectId(id, next) == Acad::eOk)
+            CommonTools::AcDbIteratorGuard<AcDbBlockTableRecordIterator> it(pRaw);
+            for (; !it->done(); it->step(/*forward=*/false))
+            {
+                AcDbObjectId id;
+                if (it->getEntityId(id) != Acad::eOk) continue;
+                if (id == m_last) break;
                 ids.push_back(id);
-            cur[0] = next[0];
-            cur[1] = next[1];
-            rc = acdbEntNext(cur, next);
+            }
         }
+        pMS->close();
+        std::reverse(ids.begin(), ids.end());   // drawing order
         return ids;
     }
 
 private:
-    ads_name m_last;
-    bool     m_hasLast = false;
+    AcDbObjectId m_last;   // null when model space was empty
+
+    static AcDbObjectId LastId()
+    {
+        AcDbObjectId id;
+        AcDbBlockTableRecord* pMS = nullptr;
+        if (CommonTools::GetModelSpace(pMS, AcDb::kForRead) != Acad::eOk) return id;
+        AcDbBlockTableRecordIterator* pRaw = nullptr;
+        if (pMS->newIterator(pRaw, /*atBeginning=*/false) == Acad::eOk)
+        {
+            CommonTools::AcDbIteratorGuard<AcDbBlockTableRecordIterator> it(pRaw);
+            if (!it->done()) it->getEntityId(id);
+        }
+        pMS->close();
+        return id;
+    }
 };
 
 // Runs a void drawing function and pushes the table of handles it created.
@@ -1854,6 +1877,15 @@ int at_defineCommand(lua_State* L)
         return luaL_error(L, "invalid command name '%s' (letters, digits, _; max 31; starts with a letter)", name);
     upper[len] = '\0';
 
+    // Optional 4th argument: the declared parameter list (see kPrelude).
+    bool hasParams = !lua_isnoneornil(L, 4);
+    if (hasParams)
+    {
+        lua_getfield(L, LUA_REGISTRYINDEX, "arqa.checkParams");
+        lua_pushvalue(L, 4);
+        lua_call(L, 1, 0);   // raises on a malformed list, before anything is registered
+    }
+
     char err[256] = "";
     if (!c->defineFn(c->defineUser, upper, desc, err, sizeof(err)))
         return luaL_error(L, "cannot define %s: %s", upper, err);
@@ -1862,7 +1894,271 @@ int at_defineCommand(lua_State* L)
     lua_pushvalue(L, 2);
     lua_setfield(L, -2, upper);
     lua_pop(L, 1);
+
+    luaL_getsubtable(L, LUA_REGISTRYINDEX, "arqa.params");
+    if (hasParams) lua_pushvalue(L, 4); else lua_pushnil(L);
+    lua_setfield(L, -2, upper);
+    lua_pop(L, 1);
     return 0;
+}
+
+// Declared command parameters, in Lua so they are easy to read and change.
+// Returns the functions the C++ side keeps in the registry:
+//   check(params)         - validates a list given to at.defineCommand
+//   invoke(fn, params, given) - builds p (prompting, or from `given` when an
+//                           agent calls the command) and runs fn(p)
+//   json(params)          - the list as JSON, for the MCP tool schema
+// Locals are captured up front so command files cannot change them.
+const char* const kPrelude = R"LUA(
+local at, type, ipairs, pairs, error, tostring = at, type, ipairs, pairs, error, tostring
+local mtype, floor, fmt, concat = math.type, math.floor, string.format, table.concat
+local sfind, gsub, gmatch, lower, byte = string.find, string.gsub, string.gmatch, string.lower, string.byte
+local match = string.match
+
+local EXPECT = {
+  point = "a point [x, y, z]", integer = "an integer", number = "a number", distance = "a number",
+  string = "a string", keyword = "one of the options", entity = "a handle string",
+  selection = "a list of handle strings",
+}
+
+local function check(params)
+  if type(params) ~= "table" then
+    error("at.defineCommand: parameters must be a list like {{name=\"rows\", type=\"integer\"}, ...}", 0)
+  end
+  local seen, n = {}, 0
+  for _ in pairs(params) do n = n + 1 end
+  if n ~= #params then error("at.defineCommand: parameters must be a list (array), not a map", 0) end
+  for i, d in ipairs(params) do
+    if type(d) ~= "table" or type(d.name) ~= "string" or not sfind(d.name, "^[%a_][%w_]*$") then
+      error(fmt("at.defineCommand: parameter #%d needs name = \"...\" (letters, digits, _)", i), 0)
+    end
+    if seen[d.name] then error("at.defineCommand: duplicate parameter " .. d.name, 0) end
+    seen[d.name] = true
+    if not EXPECT[d.type] then
+      error(fmt("at.defineCommand: parameter %s has unknown type %s (point, integer, number, distance, "
+             .. "string, keyword, entity, selection)", d.name, tostring(d.type)), 0)
+    end
+    if d.type == "keyword" and type(d.options) ~= "string" then
+      error("at.defineCommand: keyword parameter " .. d.name .. " needs options = \"Yes No\"", 0)
+    end
+  end
+end
+
+local function toPoint(v)
+  if type(v) ~= "table" then return nil end
+  local x, y, z = v.x or v[1], v.y or v[2], v.z or v[3] or 0
+  if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return nil end
+  return { x = x, y = y, z = z }
+end
+
+-- A value given by an agent (or a default) -> the Lua value fn receives; nil if invalid.
+local function convert(d, v)
+  local t = d.type
+  if t == "point" then return toPoint(v)
+  elseif t == "integer" then
+    if mtype(v) == "integer" then return v end
+    if mtype(v) == "float" and v == floor(v) then return floor(v) end
+  elseif t == "number" or t == "distance" then
+    if type(v) == "number" then return v end
+  elseif t == "string" then
+    if type(v) == "string" then return v end
+  elseif t == "keyword" then
+    if type(v) == "string" then
+      for k in gmatch(d.options, "%S+") do
+        if lower(k) == lower(v) then return k end
+      end
+    end
+  elseif t == "entity" then
+    if type(v) == "string" and at.getProps(v) then return v end
+  elseif t == "selection" then
+    if type(v) ~= "table" then return nil end
+    local out = {}
+    for i, h in ipairs(v) do
+      if type(h) ~= "string" then return nil end
+      out[i] = h
+    end
+    return out
+  end
+  return nil
+end
+
+-- Interactive: one prompt per parameter; Enter gives the default.
+local function ask(d)
+  local p, t, def = d.prompt or d.name, d.type, d.default
+  if t == "point" then
+    local x, y, z = at.getPoint(p)
+    if x then return { x = x, y = y, z = z } end
+    return def ~= nil and toPoint(def) or nil
+  elseif t == "integer" then return at.getInt(p, def)
+  elseif t == "number" then return at.getReal(p, def)
+  elseif t == "distance" then
+    local v = at.getDistance(p)
+    if v == nil then return def end
+    return v
+  elseif t == "string" then return at.getString(p, def)
+  elseif t == "keyword" then return at.getKeyword(p, d.options, def)
+  elseif t == "entity" then return (at.getEntity(p))
+  elseif t == "selection" then
+    local s = at.getSelection(p, d.filter)
+    if #s > 0 then return s end
+    return nil
+  end
+end
+
+-- A caller mistake, not a bug in the command: the message alone, no traceback
+-- (see tracebackHandler).
+local function badArgs(msg)
+  error({ arqaArgs = msg }, 0)
+end
+
+local function invoke(fn, params, given)
+  local p = {}
+  if given then
+    for k in pairs(given) do
+      local known = false
+      for _, d in ipairs(params) do if d.name == k then known = true end end
+      if not known then
+        local names = {}
+        for i, d in ipairs(params) do names[i] = d.name end
+        badArgs(fmt("unknown parameter '%s'; parameters are: %s", tostring(k), concat(names, ", ")))
+      end
+    end
+  end
+  for _, d in ipairs(params) do
+    local v
+    if given then
+      local raw = given[d.name]
+      if raw == nil then raw = d.default end
+      if raw ~= nil then
+        v = convert(d, raw)
+        if v == nil then badArgs(fmt("parameter '%s' must be %s", d.name, EXPECT[d.type])) end
+      elseif not d.optional then
+        badArgs(fmt("missing required parameter '%s' (%s)", d.name, d.type))
+      end
+    else
+      v = ask(d)
+      if v == nil and not d.optional then   -- Enter on a required input without default
+        print(fmt("Nothing drawn: '%s' is required (no default).", d.prompt or d.name))
+        return
+      end
+    end
+    p[d.name] = v
+  end
+  return fn(p)
+end
+
+local function jstr(s)
+  return '"' .. gsub(s, '[%c"\\]', function(c)
+    if c == '"' then return '\\"' elseif c == "\\" then return "\\\\" end
+    return fmt("\\u%04x", byte(c))
+  end) .. '"'
+end
+
+local function jvalue(d, v)
+  if v == nil then return "null" end
+  if d.type == "point" then
+    local p = toPoint(v)
+    if not p then return "null" end
+    return fmt("[%.17g,%.17g,%.17g]", p.x, p.y, p.z)
+  end
+  if type(v) == "number" then
+    if mtype(v) == "integer" then return tostring(v) end
+    return fmt("%.17g", v)
+  end
+  if type(v) == "string" then return jstr(v) end
+  if type(v) == "boolean" then return tostring(v) end
+  return "null"
+end
+
+local function json(params)
+  local items = {}
+  for i, d in ipairs(params) do
+    local f = { '"name":' .. jstr(d.name), '"type":' .. jstr(d.type) }
+    if type(d.prompt) == "string" then f[#f + 1] = '"prompt":' .. jstr(d.prompt) end
+    if type(d.description) == "string" then f[#f + 1] = '"description":' .. jstr(d.description) end
+    if d.default ~= nil then f[#f + 1] = '"default":' .. jvalue(d, d.default) end
+    if d.optional then f[#f + 1] = '"optional":true' end
+    if d.type == "keyword" then
+      local opts = {}
+      for k in gmatch(d.options, "%S+") do opts[#opts + 1] = jstr(k) end
+      f[#f + 1] = '"options":[' .. concat(opts, ",") .. "]"
+    end
+    if type(d.filter) == "string" then f[#f + 1] = '"filter":' .. jstr(d.filter) end
+    items[i] = "{" .. concat(f, ",") .. "}"
+  end
+  return "[" .. concat(items, ",") .. "]"
+end
+
+-- Test-run values (CommandTester): each parameter's default, else a plausible
+-- value for its type. Returned as a Lua table constructor (for
+-- LuaRunOptions::params and the review prompt); nil + reason when a required
+-- parameter needs objects that an empty drawing does not have.
+local SAMPLE = { point = { x = 0, y = 0, z = 0 }, integer = 3, number = 10, distance = 10, string = "Test" }
+
+local function lit(v)
+  if type(v) == "table" then return fmt("{%.15g,%.15g,%.15g}", v.x, v.y, v.z) end
+  if type(v) == "string" then return fmt("%q", v) end
+  if mtype(v) == "integer" then return tostring(v) end
+  return fmt("%.15g", v)
+end
+
+local function sample(params)
+  local parts = {}
+  for _, d in ipairs(params) do
+    local v
+    if d.default ~= nil then v = convert(d, d.default)
+    elseif d.type == "keyword" then v = match(d.options, "%S+")
+    elseif d.type == "entity" or d.type == "selection" then
+      if not d.optional then
+        return nil, fmt("parameter '%s' needs existing objects (%s)", d.name, d.type)
+      end
+    else v = SAMPLE[d.type] end
+    if v ~= nil then parts[#parts + 1] = fmt("[%q]=%s", d.name, lit(v)) end
+  end
+  return "{" .. concat(parts, ",") .. "}"
+end
+
+return { check = check, invoke = invoke, json = json, sample = sample }
+)LUA";
+
+// Runs kPrelude and keeps its functions in the registry (arqa.checkParams,
+// arqa.invoke, arqa.paramsJson).
+void installPrelude(lua_State* L)
+{
+    if (luaL_loadbuffer(L, kPrelude, strlen(kPrelude), "=prelude") != LUA_OK
+        || lua_pcall(L, 0, 1, 0) != LUA_OK)
+    {
+        lua_pop(L, 1);   // the error; at.defineCommand with parameters will then fail loudly
+        return;
+    }
+    lua_getfield(L, -1, "check");  lua_setfield(L, LUA_REGISTRYINDEX, "arqa.checkParams");
+    lua_getfield(L, -1, "invoke"); lua_setfield(L, LUA_REGISTRYINDEX, "arqa.invoke");
+    lua_getfield(L, -1, "json");   lua_setfield(L, LUA_REGISTRYINDEX, "arqa.paramsJson");
+    lua_getfield(L, -1, "sample"); lua_setfield(L, LUA_REGISTRYINDEX, "arqa.sample");
+    lua_pop(L, 1);
+}
+
+// Evaluates a Lua table constructor (LuaRunOptions::answers/params) with an
+// empty environment, so it can only produce data. Pushes the table on success.
+bool PushLiteral(lua_State* L, const std::string& literal, std::string& err)
+{
+    int top = lua_gettop(L);
+    std::string chunk = "return " + literal;
+    int status = luaL_loadbufferx(L, chunk.data(), chunk.size(), "=literal", "t");
+    if (status == LUA_OK)
+    {
+        lua_newtable(L);
+        lua_setupvalue(L, -2, 1);   // _ENV = {}
+        status = lua_pcall(L, 0, 1, 0);
+    }
+    if (status != LUA_OK || !lua_istable(L, -1))
+    {
+        const char* msg = status != LUA_OK ? lua_tostring(L, -1) : "not a table";
+        err = msg ? msg : "?";
+        lua_settop(L, top);
+        return false;
+    }
+    return true;
 }
 
 // Single source of truth for the at API: registerAtTable binds from it and
@@ -1879,8 +2175,12 @@ struct AtFn
 const AtFn kFns[] = {
     // Output
     { "print",        at_print,        "(msg)",                                "show a line to the user (the global print(...) works too)" },
-    { "defineCommand", at_defineCommand, "(NAME, function() ... end [,description])",
-      "command files only: registers NAME as an AutoCAD command that runs the function" },
+    { "defineCommand", at_defineCommand, "(NAME, function([p]) ... end [,description [,params]])",
+      "command files only: registers NAME as an AutoCAD command that runs the function. "
+      "params (recommended) = ordered list {{name=,type=,prompt=,default=,optional=,options=,filter=,description=},...}, "
+      "type point|integer|number|distance|string|keyword|entity|selection; the function then gets p.<name> "
+      "(point = {x=,y=,z=}, entity = handle, selection = {handle,...}); typed in AutoCAD each is prompted, "
+      "AI agents pass them by name" },
     // User input - ESC aborts the script; Enter returns the default, else nil
     { "getPoint",     at_getPoint,     "([prompt [,bx,by,bz]]) -> x,y,z | nil", "pick a point (rubber-band from the optional base point)" },
     { "getDistance",  at_getDistance,  "([prompt [,bx,by,bz]]) -> number | nil", "type or pick a distance" },
@@ -1971,6 +2271,18 @@ bool AllowedWhileLoading(const char* key)
         || strcmp(key, "formatArea") == 0    || strcmp(key, "formatLength") == 0;
 }
 
+// Reactor-linked labels would keep transient reactors on objects of a
+// database that is deleted after the test run; exportSvg writes a file.
+bool BlockedInTestRun(const char* key)
+{
+    static const char* const kBlocked[] = {
+        "areaLabel", "perimeterLabel", "roomTag", "lengthLabel", "sumLengthLabel", "exportSvg",
+    };
+    for (const char* n : kBlocked)
+        if (strcmp(key, n) == 0) return true;
+    return false;
+}
+
 // __index of the `at` proxy: upvalue 1 = LuaCtx*, upvalue 2 = the real table.
 int at_index(lua_State* L)
 {
@@ -1981,6 +2293,8 @@ int at_index(lua_State* L)
                              "call it inside the command function", key);
     if (c->readOnly && key && !isReadOnlyFunction(key))
         return luaL_error(L, "at.%s is not available in read-only mode", key);
+    if (c->testRun && key && BlockedInTestRun(key))
+        return luaL_error(L, "%s at.%s cannot run in the scratch drawing of a test run", kNotInTestRun, key);
     lua_pushvalue(L, 2);
     lua_rawget(L, lua_upvalueindex(2));
     return 1;
@@ -2025,6 +2339,9 @@ void registerAtTable(lua_State* L, LuaCtx* ctx)
 // so a failing command - or the AI asked to fix it - can see where it broke.
 int tracebackHandler(lua_State* L)
 {
+    // Bad arguments from the parameter prelude ({arqaArgs = msg}): no traceback.
+    if (lua_istable(L, 1) && lua_getfield(L, 1, "arqaArgs") == LUA_TSTRING)
+        return 1;
     const char* msg = lua_tostring(L, 1);
     luaL_traceback(L, L, msg ? msg : "(error object is not a string)", 1);
     return 1;
@@ -2119,6 +2436,48 @@ LuaEngine::LuaEngine(bool echoOutput)
     lua_setglobal(m_L, "print");
 
     registerAtTable(m_L, m_ctx);
+    installPrelude(m_L);
+}
+
+std::string LuaEngine::sampleParams(const std::string& name, std::string& reason)
+{
+    reason.clear();
+    if (!m_L) { reason = "no Lua state"; return std::string(); }
+    int top = lua_gettop(m_L);
+    std::string literal;
+    luaL_getsubtable(m_L, LUA_REGISTRYINDEX, "arqa.params");
+    if (lua_getfield(m_L, -1, name.c_str()) != LUA_TTABLE)
+        reason = "the command declares no parameters";
+    else
+    {
+        lua_getfield(m_L, LUA_REGISTRYINDEX, "arqa.sample");
+        lua_insert(m_L, -2);
+        if (lua_pcall(m_L, 1, 2, 0) != LUA_OK)
+            reason = lua_tostring(m_L, -1) ? lua_tostring(m_L, -1) : "sample failed";
+        else if (lua_isstring(m_L, -2))
+            literal = lua_tostring(m_L, -2);
+        else
+            reason = lua_tostring(m_L, -1) ? lua_tostring(m_L, -1) : "no test values";
+    }
+    lua_settop(m_L, top);
+    return literal;
+}
+
+std::string LuaEngine::commandParamsJson(const std::string& name)
+{
+    if (!m_L) return std::string();
+    int top = lua_gettop(m_L);
+    std::string json;
+    luaL_getsubtable(m_L, LUA_REGISTRYINDEX, "arqa.params");
+    if (lua_getfield(m_L, -1, name.c_str()) == LUA_TTABLE)
+    {
+        lua_getfield(m_L, LUA_REGISTRYINDEX, "arqa.paramsJson");
+        lua_insert(m_L, -2);
+        if (lua_pcall(m_L, 1, 1, 0) == LUA_OK && lua_isstring(m_L, -1))
+            json = lua_tostring(m_L, -1);
+    }
+    lua_settop(m_L, top);
+    return json;
 }
 
 LuaEngine::~LuaEngine()
@@ -2147,28 +2506,18 @@ bool LuaEngine::beginRun(const LuaRunOptions& opts, LuaRunResult& result)
     m_ctx->maxInstructions = opts.maxInstructions;
     m_ctx->readOnly        = opts.readOnly;
     m_ctx->capture         = opts.captureOutput;
+    m_ctx->testRun         = opts.testRun;
     m_ctx->scripted        = false;
     m_ctx->answerNext      = 1;
     m_ctx->answerCount     = 0;
     m_ctx->asked.clear();
     if (opts.answers.empty()) return true;
 
-    // The answers are a table constructor; evaluate it with an empty
-    // environment so it can only produce data.
     int top = lua_gettop(m_L);
-    std::string chunk = "return " + opts.answers;
-    int status = luaL_loadbufferx(m_L, chunk.data(), chunk.size(), "=answers", "t");
-    if (status == LUA_OK)
+    std::string err;
+    if (!PushLiteral(m_L, opts.answers, err))
     {
-        lua_newtable(m_L);
-        lua_setupvalue(m_L, -2, 1);   // _ENV = {}
-        status = lua_pcall(m_L, 0, 1, 0);
-    }
-    if (status != LUA_OK || !lua_istable(m_L, -1))
-    {
-        const char* msg = status != LUA_OK ? lua_tostring(m_L, -1) : "not a table";
-        result.error = std::string("invalid answers: ") + (msg ? msg : "?");
-        lua_settop(m_L, top);
+        result.error = "invalid answers: " + err;
         return false;
     }
     lua_getfield(m_L, -1, "n");
@@ -2227,7 +2576,39 @@ LuaRunResult LuaEngine::callCommand(const std::string& name, const LuaRunOptions
         result.error = "command " + name + " is not defined";
         return result;
     }
-    int status = lua_pcall(m_L, 0, 0, handler);
+
+    // Declared parameters: arqa.invoke(fn, params, given) builds p and calls
+    // fn(p) - given = LuaRunOptions::params (agent call) or nil (prompt).
+    luaL_getsubtable(m_L, LUA_REGISTRYINDEX, "arqa.params");
+    lua_getfield(m_L, -1, name.c_str());
+    lua_remove(m_L, -2);
+    int status;
+    if (lua_istable(m_L, -1))
+    {
+        lua_getfield(m_L, LUA_REGISTRYINDEX, "arqa.invoke");
+        lua_insert(m_L, -3);                            // invoke, fn, params
+        std::string err;
+        if (opts.params.empty())
+            lua_pushnil(m_L);
+        else if (!PushLiteral(m_L, opts.params, err))
+        {
+            lua_settop(m_L, top);
+            result.error = "invalid parameters: " + err;
+            return result;
+        }
+        status = lua_pcall(m_L, 3, 0, handler);
+    }
+    else
+    {
+        lua_pop(m_L, 1);
+        if (!opts.params.empty())
+        {
+            lua_settop(m_L, top);
+            result.error = "command " + name + " declares no parameters; pass answers instead";
+            return result;
+        }
+        status = lua_pcall(m_L, 0, 0, handler);
+    }
     finishRun(status, result);
     lua_settop(m_L, top);
     return result;

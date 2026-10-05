@@ -28,6 +28,7 @@ namespace LuaCommands
         CString description;
         CString file;
         CString lastError;   // last failed run; empty when fine
+        std::string paramsJson;   // declared parameters as JSON; empty when none
     };
     std::vector<CommandSummary> Commands();
     std::vector<std::pair<CString, CString>> FailedFiles();   // file, load error
@@ -35,10 +36,12 @@ namespace LuaCommands
     // UTF-8 source of a Lua command, or of NAME.lua when that file failed to load.
     bool CommandSource(const CString& name, std::string& source, CString& err);
 
-    // Runs a Lua command without prompting: `answers` is a Lua table
-    // constructor fed to its at.get* calls (LuaRunOptions::answers). Output is
-    // echoed and also returned. Records lastError like a normal run.
-    bool RunScripted(const CString& name, const std::string& answers,
+    // Runs a Lua command without prompting. `params` (named, for commands that
+    // declare parameters) and `answers` (positional, fed to at.get* calls) are
+    // Lua table constructors (LuaRunOptions::params/answers); either may be
+    // empty. Output is echoed and also returned. Records lastError like a
+    // normal run.
+    bool RunScripted(const CString& name, const std::string& params, const std::string& answers,
                      std::string& output, std::string& error, bool& cancelled);
 
     // Plugin lifecycle (ArqaTools.cpp On_kInitAppMsg / On_kUnloadAppMsg).

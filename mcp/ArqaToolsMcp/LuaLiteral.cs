@@ -23,6 +23,22 @@ public static class LuaLiteral
         return sb.Append('}').ToString();
     }
 
+    /// <summary>Named tool arguments -> {["rows"]=3,["base"]={[1]=0,...}}.</summary>
+    public static string FromObject(IEnumerable<KeyValuePair<string, JsonElement>> args)
+    {
+        var sb = new StringBuilder("{");
+        foreach (var (key, value) in args)
+        {
+            if (value.ValueKind == JsonValueKind.Null) continue;
+            sb.Append('[');
+            AppendString(sb, key);
+            sb.Append("]=");
+            Append(sb, value);
+            sb.Append(',');
+        }
+        return sb.Append('}').ToString();
+    }
+
     private static void Append(StringBuilder sb, JsonElement e)
     {
         switch (e.ValueKind)

@@ -160,6 +160,7 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATAILISP"),           aiLispCommand               },
         { _T("ATAIFIX"),            aiFixCommand                },
         { _T("ATAICLEAR"),          aiClearHistoryCommand       },
+        { _T("ATAICONFIG"),         aiConfigCommand             },
         // Arabesque
         { _T("ATARABESQUE"),        arabesqueCommand            },
         { _T("ATHOJANAZARI"),       hojaNazariCommand           },
@@ -618,10 +619,12 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATAIFIX       - Report error and get corrected code\n"));
     acutPrintf(_T("ATAIHELP      - Show AI knowledge base of custom commands\n"));
     acutPrintf(_T("ATAICLEAR     - Clear conversation history (start fresh)\n"));
-    acutPrintf(_T("ATAISETTOKEN  - Set your GitHub API token\n"));
-    acutPrintf(_T("ATAISETENDPOINT - Set API endpoint (Free/Subscription/Custom)\n"));
+    acutPrintf(_T("ATAICONFIG    - Open ai_config.lua (providers, models, vision, limits)\n"));
+    acutPrintf(_T("ATAISETENDPOINT - Choose the active provider from ai_config.lua\n"));
+    acutPrintf(_T("ATAISETMODEL  - Set the active provider's model in ai_config.lua\n"));
+    acutPrintf(_T("ATAISETTOKEN  - Store the API key for the active provider (registry)\n"));
     acutPrintf(_T("ATAITEST      - Test API connection\n"));
-    acutPrintf(_T("ATAILISTMODELS - List available models (Gemini only)\n"));
+    acutPrintf(_T("ATAILISTMODELS - List the active provider's models (models_url)\n"));
     
     acutPrintf(_T("\n--- ACML INTERPRETER ---\n"));
     acutPrintf(_T("ATACML      - Run ACML script\n"));

@@ -41,10 +41,22 @@ namespace LuaTools
         // instead of prompting; a missing entry is Enter (default or nil);
         // asking for more than n inputs raises. Empty = prompt the user.
         std::string answers;
+        // Named parameters for a command declared with a parameter list
+        // (at.defineCommand's 4th argument), as a Lua table constructor such
+        // as {rows=3,base={0,0,0}}. Validated against the declaration; missing
+        // ones take their default. Empty = prompt for each parameter.
+        std::string params;
         // Collect print() output in LuaRunResult::output even when the engine
         // echoes it to the command line.
         bool captureOutput = false;
+        // CommandTester's run in a scratch drawing: functions that would
+        // outlive it (reactor-linked labels) or touch files raise an error
+        // that starts with kNotInTestRun.
+        bool testRun = false;
     };
+
+    // Prefix of the error raised by a function blocked in a test run.
+    constexpr const char* kNotInTestRun = "[not in test run]";
 
     // Called by at.defineCommand. `name` is already validated and upper-cased.
     // Return false and fill err to reject the definition.
@@ -76,6 +88,16 @@ namespace LuaTools
         // Calls the function registered via at.defineCommand(name, ...).
         // Errors carry a Lua traceback (file:line).
         LuaRunResult callCommand(const std::string& name, const LuaRunOptions& opts = {});
+
+        // The parameter list a command declared, as JSON (name, type, prompt,
+        // description, default, optional, options, filter); empty when none.
+        std::string commandParamsJson(const std::string& name);
+
+        // Values for a test run of a command with declared parameters (each
+        // default, else a plausible value per type) as a Lua table
+        // constructor for LuaRunOptions::params. Empty + reason when the
+        // command declares none or needs existing objects.
+        std::string sampleParams(const std::string& name, std::string& reason);
 
         // Without a handler, at.defineCommand raises an error.
         void setDefineCommandHandler(DefineCommandFn fn, void* user);

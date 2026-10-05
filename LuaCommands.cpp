@@ -3,6 +3,7 @@
 #include "LuaTools.h"
 #include "AITools.h"
 #include "SvgExportTools.h"
+#include "CommandTester.h"
 #include <ShlObj.h>
 #include <shellapi.h>
 #include <array>
@@ -397,11 +398,19 @@ CString BuildPrompt(const CString& name, const CString& request, bool existing,
         p += _T("What it should do: ") + request + _T("\n\n");
 
     p += _T("FILE FORMAT - return one complete Lua file shaped like this:\n");
-    p += _T("at.defineCommand(\"") + name + _T("\", function()\n");
-    p += _T("    -- ask for input: at.getPoint / at.getSelection / at.getReal / ...\n");
+    p += _T("at.defineCommand(\"") + name + _T("\", function(p)\n");
+    p += _T("    -- p.base is {x=,y=,z=}, p.rows a number, ... (already asked for)\n");
     p += _T("    -- do the work with the at API\n");
     p += _T("    -- report results with print(...)\n");
-    p += _T("end, \"<one-line description of the command>\")\n\n");
+    p += _T("end, \"<one-line description of the command>\", {\n");
+    p += _T("    { name = \"base\", type = \"point\",   prompt = \"Base point\" },\n");
+    p += _T("    { name = \"rows\", type = \"integer\", prompt = \"Number of rows\", default = 3 },\n");
+    p += _T("})\n\n");
+    p += _T("Declare every input the command needs in that parameter list instead of calling at.get* yourself: ")
+         _T("AutoCAD prompts for each one in order (Enter = default), and AI agents can call the command ")
+         _T("with named values. Types: point, integer, number, distance, string, keyword (options = \"A B C\"), ")
+         _T("entity (a handle), selection (a list of handles, optional filter = \"LINE,ARC\"). Give a default ")
+         _T("where a sensible one exists; optional = true lets a value be nil.\n\n");
 
     p += _T("RULES:\n");
     p += _T("1. Respond with ONLY the raw Lua file - no explanation, no markdown fences.\n");
@@ -409,7 +418,8 @@ CString BuildPrompt(const CString& name, const CString& request, bool existing,
     p += _T("3. Outside that function only plain Lua is allowed (local helper functions, constants); ")
          _T("every at.* call must run inside a function.\n");
     p += _T("4. Only the base/table/string/math libraries exist - no io/os/require/dofile.\n");
-    p += _T("5. ESC at any prompt cancels the command automatically; handle nil when the user just presses Enter.\n");
+    p += _T("5. ESC at any prompt cancels the command automatically; a required parameter left empty ")
+         _T("skips the function, so p.<name> is never nil unless it is optional.\n");
     p += _T("6. Coordinates are WCS, handles are strings, angles are degrees.\n");
     p += _T("7. Use only the at.* functions listed below - nothing else exists.\n\n");
 
@@ -447,6 +457,92 @@ bool AskYesNo(const TCHAR* prompt, bool defaultYes)
     int rc = acedGetKword(prompt, kw);
     if (rc == RTNONE) return defaultYes;
     return rc == RTNORM && CString(kw.kwszPtr()).CompareNoCase(_T("Yes")) == 0;
+}
+
+// ── Behavior check (CommandTester + AI review) ─────────────────────────────
+enum class Verdict { Pass, Fail, NotReviewed };
+
+CString TestFolder()
+{
+    CString folder = CommandsFolder() + _T("\\test");
+    SHCreateDirectoryEx(NULL, folder, NULL);
+    return folder;
+}
+
+// The test run as text, for the console, the reviewer and the correction prompt.
+CString DescribeTestRun(const CommandTester::Result& t)
+{
+    CString s;
+    if (!t.ran) return _T("Not test-run: ") + t.skipped + _T("\n");
+    s += _T("Parameters used: ") + FromUtf8(t.params) + _T("\n");
+    if (!t.skipped.IsEmpty()) s += _T("Note: ") + t.skipped + _T("\n");
+    if (!t.output.empty()) s += _T("Printed output:\n") + FromUtf8(t.output);
+    if (!t.ok)              s += _T("It stopped with an error:\n") + FromUtf8(t.error) + _T("\n");
+    s += FromUtf8(t.report);
+    return s;
+}
+
+// Lets a second AI request judge the test run against the user's request,
+// with the plan view attached when the provider can read images. A runtime
+// error needs no reviewer: it is a FAIL with the error as the reason.
+Verdict ReviewTestRun(const CString& name, const CString& request, const CString& code,
+                      const CommandTester::Result& t, CString& text)
+{
+    if (!t.ran || (!t.ok && !t.skipped.IsEmpty()))
+    {
+        text = t.ran ? t.skipped : _T("Not test-run: ") + t.skipped;
+        return Verdict::NotReviewed;
+    }
+    if (!t.ok)
+    {
+        text = _T("The test run stopped with an error:\n") + FromUtf8(t.error);
+        return Verdict::Fail;
+    }
+
+    acutPrintf(_T("Reviewing the result%s...\n"), t.pngPath.IsEmpty() ? _T("") : _T(" (with plan view image)"));
+    CString p;
+    p += _T("You are testing an AutoCAD command (Lua, ArqaTools plugin) against what the user asked for.\n\n");
+    p += _T("USER REQUEST for ") + name + _T(": ") + request + _T("\n\n");
+    p += _T("The command was run once in an empty drawing.\n") + DescribeTestRun(t) + _T("\n");
+    CString imageNote = _T("The attached image is a plan view of everything it drew, auto-fitted: +X right, +Y up, ")
+                        _T("the red cross is the origin (0,0) = the base point used for the test, blue dots mark ")
+                        _T("polyline vertices, the grid step is shown bottom-left.\n\n");
+    CString tail;
+    tail += _T("CODE:\n") + code + _T("\n\n");
+    tail += _T("Decide whether the drawn result does what the user asked: the right kind of geometry, counts, ")
+            _T("proportions and directions, nothing missing, no stray, zig-zag, duplicated or overlapping geometry. ")
+            _T("Ignore layers and colors unless the request mentions them. Reply with PASS or FAIL alone on the ")
+            _T("first line, then at most 8 short lines: for FAIL what is wrong and exactly how to fix the code, ")
+            _T("for PASS one line on what you checked.");
+
+    CString response;
+    bool withImage = !t.pngPath.IsEmpty();
+    if (withImage)
+    {
+        response = AITools::SendWithImage(p + imageNote + tail, t.pngPath);
+        if (response.Find(_T("Error:")) == 0)
+        {
+            acutPrintf(_T("(image review not available: %s - reviewing the text report only)\n"), (LPCTSTR)response);
+            withImage = false;
+        }
+    }
+    if (!withImage)
+        response = AITools::SendToGitHubCopilot(p + tail);
+    if (response.Find(_T("Error:")) == 0)
+    {
+        text = _T("Review request failed: ") + response;
+        return Verdict::NotReviewed;
+    }
+
+    response.Replace(_T("\\n"), _T("\n"));   // ExtractContent leaves \n escaped
+    response.Trim();
+    text = response;
+    CString first = response.SpanExcluding(_T("\r\n"));
+    first.Trim(_T(" *#:`\t"));
+    first.MakeUpper();
+    if (first.Find(_T("FAIL")) == 0) return Verdict::Fail;
+    if (first.Find(_T("PASS")) == 0) return Verdict::Pass;
+    return Verdict::NotReviewed;
 }
 
 const TCHAR* const kExampleFile =
@@ -489,7 +585,8 @@ std::vector<CommandSummary> Commands()
 {
     std::vector<CommandSummary> out;
     for (const auto& kv : g_cmds)
-        out.push_back({ kv.second.name, kv.second.description, kv.second.file, kv.second.lastError });
+        out.push_back({ kv.second.name, kv.second.description, kv.second.file, kv.second.lastError,
+                        g_engine ? g_engine->commandParamsJson(ToUtf8(kv.first)) : std::string() });
     return out;
 }
 
@@ -514,7 +611,7 @@ bool CommandSource(const CString& name, std::string& source, CString& err)
     return true;
 }
 
-bool RunScripted(const CString& name, const std::string& answers,
+bool RunScripted(const CString& name, const std::string& params, const std::string& answers,
                  std::string& output, std::string& error, bool& cancelled)
 {
     CString upper = name;
@@ -525,6 +622,7 @@ bool RunScripted(const CString& name, const std::string& answers,
 
     LuaTools::LuaRunOptions opts;
     opts.answers       = answers.empty() ? "{n=0}" : answers;   // never fall back to prompting
+    opts.params        = params;
     opts.captureOutput = true;
     opts.maxInstructions = 50000000;
     LuaTools::LuaRunResult r = g_engine->callCommand(ToUtf8(upper), opts);
@@ -671,7 +769,12 @@ void aiCommand()
     first.content = BuildPrompt(name, request, existing, currentSource, lastError);
     messages.push_back(first);
 
-    CString code, validationError;
+    // Ask, validate, test-run and review; a validation error or a failed
+    // review goes back to the AI as a correction round.
+    CString code, validationError, reviewText;
+    CommandTester::Result test;
+    Verdict verdict = Verdict::NotReviewed;
+    CString pngPath = TestFolder() + _T("\\") + name + _T(".png");
     const int kAttempts = 3;
     for (int attempt = 1; attempt <= kAttempts; ++attempt)
     {
@@ -683,15 +786,31 @@ void aiCommand()
             return;
         }
         code = LuaTools::CleanAiLuaResponse(response);
-        if (ValidateFile(code, name, validationError)) { validationError.Empty(); break; }
 
-        acutPrintf(_T("Validation failed: %s\n"), (LPCTSTR)validationError);
+        CString feedback;
+        if (!ValidateFile(code, name, validationError))
+        {
+            acutPrintf(_T("Validation failed: %s\n"), (LPCTSTR)validationError);
+            feedback = _T("That file failed validation:\n") + validationError;
+        }
+        else
+        {
+            validationError.Empty();
+            acutPrintf(_T("Valid. Test-running %s in a scratch drawing...\n"), (LPCTSTR)name);
+            test    = CommandTester::Run(name, code, pngPath);
+            verdict = ReviewTestRun(name, request, code, test, reviewText);
+            if (verdict != Verdict::Fail) break;
+            acutPrintf(_T("Review: FAIL\n"));
+            feedback = _T("A test run shows the command does not do what was asked:\n") + reviewText
+                     + _T("\n\nTEST RUN:\n") + DescribeTestRun(test);
+        }
+        if (attempt == kAttempts) break;
+
         AITools::ChatMessage reply, fix;
         reply.role    = _T("assistant");
         reply.content = response;
         fix.role      = _T("user");
-        fix.content   = _T("That file failed validation:\n") + validationError
-                      + _T("\nReturn the corrected complete file only.");
+        fix.content   = feedback + _T("\nReturn the corrected complete file only.");
         messages.push_back(reply);
         messages.push_back(fix);
     }
@@ -703,8 +822,26 @@ void aiCommand()
 
     acutPrintf(_T("\n========================================\n%s\n========================================\n"),
                (LPCTSTR)code);
-    prompt.Format(_T("\nInstall %s? [Yes/No] <Yes>: "), (LPCTSTR)name);
-    if (!AskYesNo(prompt, true)) { acutPrintf(_T("\nNot installed.\n")); return; }
+    acutPrintf(_T("\n=== TEST RUN ===\n%s"), (LPCTSTR)DescribeTestRun(test));
+    if (!test.pngPath.IsEmpty())
+        acutPrintf(_T("Plan view: %s\n"), (LPCTSTR)test.pngPath);
+    acutPrintf(_T("\n=== REVIEW: %s ===\n%s\n"),
+               verdict == Verdict::Pass ? _T("PASS") : verdict == Verdict::Fail ? _T("FAIL") : _T("not reviewed"),
+               (LPCTSTR)reviewText);
+
+    if (!test.pngPath.IsEmpty() && AskYesNo(_T("\nOpen the plan view image? [Yes/No] <No>: "), false))
+        ShellExecute(NULL, _T("open"), test.pngPath, NULL, NULL, SW_SHOWNORMAL);
+
+    if (verdict == Verdict::Fail)
+    {
+        prompt.Format(_T("\nThe review says %s does not do what was asked. Install anyway? [Yes/No] <No>: "), (LPCTSTR)name);
+        if (!AskYesNo(prompt, false)) { acutPrintf(_T("\nNot installed.\n")); return; }
+    }
+    else
+    {
+        prompt.Format(_T("\nInstall %s? [Yes/No] <Yes>: "), (LPCTSTR)name);
+        if (!AskYesNo(prompt, true)) { acutPrintf(_T("\nNot installed.\n")); return; }
+    }
 
     if (GetFileAttributes(targetFile) != INVALID_FILE_ATTRIBUTES)
         Backup(targetFile, /*move=*/false);

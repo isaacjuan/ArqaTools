@@ -113,6 +113,37 @@ Agents cannot click. In MCP runs, `at.getPoint/getEntity/getSelection/...` must 
   prompt asked so far, so the agent can retry with the right answers. Keyed-by-prompt args
   were dropped: prompt texts are AI-written and unstable, the order is not.
 
+## Commands as MCP tools (implemented)
+
+A command can declare its inputs as the 4th argument of `at.defineCommand`:
+
+```lua
+at.defineCommand("ATGRID", function(p)
+    -- p.base = {x=,y=,z=}, p.rows, p.cols, p.spacing
+end, "Draws a grid of numbered circles", {
+    { name = "base",    type = "point",   prompt = "Specify grid base corner" },
+    { name = "rows",    type = "integer", prompt = "Number of rows", default = 3 },
+    { name = "cols",    type = "integer", prompt = "Number of columns", default = 3 },
+    { name = "spacing", type = "number",  prompt = "Spacing between circles", default = 1.0 },
+})
+```
+
+Types: point, integer, number, distance, string, keyword (`options = "A B C"`), entity (handle),
+selection (handles, optional `filter`). Fields: `prompt`, `description`, `default`, `optional`.
+
+- Typed in AutoCAD: each parameter is prompted in order (Enter = default; Enter on a required one
+  without default ends the command quietly).
+- From an agent: the MCP server publishes the command as its own tool (`ATGRID`) with a JSON
+  schema built from the list (`required` = no default and not optional). Values arrive by name
+  (bridge method `call_command`, a Lua table literal), are validated and converted, missing ones
+  take their default. Wrong type, unknown name or missing required value -> a plain error message.
+- The declaration lives in `kPrelude` (`LuaTools.cpp`, Lua): `check`, `invoke`, `json`.
+- The server polls `list_commands` every 5 s after the first tools/list and sends
+  `notifications/tools/list_changed` when the set of commands or their parameters change, so a
+  command created with `ATAICMD` shows up as a tool without restarting the client.
+- `ATAICMD` now asks the AI to declare parameters, so new AI-made commands become tools.
+- Commands without a declaration still work through `run_command` (positional answers).
+
 ## Approval flow (keeps the human in charge)
 
 `propose_command` must never install code by itself.

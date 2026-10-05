@@ -1,34 +1,22 @@
 ﻿#include "StdAfx.h"
 #include "AITools.h"
+#include "AiConfig.h"
 #include <winhttp.h>
 #include <sstream>
 #include <vector>
 #include <ShlObj.h>
+#include <atlfile.h>
+#include <atlenc.h>
+#include <string>
 
 #pragma comment(lib, "winhttp.lib")
 
 namespace AITools
 {
-    // Store token in registry for persistence
-    const wchar_t* REGISTRY_KEY = L"Software\\ArqaToolsPlugin";
-    const wchar_t* TOKEN_VALUE = L"GitHubToken";
-    const wchar_t* ENDPOINT_VALUE = L"APIEndpoint";
-    const wchar_t* MODEL_VALUE = L"AIModel";
-    const wchar_t* DEFAULT_ENDPOINT = L"models.inference.ai.azure.com";
-    const wchar_t* DEFAULT_OLLAMA_ENDPOINT = L"localhost:11434";
-
-    // Cache for registry values
-    static CString s_cachedToken;
-    static bool s_tokenCached = false;
-    static CString s_cachedEndpoint;
-    static bool s_endpointCached = false;
-    static CString s_cachedModel;
-    static bool s_modelCached = false;
-    
     // Conversation history storage (limit to last 50 interactions to manage tokens)
     static std::vector<ChatMessage> conversationHistory;
     const int MAX_HISTORY_SIZE = 50;
-    
+
     // Get conversation history
     std::vector<ChatMessage>& GetConversationHistory()
     {
@@ -44,219 +32,36 @@ namespace AITools
     {
         return luaConversationHistory;
     }
-    
+
     // Clear conversation history
     void ClearConversationHistory()
     {
         conversationHistory.clear();
         luaConversationHistory.clear();
     }
-    
-    // Set the API token in registry
-    bool SetAPIToken(const CString& token)
-    {
-        HKEY hKey;
-        LONG result = RegCreateKeyExW(HKEY_CURRENT_USER, REGISTRY_KEY, 0, NULL, 
-                                      REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
-        
-        if (result != ERROR_SUCCESS)
-        {
-            acutPrintf(_T("\nError: Could not create registry key.\n"));
-            return false;
-        }
-        
-        result = RegSetValueExW(hKey, TOKEN_VALUE, 0, REG_SZ, 
-                               (BYTE*)(LPCTSTR)token, (token.GetLength() + 1) * sizeof(TCHAR));
-        RegCloseKey(hKey);
-        
-        if (result == ERROR_SUCCESS)
-        {
-            // Update cache
-            s_cachedToken = token;
-            s_tokenCached = true;
-            
-            acutPrintf(_T("\nAPI token saved successfully!\n"));
-            return true;
-        }
-        else
-        {
-            acutPrintf(_T("\nError: Could not save token.\n"));
-            return false;
-        }
-    }
-    
-    // Get the API token from registry
-    CString GetAPIToken()
-    {
-        // Return cached value if available
-        if (s_tokenCached)
-            return s_cachedToken;
 
-        HKEY hKey;
-        LONG result = RegOpenKeyExW(HKEY_CURRENT_USER, REGISTRY_KEY, 0, KEY_READ, &hKey);
-        
-        if (result != ERROR_SUCCESS)
-            return _T("");
-        
-        WCHAR buffer[512];
-        DWORD bufferSize = sizeof(buffer);
-        result = RegQueryValueExW(hKey, TOKEN_VALUE, NULL, NULL, (LPBYTE)buffer, &bufferSize);
-        RegCloseKey(hKey);
-        
-        if (result == ERROR_SUCCESS)
-        {
-            s_cachedToken = CString(buffer);
-            s_tokenCached = true;
-            return s_cachedToken;
-        }
-        
-        return _T("");
-    }
-    
-    // Returns true if the endpoint resolves to a local Ollama instance.
-    static bool IsOllama(const CString& endpoint)
-    {
-        return (endpoint.Find(_T("localhost")) >= 0 ||
-                endpoint.Find(_T("127.0.0.1")) >= 0);
-    }
-
-    // Splits "host:port" → host, port, useHttps.
-    // Plain HTTP is used for localhost; everything else defaults to HTTPS/443.
-    static void ParseEndpoint(const CString& rawEndpoint,
-                              CString& host, INTERNET_PORT& port, bool& useHttps)
-    {
-        host = rawEndpoint;
-        int colonPos = host.ReverseFind(_T(':'));
-        if (colonPos > 0)
-        {
-            port = (INTERNET_PORT)_ttoi(host.Mid(colonPos + 1));
-            host = host.Left(colonPos);
-        }
-        else
-        {
-            port = INTERNET_DEFAULT_HTTPS_PORT;
-        }
-        useHttps = !IsOllama(rawEndpoint);
-        if (!useHttps && port == INTERNET_DEFAULT_HTTPS_PORT)
-            port = 11434;
-    }
-
-    // Get / Set the active model name in registry
-    bool SetAPIModel(const CString& model)
-    {
-        HKEY hKey;
-        if (RegCreateKeyExW(HKEY_CURRENT_USER, REGISTRY_KEY, 0, NULL,
-                            REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS)
-        { acutPrintf(_T("\nError: Could not create registry key.\n")); return false; }
-
-        LONG r = RegSetValueExW(hKey, MODEL_VALUE, 0, REG_SZ,
-                                (BYTE*)(LPCTSTR)model, (model.GetLength() + 1) * sizeof(TCHAR));
-        RegCloseKey(hKey);
-        if (r == ERROR_SUCCESS)
-        { s_cachedModel = model; s_modelCached = true;
-          acutPrintf(_T("\nModel saved: %s\n"), (LPCTSTR)model); return true; }
-        acutPrintf(_T("\nError: Could not save model.\n")); return false;
-    }
-
-    CString GetAPIModel()
-    {
-        if (s_modelCached) return s_cachedModel;
-
-        HKEY hKey;
-        if (RegOpenKeyExW(HKEY_CURRENT_USER, REGISTRY_KEY, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
-        {
-            WCHAR buf[256]; DWORD sz = sizeof(buf);
-            if (RegQueryValueExW(hKey, MODEL_VALUE, NULL, NULL, (LPBYTE)buf, &sz) == ERROR_SUCCESS)
-            { RegCloseKey(hKey); s_cachedModel = CString(buf); s_modelCached = true; return s_cachedModel; }
-            RegCloseKey(hKey);
-        }
-        // Default: gpt-4o for cloud, empty means Ollama will be prompted
-        s_cachedModel = _T("gpt-4o");
-        s_modelCached = true;
-        return s_cachedModel;
-    }
-
-    // Check if token is configured (Ollama needs no token)
+    // Provider, model and limits come from ai_config.lua (AiConfig); keys are
+    // kept per provider. A configuration error is shown here, since every
+    // AI command checks this first.
     bool IsTokenConfigured()
     {
-        if (IsOllama(GetAPIEndpoint())) return true;
-        return !GetAPIToken().IsEmpty();
-    }
-    
-    // Set the API endpoint in registry
-    bool SetAPIEndpoint(const CString& endpoint)
-    {
-        HKEY hKey;
-        LONG result = RegCreateKeyExW(HKEY_CURRENT_USER, REGISTRY_KEY, 0, NULL, 
-                                      REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
-        
-        if (result != ERROR_SUCCESS)
+        AiConfig::Provider p;
+        CString err;
+        if (!AiConfig::Active(p, err))
         {
-            acutPrintf(_T("\nError: Could not create registry key.\n"));
+            acutPrintf(_T("\nAI configuration error: %s\n(ATAICONFIG opens the file.)\n"), (LPCTSTR)err);
             return false;
         }
-        
-        result = RegSetValueExW(hKey, ENDPOINT_VALUE, 0, REG_SZ, 
-                               (BYTE*)(LPCTSTR)endpoint, (endpoint.GetLength() + 1) * sizeof(TCHAR));
-        RegCloseKey(hKey);
-        
-        if (result == ERROR_SUCCESS)
-        {
-            // Update cache
-            s_cachedEndpoint = endpoint;
-            s_endpointCached = true;
-            
-            acutPrintf(_T("\nAPI endpoint saved successfully!\n"));
-            return true;
-        }
-        else
-        {
-            acutPrintf(_T("\nError: Could not save endpoint.\n"));
-            return false;
-        }
+        return p.auth == _T("none") || !AiConfig::Key(p).IsEmpty();
     }
-    
-    // Get the API endpoint from registry
-    CString GetAPIEndpoint()
-    {
-        // Return cached value if available
-        if (s_endpointCached)
-            return s_cachedEndpoint;
 
-        HKEY hKey;
-        LONG result = RegOpenKeyExW(HKEY_CURRENT_USER, REGISTRY_KEY, 0, KEY_READ, &hKey);
-        
-        if (result != ERROR_SUCCESS)
-        {
-            s_cachedEndpoint = CString(DEFAULT_ENDPOINT);
-            s_endpointCached = true;
-            return s_cachedEndpoint;
-        }
-        
-        WCHAR buffer[512];
-        DWORD bufferSize = sizeof(buffer);
-        result = RegQueryValueExW(hKey, ENDPOINT_VALUE, NULL, NULL, (LPBYTE)buffer, &bufferSize);
-        RegCloseKey(hKey);
-        
-        if (result == ERROR_SUCCESS)
-        {
-            s_cachedEndpoint = CString(buffer);
-            s_endpointCached = true;
-            return s_cachedEndpoint;
-        }
-        
-        s_cachedEndpoint = CString(DEFAULT_ENDPOINT);
-        s_endpointCached = true;
-        return s_cachedEndpoint;
-    }
-    
     // Human-readable hint for the WinHTTP error codes seen in practice when
     // HttpPost's connect/send/receive calls fail - saves a trip to the docs.
     static CString WinHttpErrorHint(DWORD gle)
     {
         switch (gle)
         {
-        case 12002: return _T(" - timeout");
+        case 12002: return _T(" - timeout: no reply in time; raise timeout for this provider in ai_config.lua (ATAICONFIG)");
         case 12007: return _T(" - name not resolved (DNS failure / no internet?)");
         case 12029: return _T(" - cannot connect (host unreachable / firewall?)");
         case 12030: return _T(" - connection reset");
@@ -267,13 +72,14 @@ namespace AITools
     }
 
     // -------------------------------------------------------------------------
-    // HttpPost: POST via WinHTTP. Supports both HTTPS (cloud APIs) and plain
-    // HTTP (local Ollama). Sets statusCode to the HTTP status (0 on error).
-    // CC=5  CogC=5  Nesting=2
+    // HttpRequest: GET or POST via WinHTTP. Supports both HTTPS (cloud APIs)
+    // and plain HTTP (local Ollama). An empty payload sends no body. Sets
+    // statusCode to the HTTP status (0 on error).
     // -------------------------------------------------------------------------
-    static CString HttpPost(const CString& host, INTERNET_PORT port, bool useHttps,
-                            const CString& requestPath, const CString& jsonPayload,
-                            bool addBearerAuth, const CString& token, DWORD& statusCode)
+    static CString HttpRequest(const wchar_t* method, const CString& host, INTERNET_PORT port, bool useHttps,
+                               const CString& requestPath, const CString& jsonPayload,
+                               bool addBearerAuth, const CString& token, DWORD& statusCode,
+                               int timeoutSeconds = 180)
     {
         statusCode = 0;
 
@@ -282,6 +88,10 @@ namespace AITools
                                          WINHTTP_NO_PROXY_NAME,
                                          WINHTTP_NO_PROXY_BYPASS, 0);
         if (!hSession) return _T("Error: Could not initialize HTTP session");
+        // WinHTTP waits only 30 s for a reply by default - too short for a
+        // model that reasons before answering a long prompt.
+        int ms = timeoutSeconds * 1000;
+        WinHttpSetTimeouts(hSession, 0, 60000, ms, ms);
 
         HINTERNET hConnect = WinHttpConnect(hSession, host, port, 0);
         if (!hConnect)
@@ -294,7 +104,7 @@ namespace AITools
         }
 
         DWORD flags = useHttps ? WINHTTP_FLAG_SECURE : 0;
-        HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", requestPath,
+        HINTERNET hRequest = WinHttpOpenRequest(hConnect, method, requestPath,
                                                 NULL, WINHTTP_NO_REFERER,
                                                 WINHTTP_DEFAULT_ACCEPT_TYPES,
                                                 flags);
@@ -304,8 +114,9 @@ namespace AITools
             return _T("Error: Could not create request");
         }
 
-        WinHttpAddRequestHeaders(hRequest, _T("Content-Type: application/json"),
-                                 -1, WINHTTP_ADDREQ_FLAG_ADD);
+        if (!jsonPayload.IsEmpty())
+            WinHttpAddRequestHeaders(hRequest, _T("Content-Type: application/json"),
+                                     -1, WINHTTP_ADDREQ_FLAG_ADD);
         if (addBearerAuth)
         {
             CString auth = _T("Authorization: Bearer ") + token;
@@ -315,9 +126,10 @@ namespace AITools
         int utf8Len = WideCharToMultiByte(CP_UTF8, 0, jsonPayload, -1, NULL, 0, NULL, NULL);
         std::vector<char> utf8Buf(utf8Len);
         WideCharToMultiByte(CP_UTF8, 0, jsonPayload, -1, utf8Buf.data(), utf8Len, NULL, NULL);
+        DWORD bodyLen = static_cast<DWORD>(utf8Len - 1);
 
         if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                                utf8Buf.data(), utf8Len - 1, utf8Len - 1, 0))
+                                bodyLen ? utf8Buf.data() : WINHTTP_NO_REQUEST_DATA, bodyLen, bodyLen, 0))
         {
             DWORD gle = GetLastError();
             WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
@@ -359,9 +171,8 @@ namespace AITools
 
     // -------------------------------------------------------------------------
     // FormatHttpError: translate HTTP error status codes into user messages.
-    // CC=4  CogC=5
     // -------------------------------------------------------------------------
-    static CString FormatHttpError(DWORD statusCode, const CString& response, bool isGemini)
+    static CString FormatHttpError(DWORD statusCode, const CString& response, const AiConfig::Provider& p)
     {
         if (statusCode == 429)
         {
@@ -373,9 +184,8 @@ namespace AITools
                 int sp = waitStr.Find(_T(' '));
                 if (sp > 0) waitSeconds = _ttoi(waitStr.Left(sp));
             }
-            CString limitMsg = isGemini
-                ? _T("Daily limit: 1500 requests per day (Gemini free tier).\n")
-                : _T("Daily limit: 50 requests per day.\n");
+            CString limitMsg = _T("Provider: ") + p.name + (p.label.IsEmpty() ? CString() : _T(" (") + p.label + _T(")"))
+                             + _T(".\n");
             CString error;
             if (waitSeconds > 0)
                 error.Format(_T("Error: Rate limit reached (HTTP 429).\n%sPlease wait: %d hours and %d minutes before trying again."),
@@ -386,9 +196,12 @@ namespace AITools
             return error;
         }
         if (statusCode == 401)
-            return _T("Error: Unauthorized (HTTP 401). Check your API token with ATAISETTOKEN command.");
+            return _T("Error: Unauthorized (HTTP 401). Check the API key for '") + p.name + _T("' with ATAISETTOKEN.");
         if (statusCode == 403)
-            return _T("Error: Forbidden (HTTP 403). Your token may not have proper permissions.");
+            return _T("Error: Forbidden (HTTP 403). The key for '") + p.name + _T("' may not have the needed permissions.");
+        if (statusCode == 404)
+            return _T("Error: Not found (HTTP 404) - check url and model of '") + p.name
+                 + _T("' in ai_config.lua (ATAICONFIG). ") + response.Left(300);
         CString error;
         error.Format(_T("Error: HTTP %d - %s"), statusCode, (LPCTSTR)response);
         return error;
@@ -513,264 +326,209 @@ namespace AITools
         return content;
     }
     
-    // Send prompt to API (single-turn).
-    // Dispatches to Ollama / Gemini / DeepSeek / OpenAI format based on endpoint.
-    // CC=6  CogC=7  Nesting=2
+    // Numbers in request JSON always use '.', whatever the user's locale.
+    static CString JsonNumber(double v)
+    {
+        static _locale_t cLocale = _create_locale(LC_NUMERIC, "C");
+        TCHAR buf[64];
+        _stprintf_s_l(buf, _countof(buf), _T("%.6g"), cLocale, v);
+        return CString(buf);
+    }
+
+    // One request to the active provider (ai_config.lua). An image rides on
+    // the last user message - the only role that may carry one.
+    static CString SendRequest(const std::vector<ChatMessage>& messages, const CString* imageBase64)
+    {
+        AiConfig::Provider p;
+        CString err;
+        if (!AiConfig::Active(p, err)) return _T("Error: ") + err;
+
+        CString key;
+        if (p.auth != _T("none"))
+        {
+            key = AiConfig::Key(p);
+            if (key.IsEmpty())
+                return _T("Error: no API key for provider '") + p.name
+                     + _T("'. Use ATAISETTOKEN (or set key_env in ai_config.lua).");
+        }
+        if (imageBase64 && !p.vision)
+            return _T("Error: images not supported by ") + p.name + _T(" (") + p.model
+                 + _T(") - set vision = true in ai_config.lua if the model reads images");
+
+        int lastUser = -1;
+        for (int i = 0; i < static_cast<int>(messages.size()); ++i)
+            if (messages[i].role == _T("user")) lastUser = i;
+
+        CString body;
+        if (p.format == _T("gemini"))
+        {
+            // No native history in this request shape: flattened into one labelled prompt.
+            CString combined;
+            if (messages.size() == 1) combined = messages[0].content;
+            else
+                for (const auto& m : messages)
+                    combined += (m.role == _T("assistant") ? _T("Assistant: ") : _T("User: ")) + m.content + _T("\n\n");
+            body = _T("{\"contents\":[{\"parts\":[{\"text\":\"") + EscapeJsonString(combined) + _T("\"}");
+            if (imageBase64)
+                body += _T(",{\"inline_data\":{\"mime_type\":\"image/png\",\"data\":\"") + *imageBase64 + _T("\"}}");
+            body += _T("]}],\"generationConfig\":{\"maxOutputTokens\":") + JsonNumber(p.maxTokens)
+                  + _T(",\"temperature\":") + JsonNumber(p.temperature) + _T("}");
+        }
+        else
+        {
+            body = _T("{\"model\":\"") + EscapeJsonString(p.model) + _T("\",\"messages\":[");
+            for (int i = 0; i < static_cast<int>(messages.size()); ++i)
+            {
+                if (i > 0) body += _T(",");
+                CString text = _T("\"") + EscapeJsonString(messages[i].content) + _T("\"");
+                body += _T("{\"role\":\"") + messages[i].role + _T("\",\"content\":");
+                if (imageBase64 && i == lastUser)
+                    body += _T("[{\"type\":\"text\",\"text\":") + text
+                          + _T("},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,")
+                          + *imageBase64 + _T("\"}}]");
+                else
+                    body += text;
+                body += _T("}");
+            }
+            body += _T("],\"temperature\":") + JsonNumber(p.temperature)
+                  + _T(",\"max_tokens\":") + JsonNumber(p.maxTokens) + _T(",\"stream\":false");
+        }
+        if (!p.extra.IsEmpty()) body += _T(",") + p.extra;
+        body += _T("}");
+
+        CString path = p.path;
+        if (p.auth == _T("query")) path += (path.Find(_T('?')) >= 0 ? _T("&key=") : _T("?key=")) + key;
+
+        DWORD statusCode = 0;
+        CString response = HttpRequest(L"POST", p.host, p.port, p.https, path, body,
+                                       p.auth == _T("bearer"), key, statusCode, p.timeoutSeconds);
+        if (statusCode == 0)   return response;
+        if (statusCode != 200) return FormatHttpError(statusCode, response, p);
+        return ExtractContent(response);
+    }
+
+    // Send prompt to the active provider (single-turn).
     CString SendToGitHubCopilot(const CString& prompt)
     {
-        CString rawEndpoint = GetAPIEndpoint();
-        bool isOllama   = IsOllama(rawEndpoint);
-        bool isGemini   = (rawEndpoint.Find(_T("generativelanguage.googleapis.com")) >= 0);
-        bool isDeepSeek = (rawEndpoint.Find(_T("api.deepseek.com")) >= 0);
-
-        if (!isOllama)
-        {
-            CString token = GetAPIToken();
-            if (token.IsEmpty())
-                return _T("Error: API token not configured. Use ATAISETTOKEN command first.");
-        }
-
-        CString host; INTERNET_PORT port; bool useHttps;
-        ParseEndpoint(rawEndpoint, host, port, useHttps);
-
-        CString token     = isOllama ? CString(_T("")) : GetAPIToken();
-        CString model     = GetAPIModel();
-        CString escaped   = EscapeJsonString(prompt);
-        CString requestPath, jsonPayload;
-
-        if (isOllama)
-        {
-            requestPath = _T("/v1/chat/completions");
-            jsonPayload.Format(_T("{\"model\":\"%s\",\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],\"stream\":false,\"temperature\":0.7}"),
-                               (LPCTSTR)model, (LPCTSTR)escaped);
-        }
-        else if (isGemini)
-        {
-            requestPath.Format(_T("/v1/models/gemini-2.5-flash:generateContent?key=%s"), (LPCTSTR)token);
-            jsonPayload.Format(_T("{\"contents\":[{\"parts\":[{\"text\":\"%s\"}]}],\"generationConfig\":{\"maxOutputTokens\":8192,\"temperature\":0.7}}"),
-                               (LPCTSTR)escaped);
-        }
-        else if (isDeepSeek)
-        {
-            requestPath = _T("/v1/chat/completions");
-            jsonPayload.Format(_T("{\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],\"model\":\"deepseek-chat\",\"temperature\":0.7,\"max_tokens\":8192}"),
-                               (LPCTSTR)escaped);
-        }
-        else
-        {
-            requestPath = _T("/chat/completions");
-            jsonPayload.Format(_T("{\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}],\"model\":\"%s\",\"temperature\":0.7,\"max_tokens\":1000}"),
-                               (LPCTSTR)escaped, (LPCTSTR)model);
-        }
-
-        DWORD statusCode = 0;
-        CString response = HttpPost(host, port, useHttps, requestPath, jsonPayload,
-                                    !isGemini && !isOllama, token, statusCode);
-        if (statusCode == 0)   return response;
-        if (statusCode != 200) return FormatHttpError(statusCode, response, isGemini);
-        return ExtractContent(response);
+        ChatMessage m;
+        m.role    = _T("user");
+        m.content = prompt;
+        return SendRequest({ m }, nullptr);
     }
-    
-    // Send conversation with history to API (multi-turn).
-    // Gemini doesn't support native multi-turn: history is flattened to a single prompt.
-    // Ollama and DeepSeek use OpenAI-compatible messages array natively.
-    // CC=6  CogC=7  Nesting=2
+
+    // Send conversation with history to the active provider (multi-turn).
     CString SendToGitHubCopilotWithHistory(const std::vector<ChatMessage>& messages)
     {
-        CString rawEndpoint = GetAPIEndpoint();
-        bool isOllama   = IsOllama(rawEndpoint);
-        bool isGemini   = (rawEndpoint.Find(_T("generativelanguage.googleapis.com")) >= 0);
-        bool isDeepSeek = (rawEndpoint.Find(_T("api.deepseek.com")) >= 0);
-
-        if (!isOllama)
-        {
-            CString token = GetAPIToken();
-            if (token.IsEmpty())
-                return _T("Error: API token not configured. Use ATAISETTOKEN command first.");
-        }
-
-        // Gemini: flatten history into a labelled single prompt.
-        if (isGemini)
-        {
-            CString combined;
-            for (const auto& msg : messages)
-            {
-                if      (msg.role == _T("user"))      combined += _T("User: ")      + msg.content + _T("\n\n");
-                else if (msg.role == _T("assistant")) combined += _T("Assistant: ") + msg.content + _T("\n\n");
-            }
-            return SendToGitHubCopilot(combined);
-        }
-
-        // Build messages JSON array (shared by OpenAI / DeepSeek / Ollama).
-        CString messagesJson = _T("[");
-        for (size_t i = 0; i < messages.size(); i++)
-        {
-            if (i > 0) messagesJson += _T(",");
-            messagesJson += _T("{\"role\":\"") + messages[i].role
-                          + _T("\",\"content\":\"") + EscapeJsonString(messages[i].content)
-                          + _T("\"}");
-        }
-        messagesJson += _T("]");
-
-        CString host; INTERNET_PORT port; bool useHttps;
-        ParseEndpoint(rawEndpoint, host, port, useHttps);
-
-        CString token       = isOllama ? CString(_T("")) : GetAPIToken();
-        CString model       = isOllama   ? GetAPIModel()
-                            : isDeepSeek ? CString(_T("deepseek-chat"))
-                                         : GetAPIModel();
-        CString requestPath = (isOllama || isDeepSeek) ? _T("/v1/chat/completions")
-                                                        : _T("/chat/completions");
-        CString streamFlag  = isOllama ? _T(",\"stream\":false") : _T("");
-        CString jsonPayload;
-        jsonPayload.Format(_T("{\"messages\":%s,\"model\":\"%s\",\"temperature\":0.7,\"max_tokens\":8192%s}"),
-                           (LPCTSTR)messagesJson, (LPCTSTR)model, (LPCTSTR)streamFlag);
-
-        DWORD statusCode = 0;
-        CString response = HttpPost(host, port, useHttps, requestPath, jsonPayload,
-                                    !isOllama, token, statusCode);
-        if (statusCode == 0)   return response;
-        if (statusCode != 200) return FormatHttpError(statusCode, response, false);
-        return ExtractContent(response);
+        return SendRequest(messages, nullptr);
     }
-    
-    // ATAISETTOKEN command - Set GitHub API token
+
+    CString SendWithImage(const CString& prompt, const CString& pngPath)
+    {
+        CAtlFile file;
+        ULONGLONG size = 0;
+        if (FAILED(file.Create(pngPath, GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING)) || FAILED(file.GetSize(size))
+            || size == 0 || size > 8 * 1024 * 1024)
+            return _T("Error: cannot read image ") + pngPath;
+        std::vector<BYTE> bytes(static_cast<size_t>(size));
+        if (FAILED(file.Read(bytes.data(), static_cast<DWORD>(size))))
+            return _T("Error: cannot read image ") + pngPath;
+        int b64Len = Base64EncodeGetRequiredLength(static_cast<int>(size), ATL_BASE64_FLAG_NOCRLF);
+        std::string b64(static_cast<size_t>(b64Len), '\0');
+        if (!Base64Encode(bytes.data(), static_cast<int>(size), &b64[0], &b64Len, ATL_BASE64_FLAG_NOCRLF))
+            return _T("Error: cannot encode image");
+        b64.resize(static_cast<size_t>(b64Len));
+        CString image(b64.c_str());
+
+        ChatMessage m;
+        m.role    = _T("user");
+        m.content = prompt;
+        return SendRequest({ m }, &image);
+    }
+
+    // ATAISETTOKEN - API key for the active provider. Stored in the registry
+    // per provider, never in ai_config.lua.
     void aiSetTokenCommand()
     {
-        acutPrintf(_T("\n=== SET GITHUB COPILOT API TOKEN ===\n"));
-        acutPrintf(_T("This token will be stored securely in Windows registry.\n"));
-        acutPrintf(_T("Get your token from: https://github.com/settings/tokens\n\n"));
-        
-        TCHAR tokenBuffer[512];
-        int result = acedGetString(0, _T("Enter your GitHub token (or press ESC to cancel): "), tokenBuffer);
-        
-        if (result != RTNORM)
-        {
-            acutPrintf(_T("\nCommand cancelled.\n"));
-            return;
-        }
-        
-        CString token(tokenBuffer);
-        token.Trim();
-        
-        if (token.IsEmpty())
-        {
-            acutPrintf(_T("\nError: Token cannot be empty.\n"));
-            return;
-        }
-        
-        if (SetAPIToken(token))
-        {
-            acutPrintf(_T("\nToken configured successfully! You can now use AI commands.\n"));
-        }
+        acutPrintf(_T("\n=== SET API KEY ===\n"));
+        AiConfig::Provider p;
+        CString err;
+        if (!AiConfig::Active(p, err)) { acutPrintf(_T("Error: %s\n"), (LPCTSTR)err); return; }
+        if (p.auth == _T("none")) { acutPrintf(_T("Provider '%s' needs no key.\n"), (LPCTSTR)p.name); return; }
+
+        acutPrintf(_T("Provider: %s  %s\n"), (LPCTSTR)p.name, (LPCTSTR)p.label);
+        if (!p.keyUrl.IsEmpty()) acutPrintf(_T("Get a key from: %s\n"), (LPCTSTR)p.keyUrl);
+        if (!p.keyEnv.IsEmpty())
+            acutPrintf(_T("Note: key_env = %s in ai_config.lua; that variable wins when it is set.\n"), (LPCTSTR)p.keyEnv);
+        acutPrintf(_T("The key is stored in the registry for this provider, not in ai_config.lua.\n"));
+
+        AcString in;
+        if (acedGetString(0, _T("\nAPI key (ESC to cancel): "), in) != RTNORM)
+        { acutPrintf(_T("\nCommand cancelled.\n")); return; }
+        CString key(in.kwszPtr());
+        key.Trim();
+        if (key.IsEmpty()) { acutPrintf(_T("\nError: the key cannot be empty.\n")); return; }
+
+        if (AiConfig::SetKey(p.name, key))
+            acutPrintf(_T("\nKey saved for '%s'. Test it with ATAITEST.\n"), (LPCTSTR)p.name);
+        else
+            acutPrintf(_T("\nError: could not save the key.\n"));
     }
-    
-    // ATAISETENDPOINT command - Set API endpoint
+
+    // ATAISETENDPOINT - choose the active provider from ai_config.lua
     void aiSetEndpointCommand()
     {
-        acutPrintf(_T("\n=== SET API ENDPOINT ===\n"));
-        acutPrintf(_T("Current endpoint: %s\n\n"), (LPCTSTR)GetAPIEndpoint());
-        acutPrintf(_T("Available endpoints:\n"));
-        acutPrintf(_T("1. models.inference.ai.azure.com (GitHub Models, 50 requests/day)\n"));
-        acutPrintf(_T("2. api.githubcopilot.com (GitHub Copilot Subscription)\n"));
-        acutPrintf(_T("3. generativelanguage.googleapis.com (Google Gemini, 1500 requests/day FREE)\n"));
-        acutPrintf(_T("4. api.openai.com (OpenAI API)\n"));
-        acutPrintf(_T("5. api.deepseek.com (DeepSeek API - Very affordable)\n"));
-        acutPrintf(_T("6. localhost:11434 (Ollama - local, no token needed)\n"));
-        acutPrintf(_T("7. Custom endpoint\n\n"));
+        acutPrintf(_T("\n=== CHOOSE AI PROVIDER ===\n"));
+        std::vector<AiConfig::Provider> all;
+        CString active, err;
+        if (!AiConfig::LoadAll(all, active, err))
+        { acutPrintf(_T("Error: %s\nFix the file (ATAICONFIG opens it).\n"), (LPCTSTR)err); return; }
 
-        TCHAR choiceBuffer[10];
-        int result = acedGetString(1, _T("Enter choice (1-7) or press ESC to cancel: "), choiceBuffer);
-        
-        if (result != RTNORM)
-        {
-            acutPrintf(_T("\nCommand cancelled.\n"));
-            return;
-        }
-        
-        CString choice(choiceBuffer);
+        for (size_t i = 0; i < all.size(); ++i)
+            acutPrintf(_T("%s%2d. %-10s %s  [model %s%s]\n"),
+                       all[i].name.CompareNoCase(active) == 0 ? _T("*") : _T(" "), static_cast<int>(i + 1),
+                       (LPCTSTR)all[i].name, (LPCTSTR)all[i].label, (LPCTSTR)all[i].model,
+                       all[i].vision ? _T(", reads images") : _T(""));
+        acutPrintf(_T("\nProviders come from %s\nAdd or change them there (ATAICONFIG).\n"), (LPCTSTR)AiConfig::ConfigPath());
+
+        AcString in;
+        if (acedGetString(0, _T("\nNumber or name <keep current>: "), in) != RTNORM)
+        { acutPrintf(_T("\nCommand cancelled.\n")); return; }
+        CString choice(in.kwszPtr());
         choice.Trim();
-        CString newEndpoint;
-        
-        if (choice == _T("1"))
+        if (choice.IsEmpty()) { acutPrintf(_T("\nStill using '%s'.\n"), (LPCTSTR)active); return; }
+
+        const AiConfig::Provider* chosen = nullptr;
+        int number = _ttoi(choice);
+        if (number >= 1 && number <= static_cast<int>(all.size())) chosen = &all[number - 1];
+        for (const auto& p : all)
+            if (!chosen && p.name.CompareNoCase(choice) == 0) chosen = &p;
+        if (!chosen) { acutPrintf(_T("\nNo provider '%s'.\n"), (LPCTSTR)choice); return; }
+
+        if (!AiConfig::SetActive(chosen->name, err)) { acutPrintf(_T("\nError: %s\n"), (LPCTSTR)err); return; }
+        acutPrintf(_T("\nActive provider: %s (model %s)\n"), (LPCTSTR)chosen->name, (LPCTSTR)chosen->model);
+        if (chosen->auth != _T("none") && AiConfig::Key(*chosen).IsEmpty())
         {
-            newEndpoint = _T("models.inference.ai.azure.com");
-        }
-        else if (choice == _T("2"))
-        {
-            newEndpoint = _T("api.githubcopilot.com");
-        }
-        else if (choice == _T("3"))
-        {
-            newEndpoint = _T("generativelanguage.googleapis.com");
-            acutPrintf(_T("\nGemini selected. Get your FREE API key from:\n"));
-            acutPrintf(_T("https://aistudio.google.com/app/apikey\n"));
-        }
-        else if (choice == _T("4"))
-        {
-            newEndpoint = _T("api.openai.com");
-        }
-        else if (choice == _T("5"))
-        {
-            newEndpoint = _T("api.deepseek.com");
-            acutPrintf(_T("\nDeepSeek selected. Get your API key from:\n"));
-            acutPrintf(_T("https://platform.deepseek.com/api_keys\n"));
-        }
-        else if (choice == _T("6"))
-        {
-            newEndpoint = _T("localhost:11434");
-            acutPrintf(_T("\nOllama selected. No API token required.\n"));
-            acutPrintf(_T("Set your model with ATAISETMODEL (e.g. llama3.2, mistral, codellama).\n"));
-            acutPrintf(_T("Make sure Ollama is running: ollama serve\n"));
-        }
-        else if (choice == _T("7"))
-        {
-            TCHAR endpointBuffer[256];
-            result = acedGetString(1, _T("Enter custom endpoint (without https://): "), endpointBuffer);
-            if (result != RTNORM)
-            {
-                acutPrintf(_T("\nCommand cancelled.\n"));
-                return;
-            }
-            newEndpoint = CString(endpointBuffer);
-            newEndpoint.Trim();
+            acutPrintf(_T("No key stored for '%s' yet: run ATAISETTOKEN.\n"), (LPCTSTR)chosen->name);
+            if (!chosen->keyUrl.IsEmpty()) acutPrintf(_T("Get one from: %s\n"), (LPCTSTR)chosen->keyUrl);
         }
         else
-        {
-            acutPrintf(_T("\nInvalid choice.\n"));
-            return;
-        }
-        
-        if (newEndpoint.IsEmpty())
-        {
-            acutPrintf(_T("\nError: Endpoint cannot be empty.\n"));
-            return;
-        }
-        
-        if (SetAPIEndpoint(newEndpoint))
-        {
-            acutPrintf(_T("Endpoint: %s\n"), (LPCTSTR)newEndpoint);
-            acutPrintf(_T("\nNow test the connection with ATAITEST command.\n"));
-        }
+            acutPrintf(_T("Test the connection with ATAITEST.\n"));
     }
-    
+
     // ATAITEST command - Test API connection
     void aiTestCommand()
     {
-        acutPrintf(_T("\n=== TEST API CONNECTION ===\n"));
-
-        CString endpoint = GetAPIEndpoint();
-        bool ollama  = IsOllama(endpoint);
-        bool isGemini = (endpoint.Find(_T("generativelanguage.googleapis.com")) >= 0);
-
+        acutPrintf(_T("\n=== TEST AI CONNECTION ===\n"));
+        AiConfig::Provider p;
+        CString err;
+        if (!AiConfig::Active(p, err)) { acutPrintf(_T("Error: %s\n"), (LPCTSTR)err); return; }
+        acutPrintf(_T("Provider: %s\nURL:      %s\nModel:    %s\nImages:   %s\n"), (LPCTSTR)p.name, (LPCTSTR)p.url,
+                   (LPCTSTR)p.model, p.vision ? _T("yes") : _T("no"));
         if (!IsTokenConfigured())
         {
-            acutPrintf(_T("Error: API token not configured. Use ATAISETTOKEN command first.\n"));
+            acutPrintf(_T("Error: no API key for '%s'. Use ATAISETTOKEN.\n"), (LPCTSTR)p.name);
             return;
         }
-
-        acutPrintf(_T("Endpoint: %s\n"), (LPCTSTR)endpoint);
-        if (ollama) acutPrintf(_T("Model: %s\n"), (LPCTSTR)GetAPIModel());
         acutPrintf(_T("Testing connection with simple prompt...\n"));
 
         CString response = SendToGitHubCopilot(_T("Say 'Hello from AutoCAD!' in one short sentence."));
@@ -778,189 +536,57 @@ namespace AITools
         acutPrintf(_T("\n--- API Response ---\n"));
         acutPrintf(_T("%s\n"), (LPCTSTR)response);
         acutPrintf(_T("--- End Response ---\n"));
-
-        if (isGemini)
-            acutPrintf(_T("\nTip: Use ATAILISTMODELS to see all available Gemini/Ollama models.\n"));
-        else if (ollama)
-            acutPrintf(_T("\nTip: Use ATAILISTMODELS to see locally installed Ollama models.\n"));
     }
-    
-    // ATAILISTMODELS command - List available models (Gemini or Ollama)
+
+    // ATAILISTMODELS command - List the models the active provider offers (models_url)
     void aiListModelsCommand()
     {
         acutPrintf(_T("\n=== LIST AVAILABLE MODELS ===\n"));
-
-        CString endpoint = GetAPIEndpoint();
-        bool isOllama = IsOllama(endpoint);
-        bool isGemini = (endpoint.Find(_T("generativelanguage.googleapis.com")) >= 0);
-
-        if (!IsTokenConfigured())
+        AiConfig::Provider p;
+        CString err;
+        if (!AiConfig::Active(p, err)) { acutPrintf(_T("Error: %s\n"), (LPCTSTR)err); return; }
+        if (p.modelsUrl.IsEmpty())
         {
-            acutPrintf(_T("Error: API token not configured. Use ATAISETTOKEN command first.\n"));
+            acutPrintf(_T("Provider '%s' has no models_url in ai_config.lua (ATAICONFIG).\n"), (LPCTSTR)p.name);
             return;
         }
+        bool https = true;
+        CString host, path;
+        unsigned short port = 443;
+        if (!AiConfig::SplitUrl(p.modelsUrl, https, host, port, path))
+        { acutPrintf(_T("Error: invalid models_url %s\n"), (LPCTSTR)p.modelsUrl); return; }
 
-        if (!isGemini && !isOllama)
+        CString key = p.auth == _T("none") ? CString() : AiConfig::Key(p);
+        if (p.auth == _T("query")) path += (path.Find(_T('?')) >= 0 ? _T("&key=") : _T("?key=")) + key;
+
+        acutPrintf(_T("Provider: %s\nFetching %s ...\n\n"), (LPCTSTR)p.name, (LPCTSTR)p.modelsUrl);
+        DWORD statusCode = 0;
+        CString body = HttpRequest(L"GET", host, port, https, path, CString(), p.auth == _T("bearer"), key, statusCode);
+        if (statusCode == 0)        acutPrintf(_T("%s\n"), (LPCTSTR)body);
+        else if (statusCode != 200) acutPrintf(_T("%s\n"), (LPCTSTR)FormatHttpError(statusCode, body, p));
+        else
         {
-            acutPrintf(_T("This command lists models for Gemini (option 3) or Ollama (option 6).\n"));
-            acutPrintf(_T("Current endpoint: %s\n"), (LPCTSTR)endpoint);
-            return;
-        }
-
-        CString host; INTERNET_PORT port; bool useHttps;
-        ParseEndpoint(endpoint, host, port, useHttps);
-        CString token = isOllama ? CString(_T("")) : GetAPIToken();
-
-        acutPrintf(_T("Endpoint: %s\n"), (LPCTSTR)endpoint);
-        acutPrintf(_T("Fetching available models...\n\n"));
-
-        // Ollama: GET /api/tags  (plain HTTP, no auth)
-        if (isOllama)
-        {
-            HINTERNET hSession = WinHttpOpen(L"AutoCAD-AI/1.0",
-                                             WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                             WINHTTP_NO_PROXY_NAME,
-                                             WINHTTP_NO_PROXY_BYPASS, 0);
-            if (!hSession) { acutPrintf(_T("Error: Could not initialize HTTP session\n")); return; }
-
-            HINTERNET hConnect = WinHttpConnect(hSession, host, port, 0);
-            if (!hConnect)
-            { WinHttpCloseHandle(hSession); acutPrintf(_T("Error: Could not connect to Ollama\n")); return; }
-
-            HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", L"/api/tags",
-                                                    NULL, WINHTTP_NO_REFERER,
-                                                    WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
-            if (!hRequest)
-            { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-              acutPrintf(_T("Error: Could not create request\n")); return; }
-
-            if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                                    WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-                !WinHttpReceiveResponse(hRequest, NULL))
-            { WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-              acutPrintf(_T("Error: Could not get models from Ollama. Is 'ollama serve' running?\n")); return; }
-
-            std::string body;
-            DWORD avail = 0;
-            while (WinHttpQueryDataAvailable(hRequest, &avail) && avail > 0)
-            {
-                std::vector<char> buf(avail + 1); DWORD read = 0;
-                if (WinHttpReadData(hRequest, buf.data(), avail, &read))
-                { buf[read] = '\0'; body += buf.data(); }
-            }
-            WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
-
-            int wl = MultiByteToWideChar(CP_UTF8, 0, body.c_str(), -1, NULL, 0);
-            std::vector<wchar_t> wb(wl);
-            MultiByteToWideChar(CP_UTF8, 0, body.c_str(), -1, wb.data(), wl);
-            acutPrintf(_T("--- Installed Ollama Models ---\n%s\n--- End List ---\n"), wb.data());
-            acutPrintf(_T("Use ATAISETMODEL to select a model (e.g. llama3.2, mistral).\n"));
-            return;
-        }
-
-        // Gemini path below — unchanged
-        acutPrintf(_T("Endpoint: %s\n"), (LPCTSTR)endpoint);
-            
-            // Initialize WinHTTP
-            HINTERNET hSession = WinHttpOpen(L"AutoCAD-Copilot/1.0",
-                                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                            WINHTTP_NO_PROXY_NAME,
-                                            WINHTTP_NO_PROXY_BYPASS, 0);
-            
-            if (!hSession)
-            {
-                acutPrintf(_T("Error: Could not initialize HTTP session\n"));
-                return;
-            }
-            
-            HINTERNET hConnect = WinHttpConnect(hSession, endpoint, INTERNET_DEFAULT_HTTPS_PORT, 0);
-            
-            if (!hConnect)
-            {
-                WinHttpCloseHandle(hSession);
-                acutPrintf(_T("Error: Could not connect to endpoint\n"));
-                return;
-            }
-            
-            // List models endpoint
-            CString listPath;
-            listPath.Format(_T("/v1/models?key=%s"), (LPCTSTR)token);
-            
-            HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", listPath,
-                                                   NULL, WINHTTP_NO_REFERER,
-                                                   WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                                   WINHTTP_FLAG_SECURE);
-            
-            if (!hRequest)
-            {
-                WinHttpCloseHandle(hConnect);
-                WinHttpCloseHandle(hSession);
-                acutPrintf(_T("Error: Could not create request\n"));
-                return;
-            }
-            
-            // Send request
-            BOOL result = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-            
-            if (!result)
-            {
-                WinHttpCloseHandle(hRequest);
-                WinHttpCloseHandle(hConnect);
-                WinHttpCloseHandle(hSession);
-                acutPrintf(_T("Error: Could not send request\n"));
-                return;
-            }
-            
-            result = WinHttpReceiveResponse(hRequest, NULL);
-            
-            if (!result)
-            {
-                WinHttpCloseHandle(hRequest);
-                WinHttpCloseHandle(hConnect);
-                WinHttpCloseHandle(hSession);
-                acutPrintf(_T("Error: Could not receive response\n"));
-                return;
-            }
-            
-            // Read response
-            std::string responseBody;
-            DWORD bytesAvailable = 0;
-            DWORD bytesRead = 0;
-            
-            do
-            {
-                bytesAvailable = 0;
-                if (!WinHttpQueryDataAvailable(hRequest, &bytesAvailable))
-                    break;
-                
-                if (bytesAvailable == 0)
-                    break;
-                
-                std::vector<char> buffer(bytesAvailable + 1);
-                if (!WinHttpReadData(hRequest, buffer.data(), bytesAvailable, &bytesRead))
-                    break;
-                
-                buffer[bytesRead] = 0;
-                responseBody += buffer.data();
-                
-            } while (bytesAvailable > 0);
-            
-            WinHttpCloseHandle(hRequest);
-            WinHttpCloseHandle(hConnect);
-            WinHttpCloseHandle(hSession);
-            
-            // Convert response to CString
-            int wideLength = MultiByteToWideChar(CP_UTF8, 0, responseBody.c_str(), -1, NULL, 0);
-            std::vector<wchar_t> wideBuffer(wideLength);
-            MultiByteToWideChar(CP_UTF8, 0, responseBody.c_str(), -1, wideBuffer.data(), wideLength);
-            CString modelsResponse(wideBuffer.data());
-            
             acutPrintf(_T("--- Available Models ---\n"));
-            acutPrintf(_T("%s\n"), (LPCTSTR)modelsResponse);
-            acutPrintf(_T("--- End List ---\n"));
+            acutPrintf(_T("%s\n"), (LPCTSTR)body);
+            acutPrintf(_T("--- End List ---\nSet one with ATAISETMODEL.\n"));
+        }
     }
-    
+
+    // ATAICONFIG - open ai_config.lua (written with defaults on first use)
+    void aiConfigCommand()
+    {
+        CString path = AiConfig::ConfigPath();
+        acutPrintf(_T("\nAI configuration: %s\n"), (LPCTSTR)path);
+        std::vector<AiConfig::Provider> all;
+        CString active, err;
+        if (AiConfig::LoadAll(all, active, err))
+            acutPrintf(_T("Active provider: %s, %d providers. Edits apply to the next AI request.\n"),
+                       (LPCTSTR)active, static_cast<int>(all.size()));
+        else
+            acutPrintf(_T("The file has an error: %s\n"), (LPCTSTR)err);
+        ShellExecute(NULL, _T("open"), _T("notepad.exe"), _T("\"") + path + _T("\""), NULL, SW_SHOWNORMAL);
+    }
+
     // ATAIASK command - Ask Copilot a question
     void aiAskCommand()
     {
@@ -1869,36 +1495,27 @@ namespace AITools
         acutPrintf(_T("AI will start fresh with no memory of previous interactions.\n"));
     }
 
-    // ATAISETMODEL command - Set the active AI model name
+    // ATAISETMODEL - set the active provider's model in ai_config.lua
     void aiSetModelCommand()
     {
         acutPrintf(_T("\n=== SET AI MODEL ===\n"));
-        acutPrintf(_T("Current model: %s\n\n"), (LPCTSTR)GetAPIModel());
+        AiConfig::Provider p;
+        CString err;
+        if (!AiConfig::Active(p, err)) { acutPrintf(_T("Error: %s\n"), (LPCTSTR)err); return; }
+        acutPrintf(_T("Provider: %s\nCurrent model: %s\n"), (LPCTSTR)p.name, (LPCTSTR)p.model);
+        if (!p.modelsUrl.IsEmpty()) acutPrintf(_T("ATAILISTMODELS lists the models this provider offers.\n"));
 
-        CString endpoint = GetAPIEndpoint();
-        if (IsOllama(endpoint))
-        {
-            acutPrintf(_T("Ollama endpoint active (%s).\n"), (LPCTSTR)endpoint);
-            acutPrintf(_T("Common models: llama3.2, mistral, codellama, phi3, gemma3\n"));
-            acutPrintf(_T("Run 'ollama list' in a terminal to see installed models.\n\n"));
-        }
-        else
-        {
-            acutPrintf(_T("Cloud endpoint active (%s).\n"), (LPCTSTR)endpoint);
-            acutPrintf(_T("Default model for OpenAI-compatible APIs: gpt-4o\n\n"));
-        }
-
-        TCHAR modelBuffer[128];
-        int result = acedGetString(1, _T("Enter model name (or press ESC to cancel): "), modelBuffer);
-        if (result != RTNORM)
+        AcString in;
+        if (acedGetString(0, _T("\nModel name (ESC to cancel): "), in) != RTNORM)
         { acutPrintf(_T("\nCommand cancelled.\n")); return; }
-
-        CString model(modelBuffer);
+        CString model(in.kwszPtr());
         model.Trim();
-        if (model.IsEmpty())
-        { acutPrintf(_T("\nError: Model name cannot be empty.\n")); return; }
+        if (model.IsEmpty()) { acutPrintf(_T("\nError: Model name cannot be empty.\n")); return; }
 
-        SetAPIModel(model);
-        acutPrintf(_T("Model set to '%s'. Use ATAITEST to verify.\n"), (LPCTSTR)model);
+        if (!AiConfig::SetModel(p.name, model, err)) { acutPrintf(_T("\nError: %s\n"), (LPCTSTR)err); return; }
+        acutPrintf(_T("\nModel for '%s' set to '%s' in ai_config.lua. Use ATAITEST to verify.\n"),
+                   (LPCTSTR)p.name, (LPCTSTR)model);
+        acutPrintf(_T("vision = %s for this provider: change it in ai_config.lua (ATAICONFIG) if this model %s images.\n"),
+                   p.vision ? _T("true") : _T("false"), p.vision ? _T("cannot read") : _T("can read"));
     }
 }

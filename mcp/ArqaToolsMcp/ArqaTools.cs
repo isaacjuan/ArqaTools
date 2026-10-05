@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace ArqaToolsMcp;
@@ -88,7 +89,10 @@ public class ArqaTools(BridgeClient bridge)
     }
 
     [McpServerTool(Name = "run_command", Destructive = true),
-     Description("Runs an installed Lua command (see list_commands) in AutoCAD WITHOUT prompting the user. " +
+     Description("Prefer the command's own tool: Lua commands that declare parameters are published as tools " +
+                 "named after the command (e.g. ATGRID) with named, typed arguments. Use run_command for commands without " +
+                 "declared parameters. " +
+                 "Runs an installed Lua command (see list_commands) in AutoCAD WITHOUT prompting the user. " +
                  "Its input calls (at.getPoint, at.getInt, ...) are answered in order from 'answers'. " +
                  "Read the command with get_command_source first to know which inputs it asks for and in which order. " +
                  "Answer formats: getPoint [x,y,z]; getInt/getReal/getDistance a number; getString/getKeyword a string; " +
@@ -112,6 +116,39 @@ public class ArqaTools(BridgeClient bridge)
         sb.Append(name).Append(" failed: ").Append(r.TryGetProperty("error", out var e) ? e.GetString() : "unknown");
         if (output.Length > 0) sb.Append("\nOutput before the error:\n").Append(output);
         throw new McpException(sb.ToString());
+    }
+
+    [McpServerTool(Name = "test_command", ReadOnly = true),
+     Description("Test-runs an installed Lua command in a scratch drawing (the user's drawing is not touched), " +
+                 "using each declared parameter's default or a plausible test value, and returns what it printed, " +
+                 "a geometry report (entities, extents, defects such as zero-length or doubled-back segments) and a " +
+                 "plan-view image of what it drew. Use it to check that a command does what it should.")]
+    public async Task<IEnumerable<ContentBlock>> TestCommand(
+        [Description("Lua command name, e.g. ATSTAIR")] string name, CancellationToken ct)
+    {
+        var r = await Call("test_command", name, RunTimeout, ct);
+        string S(string key) => r.TryGetProperty(key, out var v) ? v.GetString() ?? "" : "";
+
+        var sb = new StringBuilder();
+        if (!r.GetProperty("ran").GetBoolean())
+            sb.Append("Not test-run: ").Append(S("skipped"));
+        else
+        {
+            sb.Append("Parameters used: ").Append(S("params")).Append('\n');
+            if (S("skipped").Length > 0) sb.Append("Note: ").Append(S("skipped")).Append('\n');
+            if (S("output").Length > 0) sb.Append("Printed output:\n").Append(S("output"));
+            if (!r.GetProperty("runOk").GetBoolean()) sb.Append("It stopped with an error:\n").Append(S("error")).Append('\n');
+            sb.Append(S("report"));
+        }
+        var blocks = new List<ContentBlock> { new TextContentBlock { Text = sb.ToString() } };
+        var png = S("png");
+        if (png.Length > 0 && File.Exists(png))
+        {
+            blocks.Add(ImageContentBlock.FromBytes(await File.ReadAllBytesAsync(png, ct), "image/png"));
+            blocks.Add(new TextContentBlock { Text = "Plan view (+X right, +Y up; red cross = origin = test base point; " +
+                                                     "blue dots = vertices) saved at " + png });
+        }
+        return blocks;
     }
 
     // Calls the bridge; a response with ok=false becomes a tool error.

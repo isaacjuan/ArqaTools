@@ -3,7 +3,9 @@
 #include "ArqaTools.h"
 #include "LuaTools.h"
 #include "LuaCommands.h"
+#include "CommandTester.h"
 #include <sddl.h>
+#include <ShlObj.h>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -135,7 +137,8 @@ std::string HandleListCommands()
     {
         cmds += cmds.empty() ? "" : ",";
         cmds += "{\"name\":" + Json(c.name) + ",\"description\":" + Json(c.description)
-              + ",\"file\":" + Json(c.file) + ",\"lastError\":" + Json(c.lastError) + "}";
+              + ",\"file\":" + Json(c.file) + ",\"lastError\":" + Json(c.lastError)
+              + ",\"params\":" + (c.paramsJson.empty() ? std::string("null") : c.paramsJson) + "}";
     }
     for (const auto& f : LuaCommands::FailedFiles())
     {
@@ -172,17 +175,21 @@ std::string HandleRunLua(const std::string& code)
     return json + "}";
 }
 
-// Runs inside ATMCPRUN. body = "NAME\n<answers table constructor>".
-std::string HandleRunCommand(const std::string& body)
+// Runs inside ATMCPRUN. body = "NAME\n<Lua table constructor>": positional
+// answers for run_command, named parameters for call_command.
+std::string HandleRunCommand(const std::string& body, bool named)
 {
     size_t nl = body.find('\n');
     std::string name    = body.substr(0, nl);
-    std::string answers = nl == std::string::npos ? std::string() : body.substr(nl + 1);
+    std::string literal = nl == std::string::npos ? std::string() : body.substr(nl + 1);
 
     acutPrintf(_T("\n[MCP] running %s\n"), static_cast<LPCTSTR>(CA2T(name.c_str(), CP_UTF8)));
     std::string output, error;
     bool cancelled = false;
-    bool ok = LuaCommands::RunScripted(CString(CA2T(name.c_str(), CP_UTF8)), answers, output, error, cancelled);
+    bool ok = LuaCommands::RunScripted(CString(CA2T(name.c_str(), CP_UTF8)),
+                                       named ? (literal.empty() ? std::string("{}") : literal) : std::string(),
+                                       named ? std::string() : literal,
+                                       output, error, cancelled);
 
     std::string json = "{\"ok\":" + std::string(ok ? "true" : "false")
                      + ",\"output\":" + Json(output)
@@ -191,9 +198,36 @@ std::string HandleRunCommand(const std::string& body)
     return json + "}";
 }
 
+// Runs inside ATMCPRUN. Test-runs an installed command in a scratch drawing
+// (CommandTester); the user's drawing is not touched.
+std::string HandleTestCommand(const std::string& name)
+{
+    CString wName(CA2T(name.c_str(), CP_UTF8));
+    wName.Trim();
+    wName.MakeUpper();
+    std::string source;
+    CString err;
+    if (!LuaCommands::CommandSource(wName, source, err)) return Error(ToUtf8(err));
+
+    acutPrintf(_T("\n[MCP] test-running %s in a scratch drawing\n"), (LPCTSTR)wName);
+    CString png = LuaCommands::CommandsFolder() + _T("\\test\\") + wName + _T(".png");
+    SHCreateDirectoryEx(NULL, LuaCommands::CommandsFolder() + _T("\\test"), NULL);
+    CommandTester::Result r = CommandTester::Run(wName, CString(CA2T(source.c_str(), CP_UTF8)), png);
+
+    return "{\"ok\":true,\"ran\":" + std::string(r.ran ? "true" : "false")
+         + ",\"runOk\":" + (r.ok ? "true" : "false")
+         + ",\"skipped\":" + Json(r.skipped)
+         + ",\"params\":" + Json(r.params)
+         + ",\"output\":" + Json(r.output)
+         + ",\"error\":" + Json(r.error)
+         + ",\"report\":" + Json(r.report)
+         + ",\"png\":" + Json(r.pngPath) + "}";
+}
+
 bool NeedsCommand(const std::string& method)
 {
-    return method == "run_lua" || method == "run_command";
+    return method == "run_lua" || method == "run_command" || method == "call_command"
+        || method == "test_command";
 }
 
 std::string HandleQuery(const Request& req)
@@ -498,7 +532,9 @@ void runCommand()
         req = g_pending;
     }
     if (!req || !req->sentAt || !NeedsCommand(req->method)) return;
-    Complete(req, req->method == "run_command" ? HandleRunCommand(req->body) : HandleRunLua(req->body));
+    if (req->method == "run_lua")           Complete(req, HandleRunLua(req->body));
+    else if (req->method == "test_command") Complete(req, HandleTestCommand(req->body));
+    else                                    Complete(req, HandleRunCommand(req->body, req->method == "call_command"));
 }
 
 } // namespace McpBridge

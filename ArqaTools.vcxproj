@@ -133,6 +133,8 @@
     <ClCompile Include="LuaTools.cpp" />
     <ClCompile Include="LuaCommands.cpp" />
     <ClCompile Include="McpBridge.cpp" />
+    <ClCompile Include="CommandTester.cpp" />
+    <ClCompile Include="AiConfig.cpp" />
     <!-- Vendored Lua 5.4 library source (see ThirdParty\Lua\VERSION.txt) — plain C, not using the project PCH -->
     <ClCompile Include="ThirdParty\Lua\src\lapi.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="ThirdParty\Lua\src\lauxlib.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
@@ -198,6 +200,8 @@
     <ClInclude Include="LuaTools.h" />
     <ClInclude Include="LuaCommands.h" />
     <ClInclude Include="McpBridge.h" />
+    <ClInclude Include="CommandTester.h" />
+    <ClInclude Include="AiConfig.h" />
     <ClInclude Include="ThirdParty\Lua\src\lapi.h" />
     <ClInclude Include="ThirdParty\Lua\src\lauxlib.h" />
     <ClInclude Include="ThirdParty\Lua\src\lcode.h" />
