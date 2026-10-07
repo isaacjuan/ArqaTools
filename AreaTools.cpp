@@ -297,38 +297,6 @@ static bool CollectCurveLengths(const std::vector<AcDbObjectId>& candidates,
     return true;
 }
 
-void sumLengthCommand()
-{
-    acutPrintf(_T("\nSUMLENGTH - Insert sum of lengths for selected curves"));
-
-    bool cancelled = false;
-    std::vector<AcDbObjectId> candidates = CommonTools::SelectIds(nullptr, &cancelled);
-    if (cancelled) { acutPrintf(_T("\nCommand cancelled.")); return; }
-    if (candidates.empty()) { acutPrintf(_T("\nNo objects selected.")); return; }
-
-    std::vector<AcDbObjectId> ids;
-    double total = 0.0;
-    AcGePoint3d centroid(0, 0, 0);
-    if (!CollectCurveLengths(candidates, ids, total, centroid))
-    { acutPrintf(_T("\nNo valid curves selected.")); return; }
-
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    acutPrintf(_T("\nTotal length: %s"), (LPCTSTR)MeasureFormat::FormatLength(total, pDb->insunits()));
-
-    ads_point adsPoint;
-    if (acedGetPoint(NULL, _T("\nSpecify position for text: "), adsPoint) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    CString err;
-    int monitored = 0;
-    AcDbObjectId textId = AreaTools::InsertSumLengthLabel(
-        ids, AcGePoint3d(adsPoint[0], adsPoint[1], adsPoint[2]), nullptr, &monitored, &err);
-    if (textId.isNull())
-    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
-
-    acutPrintf(_T("\nSum length text inserted. Monitoring %d curve(s)."), monitored);
-}
-
 AcDbObjectId AreaTools::InsertSumLengthLabel(const std::vector<AcDbObjectId>& curveIds,
                                              const AcGePoint3d& pos, double* totalOut,
                                              int* monitoredOut, CString* err)

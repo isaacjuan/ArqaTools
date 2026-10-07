@@ -111,7 +111,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATSCALETEXT"),        scaleTextCommand            },
         // Area / Measurement
         { _T("ATINSERTAREA"),       insertAreaCommand           },
-        { _T("ATSUMLENGTH"),        sumLengthCommand            },
         { _T("ATCOUNTBLOCKS"),      countBlocksCommand          },
         { _T("ATSPLITLINE"),        splitLineCommand            },
         { _T("ATSPLITPOLI"),        splitPoliCommand            },
@@ -490,7 +489,7 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("\n--- AREA TOOLS ---\n"));
     acutPrintf(_T("ATINSERTAREA  - Insert auto-updating area text in closed polyline\n"));
     acutPrintf(_T("ATPERIMETER   - Insert perimeter text in closed polyline (Lua command)\n"));
-    acutPrintf(_T("ATSUMLENGTH   - Insert auto-updating sum of lengths (polylines/arcs/circles/lines)\n"));
+    acutPrintf(_T("ATSUMLENGTH   - Insert auto-updating sum of lengths (polylines/arcs/circles/lines) (Lua command)\n"));
     acutPrintf(_T("ATLINEARLENGTH - Insert length text on a line or open polyline (Lua command)\n"));
     acutPrintf(_T("ATTAGALL      - Insert length text on all selected lines/polylines\n"));
     acutPrintf(_T("ATSPLITLINE   - Split a line by intersecting lines, creating individual segments\n"));

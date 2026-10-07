@@ -94,7 +94,6 @@ private:
 
 // Area / measurement commands
 void insertAreaCommand();
-void sumLengthCommand();
 
 // New architectural commands
 void countBlocksCommand();
