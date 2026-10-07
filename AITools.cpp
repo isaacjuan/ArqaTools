@@ -344,6 +344,38 @@ namespace AITools
         return CString(buf);
     }
 
+    // Raw (still escaped) value of the first string member `"name":` at or after
+    // `from`; empty if absent or not a string. `end` is the closing quote, or -1
+    // when there is no such member.
+    static CString JsonStringMember(const CString& json, const CString& name, int from, int& end)
+    {
+        CString key = _T("\"") + name + _T("\"");
+        for (int pos = json.Find(key, from); pos >= 0; pos = json.Find(key, pos + 1))
+        {
+            int i = pos + key.GetLength();
+            while (i < json.GetLength() && _istspace(json[i])) ++i;
+            if (i >= json.GetLength() || json[i] != _T(':')) continue;   // a value, not a key
+            ++i;
+            while (i < json.GetLength() && _istspace(json[i])) ++i;
+            if (i >= json.GetLength() || json[i] != _T('"')) { end = i; return CString(); }
+            int start = i++;
+            while (i < json.GetLength() && json[i] != _T('"'))
+                i += json[i] == _T('\\') ? 2 : 1;
+            end = i;
+            return json.Mid(start + 1, i - start - 1);
+        }
+        end = -1;
+        return CString();
+    }
+
+    // A reply that hit the output limit is half an answer (half a script): an
+    // error, so the harness stops instead of spending a correction round on it.
+    static CString CutOffError(const AiConfig::Provider& p)
+    {
+        return _T("Error: the reply was cut off at max_tokens (") + JsonNumber(p.maxTokens)
+             + _T(") - raise max_tokens for '") + p.name + _T("' in ai_config.lua (ATAICONFIG).");
+    }
+
     // Anthropic Messages API reply: {"content":[{"type":"text","text":"..."},...],
     // "stop_reason":"..."}. Joins every "text" member of the content blocks (other
     // block types, e.g. thinking, are skipped) and turns a cut-off or refused
@@ -351,32 +383,8 @@ namespace AITools
     // unescaping as ExtractContent (\n stays escaped).
     static CString ExtractAnthropicContent(const CString& json, const AiConfig::Provider& p)
     {
-        auto stringAt = [&json](int quoteStart, int& end) -> CString
-        {
-            int i = quoteStart + 1;
-            while (i < json.GetLength() && json[i] != _T('"'))
-                i += json[i] == _T('\\') ? 2 : 1;
-            end = i;
-            return json.Mid(quoteStart + 1, i - quoteStart - 1);
-        };
-        // Value of the string member `"name":` at or after `from`; empty if absent.
-        auto member = [&](const CString& name, int from, int& end) -> CString
-        {
-            CString key = _T("\"") + name + _T("\"");
-            for (int pos = json.Find(key, from); pos >= 0; pos = json.Find(key, pos + 1))
-            {
-                int i = pos + key.GetLength();
-                while (i < json.GetLength() && _istspace(json[i])) ++i;
-                if (i >= json.GetLength() || json[i] != _T(':')) continue;   // a value, not a key
-                ++i;
-                while (i < json.GetLength() && _istspace(json[i])) ++i;
-                if (i < json.GetLength() && json[i] == _T('"')) return stringAt(i, end);
-                end = i;
-                return CString();
-            }
-            end = -1;
-            return CString();
-        };
+        auto member = [&json](const CString& name, int from, int& end)
+        { return JsonStringMember(json, name, from, end); };
 
         int end = 0;
         CString stopReason = member(_T("stop_reason"), 0, end);
@@ -393,9 +401,7 @@ namespace AITools
             text += part;
             from = end + 1;
         }
-        if (stopReason == _T("max_tokens"))
-            return _T("Error: the reply was cut off at max_tokens (") + JsonNumber(p.maxTokens)
-                 + _T(") - raise max_tokens for '") + p.name + _T("' in ai_config.lua (ATAICONFIG).");
+        if (stopReason == _T("max_tokens")) return CutOffError(p);
         if (text.IsEmpty()) return _T("Error: empty reply (stop_reason ") + stopReason + _T(")");
 
         text.Replace(_T("\\r"), _T("\r"));
@@ -497,6 +503,11 @@ namespace AITools
         if (statusCode == 0)   return response;
         if (statusCode != 200) return FormatHttpError(statusCode, response, p);
         if (p.format == _T("anthropic")) return ExtractAnthropicContent(response, p);
+        if (p.format == _T("openai"))
+        {
+            int end = 0;
+            if (JsonStringMember(response, _T("finish_reason"), 0, end) == _T("length")) return CutOffError(p);
+        }
         return ExtractContent(response);
     }
 

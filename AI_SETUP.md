@@ -64,7 +64,8 @@ never rewritten, so add it by hand:
   },
 ```
 
-A Claude reply cut off at `max_tokens`, or refused, is reported as an error instead of being
+A reply cut off at `max_tokens` (`anthropic`: `stop_reason` `max_tokens`; `openai`:
+`finish_reason` `length`), or refused by Claude, is reported as an error instead of being
 treated as code.
 
 `ATAISETENDPOINT` and `ATAISETMODEL` rewrite the `active` line and the provider's `model`
