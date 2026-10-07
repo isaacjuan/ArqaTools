@@ -456,47 +456,4 @@ namespace AlignTools
     void copyYCommand() { CopyAxisCommand(1); }
     void copyZCommand() { CopyAxisCommand(2); }
 
-    // -------------------------------------------------------------------------
-    // PLACEMID command - Move an object to the midpoint between two points.
-    // -------------------------------------------------------------------------
-    void placeMidCommand()
-    {
-        acutPrintf(_T("\n=== PLACE AT MIDPOINT ===\n"));
-
-        ads_name ent;
-        ads_point pickPt;
-        if (acedEntSel(_T("\nSelect object to place: "), ent, pickPt) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-
-        AcDbObjectId objId;
-        acdbGetObjectId(objId, ent);
-
-        // Use bounding-box center as the object's reference point.
-        CommonTools::AcDbObjectGuard<AcDbEntity> entGuard(objId);
-        if (!entGuard) { acutPrintf(_T("\nError: Could not open object.\n")); return; }
-        AcDbExtents extents;
-        AcGePoint3d objCenter;
-        if (entGuard->getGeomExtents(extents) == Acad::eOk)
-            objCenter = extents.minPoint() + (extents.maxPoint() - extents.minPoint()) * 0.5;
-        else
-            objCenter = AcGePoint3d(pickPt[0], pickPt[1], pickPt[2]);
-
-        ads_point pt1, pt2;
-        if (acedGetPoint(NULL, _T("\nPick first reference point: "), pt1) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-        if (acedGetPoint(pt1, _T("\nPick second reference point: "), pt2) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-
-        AcGePoint3d midPoint((pt1[0] + pt2[0]) * 0.5,
-                             (pt1[1] + pt2[1]) * 0.5,
-                             (pt1[2] + pt2[2]) * 0.5);
-        AcGeVector3d displacement = midPoint - objCenter;
-
-        AcDbObjectIdArray processedGroups;
-        CommonTools::MoveEntityOrGroup(objId, displacement, processedGroups);
-
-        acutPrintf(_T("\nObject placed at midpoint (%.2f, %.2f, %.2f)\n"),
-                   midPoint.x, midPoint.y, midPoint.z);
-    }
-
 } // namespace AlignTools

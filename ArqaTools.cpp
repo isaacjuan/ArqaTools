@@ -116,7 +116,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATCX"),               copyXCommand                },
         { _T("ATCY"),               copyYCommand                },
         { _T("ATCZ"),               copyZCommand                },
-        { _T("ATPLACEMID"),         placeMidCommand             },
         // Distribute
         { _T("ATDISTLINE"),         distributeLinearCommand     },
         { _T("ATDISTBETWEEN"),      distributeBetweenCommand    },
@@ -413,12 +412,6 @@ void CArqaToolsApp::versionCommand()
     acutPrintf(_T("====================================\n"));
 }
 
-// PLACEMID command - Move object to midpoint between two points
-void CArqaToolsApp::placeMidCommand()
-{
-    AlignTools::placeMidCommand();
-}
-
 // ROOMTAG command
 void CArqaToolsApp::roomTagCommand()
 {
@@ -553,7 +546,7 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATALX       - Align objects by X coordinate\n"));
     acutPrintf(_T("ATALY       - Align objects by Y coordinate\n"));
     acutPrintf(_T("ATALZ       - Align objects by Z coordinate\n"));
-    acutPrintf(_T("ATPLACEMID  - Place object at midpoint between two points\n"));
+    acutPrintf(_T("ATPLACEMID  - Place object at midpoint between two points (Lua command)\n"));
     
     acutPrintf(_T("\n--- RESTRICTED MOVEMENT ---\n"));
     acutPrintf(_T("ATMX        - Move objects in X direction only\n"));
