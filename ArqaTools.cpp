@@ -110,9 +110,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATALX"),              alignXCommand               },
         { _T("ATALY"),              alignYCommand               },
         { _T("ATALZ"),              alignZCommand               },
-        { _T("ATMX"),               moveXCommand                },
-        { _T("ATMY"),               moveYCommand                },
-        { _T("ATMZ"),               moveZCommand                },
         { _T("ATCX"),               copyXCommand                },
         { _T("ATCY"),               copyYCommand                },
         { _T("ATCZ"),               copyZCommand                },
@@ -549,9 +546,9 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATPLACEMID  - Place object at midpoint between two points (Lua command)\n"));
     
     acutPrintf(_T("\n--- RESTRICTED MOVEMENT ---\n"));
-    acutPrintf(_T("ATMX        - Move objects in X direction only\n"));
-    acutPrintf(_T("ATMY        - Move objects in Y direction only\n"));
-    acutPrintf(_T("ATMZ        - Move objects in Z direction only\n"));
+    acutPrintf(_T("ATMX        - Move objects in X direction only (Lua command)\n"));
+    acutPrintf(_T("ATMY        - Move objects in Y direction only (Lua command)\n"));
+    acutPrintf(_T("ATMZ        - Move objects in Z direction only (Lua command)\n"));
     
     acutPrintf(_T("\n--- RESTRICTED COPY ---\n"));
     acutPrintf(_T("ATCX        - Copy objects in X direction only\n"));

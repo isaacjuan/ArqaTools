@@ -309,54 +309,6 @@ namespace AlignTools
     }
 
     // -------------------------------------------------------------------------
-    // MoveAxisCommand: select objects and move along one axis.
-    // Replaces the three identical moveX/Y/ZCommand bodies.
-    // CC=3  CogC=3  Nesting=2
-    // -------------------------------------------------------------------------
-    static void MoveAxisCommand(int axis)
-    {
-        static const TCHAR* kNames[]   = { _T("X"), _T("Y"), _T("Z") };
-        static const TCHAR* kPrompts[] = {
-            _T("\nSpecify target point (only X distance will be used): "),
-            _T("\nSpecify target point (only Y distance will be used): "),
-            _T("\nSpecify target point (only Z distance will be used): ") };
-
-        acutPrintf(_T("\n=== MOVE IN %s DIRECTION ONLY ===\n"), kNames[axis]);
-
-        CommonTools::SelectionSetGuard ssGuard;
-        if (!ssGuard.Get()) { acutPrintf(CommonTools::MSG_NO_SELECTION); return; }
-
-        ads_point pt1;
-        if (acedGetPoint(NULL, _T("\nSpecify base point: "), pt1) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-
-        ads_point pt2;
-        if (acedGetPoint(pt1, kPrompts[axis], pt2) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-
-        double delta = pt2[axis] - pt1[axis];
-        AcGeVector3d displacement(axis == 0 ? delta : 0, axis == 1 ? delta : 0, axis == 2 ? delta : 0);
-        acutPrintf(_T("Moving %.2f units in %s direction\n"), delta, kNames[axis]);
-
-        Adesk::Int32 length;
-        acedSSLength(ssGuard.ss, &length);
-        AcDbObjectIdArray processedGroups;
-        auto groupMap = CommonTools::BuildEntityGroupMap(
-            acdbHostApplicationServices()->workingDatabase());
-
-        CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId objId)
-        {
-            CommonTools::MoveEntityOrGroup(objId, displacement, processedGroups, groupMap);
-        });
-
-        acutPrintf(_T("Move complete!\n"));
-    }
-
-    void moveXCommand() { MoveAxisCommand(0); }
-    void moveYCommand() { MoveAxisCommand(1); }
-    void moveZCommand() { MoveAxisCommand(2); }
-
-    // -------------------------------------------------------------------------
     // CopyObjectWithTransform: clone one entity (or its whole group) into
     // model space and apply transform. Group copies are not re-grouped.
     // -------------------------------------------------------------------------

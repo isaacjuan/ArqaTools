@@ -12,11 +12,6 @@ namespace AlignTools
     void alignYCommand();
     void alignZCommand();
     
-    // Restricted movement commands
-    void moveXCommand();
-    void moveYCommand();
-    void moveZCommand();
-    
     // Restricted copy commands
     void copyXCommand();
     void copyYCommand();

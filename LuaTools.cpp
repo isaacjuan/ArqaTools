@@ -1238,6 +1238,26 @@ int at_alignTo(lua_State* L)
     return 1;
 }
 
+// at.moveEntities({handle,...}, dx,dy,dz) -> number moved
+// Batch at.moveEntity: a group with several selected members moves once.
+int at_moveEntities(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    double dx = luaL_checknumber(L, 2), dy = luaL_checknumber(L, 3), dz = luaL_checknumber(L, 4);
+
+    int moved;
+    {
+        std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+        AcDbObjectIdArray processedGroups;
+        auto groupMap = CommonTools::BuildEntityGroupMap(acdbHostApplicationServices()->workingDatabase());
+        for (const AcDbObjectId& id : ids)
+            CommonTools::MoveEntityOrGroup(id, AcGeVector3d(dx, dy, dz), processedGroups, groupMap);
+        moved = static_cast<int>(ids.size());
+    }
+    lua_pushinteger(L, moved);
+    return 1;
+}
+
 // ── Tier 1: polyline booleans / regions ─────────────────────────────────────
 
 // at.polyBoolean(h1, h2, "union"|"intersect"|"subtract") -> region handle | nil,err
@@ -2283,6 +2303,7 @@ const AtFn kFns[] = {
     { "patternArabescoHip", at_patternArabescoHip, "(cx,cy,cz,A [,nT=4 [,mT=4 [,ampF=3 [,subdiv=6 [,widthF=0.28 [,heightF=0.08]]]]]]) -> {handle,...}", "lattice straps on a hyperbolic paraboloid" },
     // Modify
     { "moveEntity",   at_moveEntity,   "(handle,dx,dy,dz) -> true|false",      "moves the whole group if the entity is grouped" },
+    { "moveEntities", at_moveEntities, "({handle,...},dx,dy,dz) -> count",     "moves each object or its group; a group with several listed members moves once" },
     { "copyEntity",   at_copyEntity,   "(handle,dx,dy,dz) -> handle",          "" },
     { "rotateEntity", at_rotateEntity, "(handle,cx,cy,cz,angleDeg) -> true|false", "rotate about Z through (cx,cy,cz)" },
     { "erase",        at_erase,        "(handle) -> true|false",               "" },
