@@ -32,10 +32,6 @@ public:
     static void unionPolyCommand();
     static void regionToPolyCommand();
     static void sequenceNumberCommand();
-    static void distributeLinearCommand();
-    static void distributeCopyLinearCommand();
-    static void distributeCopyBetweenCommand();
-    static void distributeCopyEqualCommand();
     static void copyTextCommand();
     static void copyStyleCommand();
     static void copyTextFullCommand();
@@ -53,7 +49,6 @@ public:
     static void splitLineCommand();
     static void splitPoliCommand();
     static void tagAllCommand();
-    static void alignToLineCommand();
     static void arabesqueCommand();
     static void hojaNazariCommand();
     static void arabescoRlCommand();

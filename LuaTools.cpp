@@ -859,12 +859,18 @@ int at_entities(lua_State* L)
 // the entity is open - those can raise only on out-of-memory.
 void PushTypeSpecificProps(lua_State* L, AcDbEntity* pEnt)
 {
-    if (auto* p = AcDbLine::cast(pEnt))
+    // Any curve (line, arc, polyline, spline, ...): its two ends.
+    if (auto* c = AcDbCurve::cast(pEnt))
     {
-        SetPointField(L, "startPoint", p->startPoint());
-        SetPointField(L, "endPoint",   p->endPoint());
+        AcGePoint3d s, e;
+        if (c->getStartPoint(s) == Acad::eOk && c->getEndPoint(e) == Acad::eOk)
+        {
+            SetPointField(L, "startPoint", s);
+            SetPointField(L, "endPoint",   e);
+        }
     }
-    else if (auto* p = AcDbCircle::cast(pEnt))
+
+    if (auto* p = AcDbCircle::cast(pEnt))
     {
         SetPointField(L, "center", p->center());
         SetNumberField(L, "radius", p->radius());
@@ -2298,7 +2304,7 @@ const AtFn kFns[] = {
     { "listEntities", at_listEntities, "() -> string",                          "entity type counts in model space" },
     { "entities",     at_entities,     "([typeFilter]) -> {handle,...}",        "model-space entities, optionally of one type (\"LINE\", \"LWPOLYLINE\", \"INSERT\", ...)" },
     { "getProps",     at_getProps,     "(handle) -> table | nil,err",
-      "handle,type,class,layer,linetype,color(ACI),min,max; plus startPoint/endPoint, center/radius/startAngle/endAngle, "
+      "handle,type,class,layer,linetype,color(ACI),min,max; plus startPoint/endPoint (any curve), center/radius/startAngle/endAngle, "
       "closed/elevation/vertices{x,y,bulge}, text/position/height/rotation, name/position/rotation/scale, length, area "
       "as applicable; points are {x=,y=,z=}, angles in degrees" },
     // Create

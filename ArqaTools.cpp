@@ -42,9 +42,7 @@ static void unsuppressAssertsCommand()
 #endif
 #include "CommonTools.h"
 #include "PolylineTools.h"
-#include "AlignTools.h"
 #include "SeqNumTools.h"
-#include "DistributeTools.h"
 #include "TextTools.h"
 #include "AreaTools.h"
 #include "AITools.h"
@@ -60,8 +58,6 @@ static void unsuppressAssertsCommand()
 #include "dbregion.h"
 #include "dbgroup.h"
 
-using namespace DistributeTools;
-using namespace AlignTools;
 using namespace AITools;
 using namespace LayerTools;
 using namespace TextTools;
@@ -107,14 +103,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATUNIONPOLY"),        unionPolyCommand            },
         { _T("ATREG2POLY"),         regionToPolyCommand         },
         // Align / Move / Copy
-        // Distribute
-        { _T("ATDISTLINE"),         distributeLinearCommand     },
-        { _T("ATDISTBETWEEN"),      distributeBetweenCommand    },
-        { _T("ATDISTEQUAL"),        distributeEqualCommand      },
-        { _T("ATDISTCOPYLINE"),     distributeCopyLinearCommand },
-        { _T("ATDISTCOPYBETWEEN"),  distributeCopyBetweenCommand},
-        { _T("ATDISTCOPYEQUAL"),    distributeCopyEqualCommand  },
-        { _T("ATDISTTOLINE"),       alignToLineCommand          },
         // Sequence / Text
         { _T("ATSEQNUM"),           sequenceNumberCommand       },
         { _T("ATCOPYTEXT"),         copyTextCommand             },
@@ -259,27 +247,6 @@ void CArqaToolsApp::regionToPolyCommand()
 void CArqaToolsApp::sequenceNumberCommand()
 {
     SeqNumTools::sequenceNumberCommand();
-}
-
-// DISTLINE command - Distribute objects evenly along a line
-void CArqaToolsApp::distributeLinearCommand()
-{
-    DistributeTools::distributeLinearCommand();
-}
-
-void CArqaToolsApp::distributeCopyLinearCommand()
-{
-    DistributeTools::distributeCopyLinearCommand();
-}
-
-void CArqaToolsApp::distributeCopyBetweenCommand()
-{
-    DistributeTools::distributeCopyBetweenCommand();
-}
-
-void CArqaToolsApp::distributeCopyEqualCommand()
-{
-    DistributeTools::distributeCopyEqualCommand();
 }
 
 // COPYTEXT command - Copy text content from one object to others
@@ -433,12 +400,6 @@ void CArqaToolsApp::tagAllCommand()
     ::tagAllCommand();
 }
 
-// DISTTOLINE command
-void CArqaToolsApp::alignToLineCommand()
-{
-    DistributeTools::alignToLineCommand();
-}
-
 // ARABESQUE command
 void CArqaToolsApp::arabesqueCommand()
 {
@@ -538,13 +499,13 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATFREEZELAYER- Freeze layer by selecting an object on it\n"));
     
     acutPrintf(_T("\n--- DISTRIBUTION & NUMBERING ---\n"));
-    acutPrintf(_T("ATDISTLINE      - Distribute objects evenly along a line\n"));
-    acutPrintf(_T("ATDISTBETWEEN   - Distribute objects between two points (excludes endpoints)\n"));
-    acutPrintf(_T("ATDISTEQUAL     - Distribute with equal spacing (half-space at ends)\n"));
-    acutPrintf(_T("ATDISTCOPYLINE  - Copy one object N times along a line (endpoints included)\n"));
-    acutPrintf(_T("ATDISTCOPYBETWEEN - Copy one object N times between two points\n"));
-    acutPrintf(_T("ATDISTCOPYEQUAL - Copy one object N times with equal spacing\n"));
-    acutPrintf(_T("ATDISTTOLINE    - Copy N objects distributed along a picked line entity\n"));
+    acutPrintf(_T("ATDISTLINE      - Distribute objects evenly along a line (Lua command)\n"));
+    acutPrintf(_T("ATDISTBETWEEN   - Distribute objects between two points, excludes endpoints (Lua command)\n"));
+    acutPrintf(_T("ATDISTEQUAL     - Distribute with equal spacing, half-space at ends (Lua command)\n"));
+    acutPrintf(_T("ATDISTCOPYLINE  - Copy one object N times along a line, endpoints included (Lua command)\n"));
+    acutPrintf(_T("ATDISTCOPYBETWEEN - Copy one object N times between two points (Lua command)\n"));
+    acutPrintf(_T("ATDISTCOPYEQUAL - Copy one object N times with equal spacing (Lua command)\n"));
+    acutPrintf(_T("ATDISTTOLINE    - Copy N objects distributed along a picked line or curve (Lua command)\n"));
     acutPrintf(_T("ATSEQNUM        - Add sequential numbers to selected objects\n"));
     
     acutPrintf(_T("\n--- TEXT MANIPULATION ---\n"));
