@@ -1258,6 +1258,27 @@ int at_moveEntities(lua_State* L)
     return 1;
 }
 
+// at.copyEntities({handle,...}, dx,dy,dz) -> {newHandle,...}
+// A grouped object copies every member of its group, once per group.
+int at_copyEntities(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    double dx = luaL_checknumber(L, 2), dy = luaL_checknumber(L, 3), dz = luaL_checknumber(L, 4);
+
+    std::vector<AcDbObjectId> copies;
+    {
+        std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
+        copies = AlignTools::CopyObjects(ids, AcGeVector3d(dx, dy, dz));
+    }
+    lua_createtable(L, static_cast<int>(copies.size()), 0);
+    for (size_t i = 0; i < copies.size(); ++i)
+    {
+        PushHandle(L, copies[i]);
+        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    return 1;
+}
+
 // ── Tier 1: polyline booleans / regions ─────────────────────────────────────
 
 // at.polyBoolean(h1, h2, "union"|"intersect"|"subtract") -> region handle | nil,err
@@ -2305,6 +2326,7 @@ const AtFn kFns[] = {
     { "moveEntity",   at_moveEntity,   "(handle,dx,dy,dz) -> true|false",      "moves the whole group if the entity is grouped" },
     { "moveEntities", at_moveEntities, "({handle,...},dx,dy,dz) -> count",     "moves each object or its group; a group with several listed members moves once" },
     { "copyEntity",   at_copyEntity,   "(handle,dx,dy,dz) -> handle",          "" },
+    { "copyEntities", at_copyEntities, "({handle,...},dx,dy,dz) -> {handle,...}", "copies each object, or every member of its group once per group (copies are not grouped); returns the new handles" },
     { "rotateEntity", at_rotateEntity, "(handle,cx,cy,cz,angleDeg) -> true|false", "rotate about Z through (cx,cy,cz)" },
     { "erase",        at_erase,        "(handle) -> true|false",               "" },
     { "setLayer",     at_setLayer,     "(handle,layerName) -> true|false",     "creates the layer if it does not exist" },

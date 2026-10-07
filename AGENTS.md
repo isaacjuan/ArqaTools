@@ -51,7 +51,7 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     points converted UCS→WCS), query (`listEntities`, `entities([type])`, `getProps(handle)`),
     create (`drawLine/drawCircle/drawArc/drawRect/drawPolyline/drawText/drawMText/seqNumber/
     ensureLayer` → handle string), patterns (`goldenSpiral`, `pattern*` → `{handle,...}`),
-    modify (`moveEntity/moveEntities/copyEntity/rotateEntity/erase/setLayer/setColor/alignTo/polyBoolean/
+    modify (`moveEntity/moveEntities/copyEntity/copyEntities/rotateEntity/erase/setLayer/setColor/alignTo/polyBoolean/
     regionToPolyline/distribute/distributeCopies/splitLine/splitPolyline`), text (`getText/
     setText/copyTextStyle/copyDimStyle/sumText/scaleText`), reactor-linked labels (`areaLabel/
     perimeterLabel/roomTag/lengthLabel/sumLengthLabel`), layers (`layers/getCurrentLayer/

@@ -110,9 +110,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATALX"),              alignXCommand               },
         { _T("ATALY"),              alignYCommand               },
         { _T("ATALZ"),              alignZCommand               },
-        { _T("ATCX"),               copyXCommand                },
-        { _T("ATCY"),               copyYCommand                },
-        { _T("ATCZ"),               copyZCommand                },
         // Distribute
         { _T("ATDISTLINE"),         distributeLinearCommand     },
         { _T("ATDISTBETWEEN"),      distributeBetweenCommand    },
@@ -551,9 +548,9 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATMZ        - Move objects in Z direction only (Lua command)\n"));
     
     acutPrintf(_T("\n--- RESTRICTED COPY ---\n"));
-    acutPrintf(_T("ATCX        - Copy objects in X direction only\n"));
-    acutPrintf(_T("ATCY        - Copy objects in Y direction only\n"));
-    acutPrintf(_T("ATCZ        - Copy objects in Z direction only\n"));
+    acutPrintf(_T("ATCX        - Copy objects in X direction only (Lua command)\n"));
+    acutPrintf(_T("ATCY        - Copy objects in Y direction only (Lua command)\n"));
+    acutPrintf(_T("ATCZ        - Copy objects in Z direction only (Lua command)\n"));
     
     acutPrintf(_T("\n--- LAYER TOOLS ---\n"));
     acutPrintf(_T("ATNL        - Quick new layer (create and set as current)\n"));

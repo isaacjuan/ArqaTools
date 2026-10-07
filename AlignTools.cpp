@@ -315,8 +315,18 @@ namespace AlignTools
     static void CopyObjectWithTransform(AcDbObjectId objId, const AcGeMatrix3d& transform,
                                         AcDbBlockTableRecord* pModelSpace,
                                         AcDbObjectIdArray& processedGroups,
-                                        const CommonTools::EntityGroupMap& groupMap)
+                                        const CommonTools::EntityGroupMap& groupMap,
+                                        std::vector<AcDbObjectId>& newIds)
     {
+        auto copyOne = [&](AcDbEntity* ent)
+        {
+            AcDbEntity* pCopy = AcDbEntity::cast(ent->clone());
+            if (!pCopy) return;
+            pCopy->transformBy(transform);
+            AcDbObjectId id = CommonTools::AppendEntity(pModelSpace, pCopy);
+            if (!id.isNull()) newIds.push_back(id);
+        };
+
         auto it = groupMap.find(objId);
         if (it != groupMap.end())
         {
@@ -332,12 +342,7 @@ namespace AlignTools
                     for (; !iter->done(); iter->next())
                     {
                         CommonTools::AcDbObjectGuard<AcDbEntity> ent(iter->objectId());
-                        if (ent)
-                        {
-                            AcDbEntity* pCopy = AcDbEntity::cast(ent->clone());
-                            if (pCopy)
-                            { pCopy->transformBy(transform); CommonTools::AppendEntity(pModelSpace, pCopy); }
-                        }
+                        if (ent) copyOne(ent.get());
                     }
                 }
             }
@@ -345,67 +350,24 @@ namespace AlignTools
         else
         {
             CommonTools::AcDbObjectGuard<AcDbEntity> ent(objId);
-            if (ent)
-            {
-                AcDbEntity* pCopy = AcDbEntity::cast(ent->clone());
-                if (pCopy)
-                { pCopy->transformBy(transform); CommonTools::AppendEntity(pModelSpace, pCopy); }
-            }
+            if (ent) copyOne(ent.get());
         }
     }
 
-    // -------------------------------------------------------------------------
-    // CopyAxisCommand: select objects and copy them along one axis.
-    // Replaces the three identical copyX/Y/ZCommand bodies.
-    // CC=4  CogC=4  Nesting=2
-    // -------------------------------------------------------------------------
-    static void CopyAxisCommand(int axis)
+    std::vector<AcDbObjectId> CopyObjects(const std::vector<AcDbObjectId>& ids, const AcGeVector3d& delta)
     {
-        static const TCHAR* kNames[]   = { _T("X"), _T("Y"), _T("Z") };
-        static const TCHAR* kPrompts[] = {
-            _T("\nSpecify target point (only X distance will be used): "),
-            _T("\nSpecify target point (only Y distance will be used): "),
-            _T("\nSpecify target point (only Z distance will be used): ") };
-
-        acutPrintf(_T("\n=== COPY IN %s DIRECTION ONLY ===\n"), kNames[axis]);
-
-        CommonTools::SelectionSetGuard ssGuard;
-        if (!ssGuard.Get()) { acutPrintf(CommonTools::MSG_NO_SELECTION); return; }
-
-        ads_point pt1;
-        if (acedGetPoint(NULL, _T("\nSpecify base point: "), pt1) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-
-        ads_point pt2;
-        if (acedGetPoint(pt1, kPrompts[axis], pt2) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-
-        double delta = pt2[axis] - pt1[axis];
-        AcGeVector3d displacement(axis == 0 ? delta : 0, axis == 1 ? delta : 0, axis == 2 ? delta : 0);
-        AcGeMatrix3d transform = AcGeMatrix3d::translation(displacement);
-        acutPrintf(_T("Copying %.2f units in %s direction\n"), delta, kNames[axis]);
-
+        std::vector<AcDbObjectId> newIds;
         AcDbBlockTableRecord* pModelSpace = nullptr;
-        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
-        { acutPrintf(CommonTools::MSG_MODEL_SPACE_ERR); return; }
+        if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk) return newIds;
 
-        Adesk::Int32 length;
-        acedSSLength(ssGuard.ss, &length);
+        AcGeMatrix3d transform = AcGeMatrix3d::translation(delta);
         AcDbObjectIdArray processedGroups;
-        auto groupMap = CommonTools::BuildEntityGroupMap(
-            acdbHostApplicationServices()->workingDatabase());
-
-        CommonTools::ForEachSsEntity(ssGuard.ss, length, [&](AcDbObjectId objId)
-        {
-            CopyObjectWithTransform(objId, transform, pModelSpace, processedGroups, groupMap);
-        });
+        auto groupMap = CommonTools::BuildEntityGroupMap(acdbHostApplicationServices()->workingDatabase());
+        for (const AcDbObjectId& id : ids)
+            CopyObjectWithTransform(id, transform, pModelSpace, processedGroups, groupMap, newIds);
 
         pModelSpace->close();
-        acutPrintf(_T("Copy complete!\n"));
+        return newIds;
     }
-
-    void copyXCommand() { CopyAxisCommand(0); }
-    void copyYCommand() { CopyAxisCommand(1); }
-    void copyZCommand() { CopyAxisCommand(2); }
 
 } // namespace AlignTools
