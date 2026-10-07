@@ -31,7 +31,6 @@ public:
     static void intersectPolyCommand();
     static void unionPolyCommand();
     static void regionToPolyCommand();
-    static void sequenceNumberCommand();
     static void copyTextCommand();
     static void copyStyleCommand();
     static void copyTextFullCommand();

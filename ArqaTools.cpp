@@ -42,7 +42,6 @@ static void unsuppressAssertsCommand()
 #endif
 #include "CommonTools.h"
 #include "PolylineTools.h"
-#include "SeqNumTools.h"
 #include "TextTools.h"
 #include "AreaTools.h"
 #include "AITools.h"
@@ -104,7 +103,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATREG2POLY"),         regionToPolyCommand         },
         // Align / Move / Copy
         // Sequence / Text
-        { _T("ATSEQNUM"),           sequenceNumberCommand       },
         { _T("ATCOPYTEXT"),         copyTextCommand             },
         { _T("ATCOPYSTYLE"),        copyStyleCommand            },
         { _T("ATCOPYTEXTFULL"),     copyTextFullCommand         },
@@ -242,12 +240,6 @@ void CArqaToolsApp::regionToPolyCommand()
     PolylineTools::regionToPolyCommand();
 }
 
-
-// SEQNUM command - Create sequence of numbers at specified points
-void CArqaToolsApp::sequenceNumberCommand()
-{
-    SeqNumTools::sequenceNumberCommand();
-}
 
 // COPYTEXT command - Copy text content from one object to others
 void CArqaToolsApp::copyTextCommand()
@@ -506,7 +498,7 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATDISTCOPYBETWEEN - Copy one object N times between two points (Lua command)\n"));
     acutPrintf(_T("ATDISTCOPYEQUAL - Copy one object N times with equal spacing (Lua command)\n"));
     acutPrintf(_T("ATDISTTOLINE    - Copy N objects distributed along a picked line or curve (Lua command)\n"));
-    acutPrintf(_T("ATSEQNUM        - Add sequential numbers to selected objects\n"));
+    acutPrintf(_T("ATSEQNUM        - Place sequential numbers at picked points (Lua command)\n"));
     
     acutPrintf(_T("\n--- TEXT MANIPULATION ---\n"));
     acutPrintf(_T("ATCOPYTEXT   - Copy text content from one text to others\n"));
