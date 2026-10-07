@@ -97,7 +97,6 @@ void insertAreaCommand();
 void sumLengthCommand();
 
 // New architectural commands
-void perimeterCommand();
 void linearLengthCommand();
 void countBlocksCommand();
 void splitLineCommand();

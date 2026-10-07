@@ -61,7 +61,8 @@ McpBridge (pipe thread -> message-only window on main thread)
   settings come from `Documents\ArqaTools\ai_config.lua` (`AiConfig`).
 
 Design and rationale: `MCP_DESIGN.md` (phases, pipe protocol, read-only mode),
-`HARNESS.md` and `HARNESS_RESPONSIBILITIES.md` (harness roles and guarantees), `AI_SETUP.md`.
+`HARNESS.md` and `HARNESS_RESPONSIBILITIES.md` (harness roles and guarantees), `AI_SETUP.md`,
+`LUA_COMMANDS.md` (commands moved from C++ to Lua, and how to move more).
 
 ## Other notes
 

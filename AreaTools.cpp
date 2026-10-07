@@ -385,30 +385,6 @@ AcDbObjectId AreaTools::InsertRoomTag(AcDbObjectId polyId, const CString& roomNa
     return mtextId;
 }
 
-// ============================================================================
-// PERIMETER - Insert auto-updating perimeter text on a closed polyline
-// ============================================================================
-void perimeterCommand()
-{
-    acutPrintf(_T("\nPERIMETER - Insert perimeter text in closed polyline"));
-
-    ads_name ent; ads_point pt;
-    if (acedEntSel(_T("\nSelect closed polyline: "), ent, pt) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    AcDbObjectId polyId;
-    acdbGetObjectId(polyId, ent);
-
-    CString err;
-    AcDbObjectId textId = AreaTools::InsertPerimeterLabel(polyId, &err);
-    if (textId.isNull())
-    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
-
-    CString label;
-    { CommonTools::AcDbObjectGuard<AcDbText> t(textId); if (t) label = t->textStringConst(); }
-    acutPrintf(_T("\nPerimeter text inserted: %s"), (LPCTSTR)label);
-}
-
 AcDbObjectId AreaTools::InsertPerimeterLabel(AcDbObjectId polyId, CString* err)
 {
     auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
