@@ -34,7 +34,4 @@ namespace CategorizeTools
 
         TypeObjectMap  m_objectsByType;
     };
-
-    // Command: CATENTITIES — prints entity type counts to the command line
-    void catEntitiesCommand();
 }

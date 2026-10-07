@@ -3,19 +3,9 @@
 
 namespace LayerTools
 {
-    // Change selected objects to current layer
-    void changeToCurrentLayerCommand();
-    
-    // Quick new layer creation and set as current
-    void newLayerCommand();
-
-    // Match layer of source object to selected objects
-    void matchLayerCommand();
-
-    // Freeze layer by selecting an object
-    void freezeLayerCommand();
-
-    // ── Non-interactive cores (used by the commands above and the Lua bindings).
+    // Non-interactive cores used by the Lua bindings (LuaTools.cpp). The
+    // ATCHGTOLAYER / ATNL / ATMATCHLAYER / ATFREEZELAYER commands are Lua files
+    // in the LuaCommands folder.
     CString GetCurrentLayer();
     // Makes `name` current; with create, adds it first (color 7) if missing.
     bool SetCurrentLayer(const CString& name, bool create,

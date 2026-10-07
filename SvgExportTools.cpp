@@ -858,31 +858,6 @@ namespace
     }
 }
 
-void SvgExportTools::svgExportCommand()
-{
-    acutPrintf(_T("\n=== SVG EXPORT ===\n"));
-
-    CommonTools::SelectionSetGuard ssGuard;
-    if (!ssGuard.Get())
-    { acutPrintf(CommonTools::MSG_NO_SELECTION); return; }
-
-    Adesk::Int32 length = 0;
-    acedSSLength(ssGuard.ss, &length);
-    if (length == 0)
-    { acutPrintf(CommonTools::MSG_NO_SELECTION); return; }
-
-    std::vector<AcDbObjectId> ids = CommonTools::SelectionIds(ssGuard.ss);
-
-    CString filePath = DocumentsFolder() + _T("\\ArqaTools_Export.svg");
-    int exported = 0, skipped = 0;
-    CString err;
-    if (!ExportSvg(ids, filePath, &exported, &skipped, &err))
-    { acutPrintf(_T("\n%s\n"), (LPCTSTR)err); return; }
-
-    acutPrintf(_T("\nExported %d entities (%d skipped) to:\n%s\n"),
-               exported, skipped, (LPCTSTR)filePath);
-}
-
 CString SvgExportTools::DocumentsFolder()
 {
     TCHAR docPath[MAX_PATH] = {};

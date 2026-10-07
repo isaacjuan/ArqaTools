@@ -32,6 +32,23 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
 | `ATPERIMETER` | `ATPERIMETER.lua` | `perimeterLabel`, `getText` | `AreaTools::InsertPerimeterLabel` + `PerimeterReactor` |
 | `ATLINEARLENGTH` | `ATLINEARLENGTH.lua` | `lengthLabel`, `getText` | `AreaTools::InsertLengthLabel` + `LinearLengthReactor` |
 | `ATSUMLENGTH` | `ATSUMLENGTH.lua` | `getProps`, `formatLength`, `getPoint`, `sumLengthLabel` | `AreaTools::InsertSumLengthLabel` + `PolylineSumLengthReactor` |
+| `ATINSERTAREA` | `ATINSERTAREA.lua` | `areaLabel`, `getText` | `AreaTools::InsertAreaLabel` + `PolylineAreaReactor` |
+| `ATTAGALL` | `ATTAGALL.lua` | `lengthLabel` per curve | `AreaTools::InsertLengthLabel` |
+| `ATCOUNTBLOCKS` | `ATCOUNTBLOCKS.lua` | `countBlocks`, `getSelection` | `AreaTools::CountBlocks` |
+| `ATSPLITLINE` `ATSPLITPOLI` | `ATSPLIT.lua` | `splitLine`, `splitPolyline`, `getProps` | `AreaTools::SplitLine`, `SplitPolyline` |
+| `ATCOPYTEXT` `ATCOPYSTYLE` `ATCOPYTEXTFULL` `ATCOPYDIMSTYLE` | `ATTEXTCOPY.lua` | `getText`, `setText`, `copyTextStyle`, `copyDimStyle`, `getSelection` | `TextTools::GetText`, `SetText`, `CopyTextStyle`, `CopyDimStyle` |
+| `ATSUMTEXT` | `ATSUMTEXT.lua` | `sumText`, `getPoint`, `drawText` | `TextTools::SumTextValues` |
+| `ATSCALETEXT` | `ATSCALETEXT.lua` | `scaleText`, `getSelection` | `TextTools::ScaleTextHeight` |
+| `ATCHGTOLAYER` | `ATCHGTOLAYER.lua` | `getCurrentLayer`, `setLayer` | (none) |
+| `ATNL` | `ATNL.lua` | `layers`, `setCurrentLayer` | `LayerTools::SetCurrentLayer` |
+| `ATMATCHLAYER` | `ATMATCHLAYER.lua` | `getProps`, `setLayer` | (none) |
+| `ATFREEZELAYER` | `ATFREEZELAYER.lua` | `getProps`, `setLayerState` | `LayerTools::SetLayerState` |
+| `ATBOOLPOLY` `ATSUBPOLY` `ATINPOLY` `ATUNIONPOLY` | `ATPOLYBOOLEAN.lua` | `polyBoolean`, `getProps` | `PolylineTools::BooleanPolylines` |
+| `ATREG2POLY` | `ATREG2POLY.lua` | `regionToPolyline` | `PolylineTools::RegionToPolyline` |
+| `ATSVGEXPORT` | `ATSVGEXPORT.lua` | `exportSvg`, `getSelection` | `SvgExportTools::ExportSvg` |
+| `ATCATENTITIES` | `ATCATENTITIES.lua` | `listEntities` | `CategorizeTools::DBObjectMap` |
+| `ATARABESQUE` `ATHOJANAZARI` `ATARABESCORL` `ATARABESCOTOROSOL` `ATARABESCOHIPSOL` | `ATARABESQUE.lua` | `pattern*` | `ArabesqueTools::Draw*` |
+| `ATGOLDENRECT` `ATGOLDENRECTIN` `ATGOLDENRECTINW` | `ATGOLDENRECT.lua` | `goldenSpiral`, `rectFrame`, `rectInFrame` | `GoldenRectTools::DrawGoldenSpiral`, `ReadRectFrame`, `DrawRectInFrame` |
 
 `ATHELP` lists these with the suffix "(Lua command)".
 
@@ -49,8 +66,16 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
   `between` excludes the endpoints (min 1), and `equal` leaves half a gap at
   each end (min 1). `ATDISTTOLINE` uses the picked curve's start and end points
   (`getProps` returns `startPoint`/`endPoint` for any curve).
-- **ATROOMTAG / ATPERIMETER / ATLINEARLENGTH / ATSUMLENGTH** labels stay
-  linked to their curve(s) through reactors and update when they change.
+- **Label commands** (ATINSERTAREA, ATROOMTAG, ATPERIMETER, ATLINEARLENGTH,
+  ATTAGALL, ATSUMLENGTH): labels stay linked to their curve(s) through
+  reactors and update when they change.
+- **Prompts inside the command:** commands that validate a first pick before
+  asking for more (the text copy family, ATSCALETEXT, ATSUMTEXT, ATCOUNTBLOCKS,
+  ATSUMLENGTH) ask the later inputs with `at.getSelection`/`at.getPoint` inside
+  the function. MCP agents cannot pass those as named values; CommandTester
+  scripted answers still work.
+- **No rubber-band preview** on declared distance/point parameters (ARABESQUE
+  radius, ATGOLDENRECT second point): the parameter prompt has no base point.
 - **ATSUMLENGTH** sums `getProps(h).length` in Lua to print the total before
   asking for the text position (`at.getPoint`), as the C++ command did.
 
@@ -98,12 +123,19 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
 
 ## Effect on the C++ code
 
-Moving these commands to Lua removed about 830 lines of C++ and added about
-150 (mostly the new `moveEntities`/`copyEntities` bindings and `CopyObjects`).
-For example, `DistributeTools.cpp` went from 274 to 99 lines and
-`SeqNumTools.cpp` from 302 to 162.
+All interactive drawing and editing commands are now Lua. Only framework
+commands stay in C++: ATHELP, ATVERSION, ATRELOAD, the ATAI* commands, ACML,
+the ATLUA*/ATAICMD commands and the ATMCP* bridge.
 
-## Candidates
+The moves removed roughly 2,400 lines of interactive C++. For example,
+`DistributeTools.cpp` went from 274 to 99 lines and `SeqNumTools.cpp` from 302
+to 162.
 
-The area label (`ATINSERTAREA`, `at.areaLabel` already exists) could follow
-the same pattern.
+## Known gaps
+
+- `at.drawText` centers its text; the old ATSUMTEXT placed it left/baseline.
+- `getProps` has no dimension style name, so ATCOPYDIMSTYLE no longer prints it.
+- `at.setCurrentLayer` does not say whether it created the layer; ATNL checks
+  `at.layers()` first.
+- Declared distance/point parameters cannot take a base point for the
+  rubber-band preview.

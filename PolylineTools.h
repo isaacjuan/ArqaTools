@@ -6,15 +6,6 @@
 
 namespace PolylineTools
 {
-    // Boolean operations
-    void subtractPolyCommand();
-    void intersectPolyCommand();
-    void unionPolyCommand();
-    void booleanPolyCommand();
-    
-    // Region to polyline conversion
-    void regionToPolyCommand();
-
     // Non-interactive cores (also used by the Lua bindings). On failure they
     // return kNull and, when err is given, a short reason.
     // Boolean of two closed polylines -> new region in model space (first

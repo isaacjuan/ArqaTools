@@ -5,8 +5,8 @@
 
 namespace SvgExportTools
 {
-    // Command: SVGEXPORT — exports user-selected entities (Line, Circle, Arc,
-    // LWPolyline, AcDb2dPolyline, AcDbHatch (polyline-loop fills), Text,
+    // Core of ATSVGEXPORT (now a Lua command, at.exportSvg): exports the given
+    // entities (Line, Circle, Arc, LWPolyline, AcDb2dPolyline, AcDbHatch (polyline-loop fills), Text,
     // MText, Point, BlockReference) to an .svg file in the user's Documents
     // folder.
     // Block references (walls/doors/windows inserted from a block library,
@@ -32,10 +32,8 @@ namespace SvgExportTools
     // gets its own "id" derived from its source entity's handle (an
     // exploded piece, which has no handle of its own, uses its source
     // entity's id with an index suffix).
-    void svgExportCommand();
-
-    // Non-interactive core of ATSVGEXPORT: writes ids to filePath (UTF-8),
-    // overwriting it. Returns false with a reason when nothing could be
+    //
+    // Writes ids to filePath (UTF-8), overwriting it. Returns false with a reason when nothing could be
     // exported or the file cannot be written.
     bool ExportSvg(const std::vector<AcDbObjectId>& ids, const CString& filePath,
                    int* exported = nullptr, int* skipped = nullptr, CString* err = nullptr);

@@ -93,16 +93,9 @@ private:
 
 // Formatting and CAD infrastructure moved to MeasureFormat.h and CadInfra.h
 
-// Area / measurement commands
-void insertAreaCommand();
-
-// New architectural commands
-void countBlocksCommand();
-void splitLineCommand();
-void splitPoliCommand();
-void tagAllCommand();
-
-// ── Non-interactive cores (used by the commands above and the Lua bindings).
+// ── Non-interactive cores, used by the Lua bindings (LuaTools.cpp); the
+// commands are Lua files in LuaCommands (ATINSERTAREA, ATTAGALL, ATCOUNTBLOCKS,
+// ATSPLIT for ATSPLITLINE/ATSPLITPOLI, ATPERIMETER, ...).
 // Every label is reactor-linked: it updates when its curve changes and is
 // erased with it, and the link survives save/reopen (xdata + ReactorPersistence).
 // On failure they return kNull / an empty list and, when err is given, a reason.

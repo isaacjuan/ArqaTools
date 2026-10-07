@@ -1442,6 +1442,64 @@ int at_patternArabescoHip(lua_State* L)
     return DrawAndCollect(L, [&] { ArabesqueTools::DrawArabescoHipSol(c, A, nT, mT, fa, D, fw, fh); });
 }
 
+// at.rectFrame(handle) -> {width=,height=,shortLen=,longLen=} | nil,err
+// Reads a closed 4-vertex polyline as a rectangle (ATGOLDENRECTIN container).
+int at_rectFrame(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+    AcDbObjectId id = ResolveHandle(h);
+    if (id.isNull()) return PushNilError(L, "handle not found");
+
+    GoldenRectTools::RectFrame frame;
+    bool ok;
+    std::string err;
+    {
+        CString wErr;
+        ok = GoldenRectTools::ReadRectFrame(id, frame, wErr);
+        if (!ok) err = ToUtf8(wErr);
+    }
+    if (!ok)
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        return 2;
+    }
+    lua_createtable(L, 0, 4);
+    lua_pushnumber(L, frame.width);    lua_setfield(L, -2, "width");
+    lua_pushnumber(L, frame.height);   lua_setfield(L, -2, "height");
+    lua_pushnumber(L, frame.shortLen); lua_setfield(L, -2, "shortLen");
+    lua_pushnumber(L, frame.longLen);  lua_setfield(L, -2, "longLen");
+    return 1;
+}
+
+// at.rectInFrame(handle, innerWidth, x,y[,z]) -> handle | nil,err
+// Rectangle spanning the container's short edge, innerWidth along its long
+// edge, centered on the point's projection and kept inside the container.
+int at_rectInFrame(lua_State* L)
+{
+    const char* h = luaL_checkstring(L, 1);
+    double innerWidth = luaL_checknumber(L, 2);
+    luaL_argcheck(L, innerWidth > 0.0, 2, "innerWidth must be > 0");
+    AcGePoint3d pick(luaL_checknumber(L, 3), luaL_checknumber(L, 4), luaL_optnumber(L, 5, 0.0));
+    AcDbObjectId id = ResolveHandle(h);
+    if (id.isNull()) return PushNilError(L, "handle not found");
+
+    AcDbObjectId rectId;
+    std::string err;
+    {
+        GoldenRectTools::RectFrame frame;
+        CString wErr;
+        if (GoldenRectTools::ReadRectFrame(id, frame, wErr))
+        {
+            rectId = GoldenRectTools::DrawRectInFrame(frame, innerWidth, pick);
+            if (rectId.isNull()) err = "draw failed";
+        }
+        else
+            err = ToUtf8(wErr);
+    }
+    return PushIdOrError(L, rectId, err);
+}
+
 // ── Tier 2 helpers ──────────────────────────────────────────────────────────
 
 
@@ -2299,6 +2357,11 @@ const AtFn kFns[] = {
     { "patternArabescoRl",  at_patternArabescoRl,  "(x,y,z,A [,cols=3 [,rows=3]]) -> {handle,...}", "Andalusian 30/45 lattice from lower-left corner; tile S = 6.464*A" },
     { "patternArabescoToro", at_patternArabescoToro, "(cx,cy,cz,A [,nT=6 [,mT=3 [,subdiv=6 [,widthF=0.28 [,heightF=0.08]]]]]) -> {handle,...}", "lattice straps on a 3D torus" },
     { "patternArabescoHip", at_patternArabescoHip, "(cx,cy,cz,A [,nT=4 [,mT=4 [,ampF=3 [,subdiv=6 [,widthF=0.28 [,heightF=0.08]]]]]]) -> {handle,...}", "lattice straps on a hyperbolic paraboloid" },
+    { "rectFrame",          at_rectFrame,          "(polyline) -> {width=,height=,shortLen=,longLen=} | nil,err",
+      "reads a closed 4-vertex rectangular polyline; width = edge v0->v1, height = edge v0->v3; err if not a closed perpendicular rectangle" },
+    { "rectInFrame",        at_rectInFrame,        "(polyline, innerWidth, x,y[,z]) -> handle | nil,err",
+      "ATGOLDENRECTIN: draws a closed rectangle spanning the container's short edge and innerWidth along its long edge, "
+      "centered on the point's projection and kept inside the container (elevation 0)" },
     // Modify
     { "moveEntity",   at_moveEntity,   "(handle,dx,dy,dz) -> true|false",      "moves the whole group if the entity is grouped" },
     { "moveEntities", at_moveEntities, "({handle,...},dx,dy,dz) -> count",     "moves each object or its group; a group with several listed members moves once" },

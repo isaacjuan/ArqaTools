@@ -1,0 +1,19 @@
+-- ATSCALETEXT: multiplies the height of the selected TEXT/MTEXT by a factor
+-- (other objects, dimensions included, are left alone). The work is
+-- at.scaleText (TextTools::ScaleTextHeight). The factor is checked before the
+-- objects are asked for.
+-- Was C++; edit this file and run ATLUARELOAD, no rebuild needed.
+at.defineCommand("ATSCALETEXT", function(p)
+    if not p.factor then print("ATSCALETEXT: command cancelled."); return end
+    if p.factor <= 0 then print("ATSCALETEXT: scale factor must be > 0."); return end
+
+    local objects = at.getSelection()
+    if #objects == 0 then print("ATSCALETEXT: no objects selected."); return end
+
+    local count = at.scaleText(objects, p.factor)
+    print(string.format("Scaled text height x%.2f on %d object(s).", p.factor, count))
+end, "Scales the text height of selected objects by a factor", {
+    { name = "factor", type = "number", optional = true,
+      prompt = "Scale factor (e.g. 2.0 to double, 0.5 to halve)",
+      description = "Height multiplier, > 0" },
+})

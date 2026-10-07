@@ -12,32 +12,13 @@ namespace
 
     using CommonTools::AppendToModelSpace;
 
-    void DrawPolyRect(const AcGePoint3d pts[4])
+    AcDbObjectId DrawPolyRect(const AcGePoint3d pts[4])
     {
         AcDbPolyline* pPl = new AcDbPolyline();
         for (int i = 0; i < 4; ++i)
             pPl->addVertexAt(i, AcGePoint2d(pts[i].x, pts[i].y));
         pPl->setClosed(true);
-        AppendToModelSpace(pPl);
-    }
-
-    bool PickPoint(const AcGePoint3d* basePt, const TCHAR* prompt, AcGePoint3d& out)
-    {
-        ads_point pt;
-        int result;
-        if (basePt)
-        {
-            ads_point bp;
-            bp[0] = basePt->x; bp[1] = basePt->y; bp[2] = basePt->z;
-            result = acedGetPoint(bp, prompt, pt);
-        }
-        else
-        {
-            result = acedGetPoint(NULL, prompt, pt);
-        }
-        if (result != RTNORM) return false;
-        out.x = pt[0]; out.y = pt[1]; out.z = pt[2];
-        return true;
+        return AppendToModelSpace(pPl);
     }
 }
 
@@ -84,22 +65,6 @@ namespace
     }
 }
 
-void GoldenRectTools::goldenRectCommand()
-{
-    AcGePoint3d corner;
-    if (!PickPoint(nullptr, _T("\nGolden rectangle start corner: "), corner))
-    { acutPrintf(_T("\nCancelled.\n")); return; }
-
-    AcGePoint3d sidePt;
-    if (!PickPoint(&corner, _T("\nEndpoint defining first side: "), sidePt))
-    { acutPrintf(_T("\nCancelled.\n")); return; }
-
-    if (!GoldenRectTools::DrawGoldenSpiral(corner, sidePt))
-    { acutPrintf(_T("\nPoints are too close.\n")); return; }
-
-    acutPrintf(_T("\n%d golden rectangles drawn, spiraling inward.\n"), kRecurrences);
-}
-
 bool GoldenRectTools::DrawGoldenSpiral(const AcGePoint3d& corner, const AcGePoint3d& sidePt)
 {
     AcGeVector3d dir(sidePt.x - corner.x, sidePt.y - corner.y, 0.0);
@@ -114,141 +79,76 @@ bool GoldenRectTools::DrawGoldenSpiral(const AcGePoint3d& corner, const AcGePoin
     return true;
 }
 
-// ── GOLDEN RECT IN / INW (common implementation) ──────────────────────────────
+// ── GOLDEN RECT IN / INW (non-interactive cores) ─────────────────────────────
 
-namespace
+bool GoldenRectTools::ReadRectFrame(const AcDbObjectId& id, RectFrame& frame, CString& err)
 {
-    void PlaceRectsInContainer(bool goldenProportion)
+    AcGePoint3d corners[4];
     {
-        acutPrintf(_T("\nSelect containing rectangle: "));
-        AcDbObjectId objId;
-        {
-            CommonTools::SelectionSetGuard guard;
-            guard.acquired = (acedSSGet(_T(":S"), NULL, NULL, NULL, guard.ss) == RTNORM);
-            std::vector<AcDbObjectId> picked;
-            if (guard.acquired) picked = CommonTools::SelectionIds(guard.ss);
-            if (picked.empty()) { acutPrintf(_T("\nNothing selected.\n")); return; }
-            objId = picked[0];
-        }
+        CommonTools::AcDbObjectGuard<AcDbPolyline> pline(id);
+        if (!pline)
+        { err = _T("Selected object is not a polyline."); return false; }
 
-        AcDbPolyline* pPline = nullptr;
-        if (acdbOpenObject(pPline, objId, AcDb::kForRead) != Acad::eOk)
-        { acutPrintf(_T("\nSelected object is not a polyline.\n")); return; }
+        if (!pline->isClosed())
+        { err = _T("Polyline must be closed (rectangle expected)."); return false; }
 
-        if (!pPline->isClosed())
-        { pPline->close(); acutPrintf(_T("\nPolyline must be closed (rectangle expected).\n")); return; }
-
-        unsigned int nVerts = pPline->numVerts();
+        unsigned int nVerts = pline->numVerts();
         if (nVerts != 4)
-        {
-            TCHAR buf[64];
-            _stprintf_s(buf, _T("Expected 4 vertices for a rectangle, got %u.\n"), nVerts);
-            pPline->close();
-            acutPrintf(buf);
-            return;
-        }
+        { err.Format(_T("Expected 4 vertices for a rectangle, got %u."), nVerts); return false; }
 
-        AcGePoint3d corners[4];
         for (unsigned int i = 0; i < 4; ++i)
-            pPline->getPointAt(i, corners[i]);
-        pPline->close();
-
-        AcGeVector3d dW = corners[1] - corners[0];
-        AcGeVector3d dH = corners[3] - corners[0];
-        double W = dW.length();
-        double H = dH.length();
-
-        if (W < 0.001 || H < 0.001)
-        { acutPrintf(_T("\nRectangle is too small.\n")); return; }
-
-        AcGeVector3d dirW = dW / W;
-        AcGeVector3d dirH = dH / H;
-
-        double dot = fabs(dirW.dotProduct(dirH));
-        if (dot > 0.001)
-        { acutPrintf(_T("\nPolyline edges are not perpendicular (not a rectangle).\n")); return; }
-
-        double shortLen, longLen;
-        AcGeVector3d shortVec, longVec;
-        AcGeVector3d shortDir, longDir;
-        if (W <= H)
-        {
-            shortLen = W;  longLen = H;
-            shortDir = dirW; longDir = dirH;
-            shortVec = dW;  longVec = dH;
-        }
-        else
-        {
-            shortLen = H;  longLen = W;
-            shortDir = dirH; longDir = dirW;
-            shortVec = dH;  longVec = dW;
-        }
-
-        double innerWidth;
-        double proportion = 0.0;
-        if (goldenProportion)
-        {
-            innerWidth = shortLen / kGoldenRatio;
-        }
-        else
-        {
-            TCHAR propBuf[32] = {};
-            if (acedGetString(Adesk::kFalse, _T("\nProportion (0-1, e.g. 1=square, 0.5=half height): "),
-                              propBuf) != RTNORM)
-            { acutPrintf(_T("\nCancelled.\n")); return; }
-            proportion = _tstof(propBuf);
-            if (proportion <= 0.0 || proportion > 1.0)
-            { acutPrintf(_T("\nProportion must be between 0 and 1.\n")); return; }
-            innerWidth = shortLen * proportion;
-        }
-
-        AcGePoint3d O = corners[0];
-
-        int count = 0;
-        for (;;)
-        {
-            AcGePoint3d pickPt;
-            if (!PickPoint(nullptr, goldenProportion
-                          ? _T("\nPick location for golden rectangle: ")
-                          : _T("\nPick location for inner rectangle: "), pickPt))
-                break;
-
-            AcGeVector3d fromOrigin = pickPt - O;
-            double t = fromOrigin.dotProduct(longDir);
-
-            double halfWidth = innerWidth * 0.5;
-            if (t < halfWidth)
-                t = halfWidth;
-            else if (t > longLen - halfWidth)
-                t = longLen - halfWidth;
-
-            double offset = t - halfWidth;
-
-            AcGePoint3d grPts[4];
-            grPts[0] = O + longDir * offset;
-            grPts[1] = O + longDir * offset + shortVec;
-            grPts[2] = O + longDir * offset + shortVec + longDir * innerWidth;
-            grPts[3] = O + longDir * offset + longDir * innerWidth;
-
-            DrawPolyRect(grPts);
-            ++count;
-        }
-
-        if (goldenProportion)
-            acutPrintf(_T("\n%d golden rectangle(s) (%.2f x %.2f) drawn inside %.0f x %.0f container.\n"),
-                       count, shortLen, innerWidth, W, H);
-        else
-            acutPrintf(_T("\n%d rectangle(s) (%.2f x %.2f, proportion %.3f) drawn inside %.0f x %.0f container.\n"),
-                       count, shortLen, innerWidth, proportion, W, H);
+            pline->getPointAt(i, corners[i]);
     }
+
+    AcGeVector3d dW = corners[1] - corners[0];
+    AcGeVector3d dH = corners[3] - corners[0];
+    double W = dW.length();
+    double H = dH.length();
+
+    if (W < 0.001 || H < 0.001)
+    { err = _T("Rectangle is too small."); return false; }
+
+    AcGeVector3d dirW = dW / W;
+    AcGeVector3d dirH = dH / H;
+
+    if (fabs(dirW.dotProduct(dirH)) > 0.001)
+    { err = _T("Polyline edges are not perpendicular (not a rectangle)."); return false; }
+
+    frame.origin = corners[0];
+    frame.width  = W;
+    frame.height = H;
+    if (W <= H)
+    {
+        frame.shortLen = W;  frame.longLen = H;
+        frame.shortVec = dW; frame.longDir = dirH;
+    }
+    else
+    {
+        frame.shortLen = H;  frame.longLen = W;
+        frame.shortVec = dH; frame.longDir = dirW;
+    }
+    return true;
 }
 
-void GoldenRectTools::goldenRectInCommand()
+AcDbObjectId GoldenRectTools::DrawRectInFrame(const RectFrame& frame, double innerWidth,
+                                              const AcGePoint3d& pick)
 {
-    PlaceRectsInContainer(true);
-}
+    const AcGePoint3d& O = frame.origin;
+    double t = (pick - O).dotProduct(frame.longDir);
 
-void GoldenRectTools::goldenRectInWCommand()
-{
-    PlaceRectsInContainer(false);
+    double halfWidth = innerWidth * 0.5;
+    if (t < halfWidth)
+        t = halfWidth;
+    else if (t > frame.longLen - halfWidth)
+        t = frame.longLen - halfWidth;
+
+    double offset = t - halfWidth;
+
+    AcGePoint3d grPts[4];
+    grPts[0] = O + frame.longDir * offset;
+    grPts[1] = O + frame.longDir * offset + frame.shortVec;
+    grPts[2] = O + frame.longDir * offset + frame.shortVec + frame.longDir * innerWidth;
+    grPts[3] = O + frame.longDir * offset + frame.longDir * innerWidth;
+
+    return DrawPolyRect(grPts);
 }

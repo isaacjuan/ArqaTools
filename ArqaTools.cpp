@@ -41,16 +41,9 @@ static void unsuppressAssertsCommand()
 }
 #endif
 #include "CommonTools.h"
-#include "PolylineTools.h"
-#include "TextTools.h"
 #include "AreaTools.h"
 #include "AITools.h"
-#include "LayerTools.h"
-#include "ArabesqueTools.h"
 #include "AcmlTools.h"
-#include "CategorizeTools.h"
-#include "GoldenRectTools.h"
-#include "SvgExportTools.h"
 #include "LuaTools.h"
 #include "LuaCommands.h"
 #include "McpBridge.h"
@@ -58,10 +51,6 @@ static void unsuppressAssertsCommand()
 #include "dbgroup.h"
 
 using namespace AITools;
-using namespace LayerTools;
-using namespace TextTools;
-using namespace ArabesqueTools;
-using namespace GoldenRectTools;
 
 // ============================================================================
 // VERSION INFORMATION
@@ -95,31 +84,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATHELP"),             arqaHelpCommand             },
         { _T("ATVERSION"),          versionCommand              },
         { _T("ATRELOAD"),           reloadCommand               },
-        // Polyline / Boolean
-        { _T("ATBOOLPOLY"),         booleanPolyCommand          },
-        { _T("ATSUBPOLY"),          subtractPolyCommand         },
-        { _T("ATINPOLY"),           intersectPolyCommand        },
-        { _T("ATUNIONPOLY"),        unionPolyCommand            },
-        { _T("ATREG2POLY"),         regionToPolyCommand         },
-        // Align / Move / Copy
-        // Sequence / Text
-        { _T("ATCOPYTEXT"),         copyTextCommand             },
-        { _T("ATCOPYSTYLE"),        copyStyleCommand            },
-        { _T("ATCOPYTEXTFULL"),     copyTextFullCommand         },
-        { _T("ATCOPYDIMSTYLE"),     copyDimStyleCommand         },
-        { _T("ATSUMTEXT"),          sumTextCommand              },
-        { _T("ATSCALETEXT"),        scaleTextCommand            },
-        // Area / Measurement
-        { _T("ATINSERTAREA"),       insertAreaCommand           },
-        { _T("ATCOUNTBLOCKS"),      countBlocksCommand          },
-        { _T("ATSPLITLINE"),        splitLineCommand            },
-        { _T("ATSPLITPOLI"),        splitPoliCommand            },
-        { _T("ATTAGALL"),           tagAllCommand               },
-        // Layers
-        { _T("ATCHGTOLAYER"),       changeToCurrentLayerCommand },
-        { _T("ATNL"),               newLayerCommand             },
-        { _T("ATMATCHLAYER"),       matchLayerCommand           },
-        { _T("ATFREEZELAYER"),      freezeLayerCommand          },
         // AI
         { _T("ATAIASK"),            aiAskCommand                },
         { _T("ATAISETTOKEN"),       aiSetTokenCommand           },
@@ -133,24 +97,10 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATAIFIX"),            aiFixCommand                },
         { _T("ATAICLEAR"),          aiClearHistoryCommand       },
         { _T("ATAICONFIG"),         aiConfigCommand             },
-        // Arabesque
-        { _T("ATARABESQUE"),        arabesqueCommand            },
-        { _T("ATHOJANAZARI"),       hojaNazariCommand           },
-        { _T("ATARABESCORL"),       arabescoRlCommand           },
-        { _T("ATARABESCOTOROSOL"),  arabescotoroSolCommand      },
-        { _T("ATARABESCOHIPSOL"),   arabescohipSolCommand       },
-        // Golden rect
-        { _T("ATGOLDENRECT"),       goldenRectCommand           },
-        { _T("ATGOLDENRECTIN"),     goldenRectInCommand         },
-        { _T("ATGOLDENRECTINW"),    goldenRectInWCommand        },
         // ACML interpreter
         { _T("ATACML"),             AcmlTools::acmlRunCommand       },
         { _T("ATACMLCHECK"),        AcmlTools::acmlCheckCommand     },
         { _T("ATACMLLEX"),          AcmlTools::acmlLexCommand       },
-        // Database
-        { _T("ATCATENTITIES"),      CategorizeTools::catEntitiesCommand  },
-        // Export
-        { _T("ATSVGEXPORT"),        SvgExportTools::svgExportCommand    },
         // Lua scripting (second, additive scripting engine alongside LISP/ACML)
         { _T("ATLUA"),              LuaTools::luaRunCommand      },
         { _T("ATAILUA"),            LuaTools::aiLuaCommand       },
@@ -206,60 +156,6 @@ void CArqaToolsApp::RegisterServerComponents()
 // OMF entry point — DllMain is provided by mfc140(u/ud).lib (UseOfMfc=Dynamic)
 IMPLEMENT_ARX_ENTRYPOINT(CArqaToolsApp)
 
-// BOOLPOLY command implementation
-void CArqaToolsApp::booleanPolyCommand()
-{
-    PolylineTools::booleanPolyCommand();
-}
-
-// SUBPOLY command - Subtract second polyline from first
-void CArqaToolsApp::subtractPolyCommand()
-{
-    PolylineTools::subtractPolyCommand();
-}
-
-// INPOLY command - Intersection of two polylines
-void CArqaToolsApp::intersectPolyCommand()
-{
-    PolylineTools::intersectPolyCommand();
-}
-
-// UNIONPOLY command - Union of two polylines
-void CArqaToolsApp::unionPolyCommand()
-{
-    PolylineTools::unionPolyCommand();
-}
-
-// REG2POLY command - Convert region to polyline
-void CArqaToolsApp::regionToPolyCommand()
-{
-    PolylineTools::regionToPolyCommand();
-}
-
-
-// COPYTEXT command - Copy text content from one object to others
-void CArqaToolsApp::copyTextCommand()
-{
-    TextTools::copyTextCommand();
-}
-
-// COPYSTYLE command - Copy text style properties from one object to others
-void CArqaToolsApp::copyStyleCommand()
-{
-    TextTools::copyStyleCommand();
-}
-
-// COPYTEXTFULL command - Copy text style AND dimensions (height)
-void CArqaToolsApp::copyTextFullCommand()
-{
-    TextTools::copyTextFullCommand();
-}
-
-// COPYDIMSTYLE command - Copy dimension style from one dimension to others
-void CArqaToolsApp::copyDimStyleCommand()
-{
-    TextTools::copyDimStyleCommand();
-}
 
 // RELOAD command - Unload and reload the plugin
 void CArqaToolsApp::reloadCommand()
@@ -340,96 +236,6 @@ void CArqaToolsApp::versionCommand()
     acutPrintf(_T("====================================\n"));
 }
 
-// COUNTBLOCKS command
-void CArqaToolsApp::countBlocksCommand()
-{
-    ::countBlocksCommand();
-}
-
-// SCALETEXT command
-void CArqaToolsApp::scaleTextCommand()
-{
-    TextTools::scaleTextCommand();
-}
-
-// SPLITLINE command
-void CArqaToolsApp::splitLineCommand()
-{
-    ::splitLineCommand();
-}
-
-// SPLITPOLI command
-void CArqaToolsApp::splitPoliCommand()
-{
-    ::splitPoliCommand();
-}
-
-// TAGALL command
-void CArqaToolsApp::tagAllCommand()
-{
-    ::tagAllCommand();
-}
-
-// ARABESQUE command
-void CArqaToolsApp::arabesqueCommand()
-{
-    ArabesqueTools::arabesqueCommand();
-}
-
-// HOJANAZARI command
-void CArqaToolsApp::hojaNazariCommand()
-{
-    ArabesqueTools::hojaNazariCommand();
-}
-
-// ARABESCORL command
-void CArqaToolsApp::arabescoRlCommand()
-{
-    ArabesqueTools::arabescoRlCommand();
-}
-
-// ARABESCOTOROSOL command
-void CArqaToolsApp::arabescotoroSolCommand()
-{
-    ArabesqueTools::arabescotoroSolCommand();
-}
-
-// ARABESCOHIPSOL command
-void CArqaToolsApp::arabescohipSolCommand()
-{
-    ArabesqueTools::arabescohipSolCommand();
-}
-
-// MATCHLAYER command
-void CArqaToolsApp::matchLayerCommand()
-{
-    LayerTools::matchLayerCommand();
-}
-
-// FREEZELAYER command
-void CArqaToolsApp::freezeLayerCommand()
-{
-    LayerTools::freezeLayerCommand();
-}
-
-// ATGOLDENRECT command
-void CArqaToolsApp::goldenRectCommand()
-{
-    GoldenRectTools::goldenRectCommand();
-}
-
-// ATGOLDENRECTIN command
-void CArqaToolsApp::goldenRectInCommand()
-{
-    GoldenRectTools::goldenRectInCommand();
-}
-
-// ATGOLDENRECTINW command
-void CArqaToolsApp::goldenRectInWCommand()
-{
-    GoldenRectTools::goldenRectInWCommand();
-}
-
 // ATHELP command - Display all available commands
 void CArqaToolsApp::arqaHelpCommand()
 {
@@ -440,11 +246,11 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("\n--- DRAWING COMMANDS ---\n"));
     
     acutPrintf(_T("\n--- POLYLINE BOOLEAN OPERATIONS ---\n"));
-    acutPrintf(_T("ATBOOLPOLY  - Boolean operations menu (union/subtract/intersect)\n"));
-    acutPrintf(_T("ATUNIONPOLY - Union of two polylines\n"));
-    acutPrintf(_T("ATSUBPOLY   - Subtract second polyline from first\n"));
-    acutPrintf(_T("ATINPOLY    - Intersection of two polylines\n"));
-    acutPrintf(_T("ATREG2POLY  - Convert region to polyline\n"));
+    acutPrintf(_T("ATBOOLPOLY  - Boolean operations menu (union/subtract/intersect) (Lua command)\n"));
+    acutPrintf(_T("ATUNIONPOLY - Union of two polylines (Lua command)\n"));
+    acutPrintf(_T("ATSUBPOLY   - Subtract second polyline from first (Lua command)\n"));
+    acutPrintf(_T("ATINPOLY    - Intersection of two polylines (Lua command)\n"));
+    acutPrintf(_T("ATREG2POLY  - Convert region to polyline (Lua command)\n"));
     
     acutPrintf(_T("\n--- ALIGNMENT COMMANDS ---\n"));
     acutPrintf(_T("ATALX       - Align objects by X coordinate (Lua command)\n"));
@@ -463,10 +269,10 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATCZ        - Copy objects in Z direction only (Lua command)\n"));
     
     acutPrintf(_T("\n--- LAYER TOOLS ---\n"));
-    acutPrintf(_T("ATNL        - Quick new layer (create and set as current)\n"));
-    acutPrintf(_T("ATCHGTOLAYER- Change selected objects to current layer\n"));
-    acutPrintf(_T("ATMATCHLAYER- Change objects to the layer of a source object\n"));
-    acutPrintf(_T("ATFREEZELAYER- Freeze layer by selecting an object on it\n"));
+    acutPrintf(_T("ATNL        - Quick new layer (create and set as current) (Lua command)\n"));
+    acutPrintf(_T("ATCHGTOLAYER- Change selected objects to current layer (Lua command)\n"));
+    acutPrintf(_T("ATMATCHLAYER- Change objects to the layer of a source object (Lua command)\n"));
+    acutPrintf(_T("ATFREEZELAYER- Freeze layer by selecting an object on it (Lua command)\n"));
     
     acutPrintf(_T("\n--- DISTRIBUTION & NUMBERING ---\n"));
     acutPrintf(_T("ATDISTLINE      - Distribute objects evenly along a line (Lua command)\n"));
@@ -479,35 +285,35 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATSEQNUM        - Place sequential numbers at picked points (Lua command)\n"));
     
     acutPrintf(_T("\n--- TEXT MANIPULATION ---\n"));
-    acutPrintf(_T("ATCOPYTEXT   - Copy text content from one text to others\n"));
-    acutPrintf(_T("ATCOPYSTYLE  - Copy text style properties (not height)\n"));
-    acutPrintf(_T("ATCOPYTEXTFULL - Copy text style AND dimensions (height)\n"));
-    acutPrintf(_T("ATCOPYDIMSTYLE - Copy dimension style from one dim to others\n"));
-    acutPrintf(_T("ATSUMTEXT    - Sum numeric values from selected text objects\n"));
-    acutPrintf(_T("ATSCALETEXT  - Scale text height of selected objects by a factor\n"));
+    acutPrintf(_T("ATCOPYTEXT   - Copy text content from one text to others (Lua command)\n"));
+    acutPrintf(_T("ATCOPYSTYLE  - Copy text style properties (not height) (Lua command)\n"));
+    acutPrintf(_T("ATCOPYTEXTFULL - Copy text style AND dimensions (height) (Lua command)\n"));
+    acutPrintf(_T("ATCOPYDIMSTYLE - Copy dimension style from one dim to others (Lua command)\n"));
+    acutPrintf(_T("ATSUMTEXT    - Sum numeric values from selected text objects (Lua command)\n"));
+    acutPrintf(_T("ATSCALETEXT  - Scale text height of selected objects by a factor (Lua command)\n"));
     
     acutPrintf(_T("\n--- AREA TOOLS ---\n"));
-    acutPrintf(_T("ATINSERTAREA  - Insert auto-updating area text in closed polyline\n"));
+    acutPrintf(_T("ATINSERTAREA  - Insert auto-updating area text in closed polyline (Lua command)\n"));
     acutPrintf(_T("ATPERIMETER   - Insert perimeter text in closed polyline (Lua command)\n"));
     acutPrintf(_T("ATSUMLENGTH   - Insert auto-updating sum of lengths (polylines/arcs/circles/lines) (Lua command)\n"));
     acutPrintf(_T("ATLINEARLENGTH - Insert length text on a line or open polyline (Lua command)\n"));
-    acutPrintf(_T("ATTAGALL      - Insert length text on all selected lines/polylines\n"));
-    acutPrintf(_T("ATSPLITLINE   - Split a line by intersecting lines, creating individual segments\n"));
-    acutPrintf(_T("ATSPLITPOLI   - Split a polyline by intersecting lines, creating individual polyline segments\n"));
+    acutPrintf(_T("ATTAGALL      - Insert length text on all selected lines/polylines (Lua command)\n"));
+    acutPrintf(_T("ATSPLITLINE   - Split a line by intersecting lines, creating individual segments (Lua command)\n"));
+    acutPrintf(_T("ATSPLITPOLI   - Split a polyline by intersecting lines, creating individual polyline segments (Lua command)\n"));
     acutPrintf(_T("ATROOMTAG     - Insert room name + area label in closed polyline (Lua command)\n"));
-    acutPrintf(_T("ATCOUNTBLOCKS - Count block instances in selection or drawing\n"));
+    acutPrintf(_T("ATCOUNTBLOCKS - Count block instances in selection or drawing (Lua command)\n"));
     
     acutPrintf(_T("\n--- DECORATIVE / PATTERN TOOLS ---\n"));
-    acutPrintf(_T("ATARABESQUE       - Draw geometric arabesque patterns (rosette/star/petals)\n"));
-    acutPrintf(_T("ATARABESCORL      - Retícula de arabesco andaluz 30/45  (param: A)\n"));
-    acutPrintf(_T("ATARABESCOTOROSOL - Arabesco nazari 3D solido sobre toro (3DFACE renderable)\n"));
-    acutPrintf(_T("ATARABESCOHIPSOL  - Arabesco nazari 3D solido sobre paraboloide hiperbolico\n"));
-    acutPrintf(_T("ATHOJANAZARI      - Patron de hoja nazari hexagonal (La Alhambra)\n"));
+    acutPrintf(_T("ATARABESQUE       - Draw geometric arabesque patterns (rosette/star/petals) (Lua command)\n"));
+    acutPrintf(_T("ATARABESCORL      - Retícula de arabesco andaluz 30/45  (param: A) (Lua command)\n"));
+    acutPrintf(_T("ATARABESCOTOROSOL - Arabesco nazari 3D solido sobre toro (3DFACE renderable) (Lua command)\n"));
+    acutPrintf(_T("ATARABESCOHIPSOL  - Arabesco nazari 3D solido sobre paraboloide hiperbolico (Lua command)\n"));
+    acutPrintf(_T("ATHOJANAZARI      - Patron de hoja nazari hexagonal (La Alhambra) (Lua command)\n"));
     
     acutPrintf(_T("\n--- GOLDEN RECTANGLE ---\n"));
-    acutPrintf(_T("ATGOLDENRECT    - Draw golden-ratio rectangle spiral\n"));
-    acutPrintf(_T("ATGOLDENRECTIN  - Place golden rectangles inside a container\n"));
-    acutPrintf(_T("ATGOLDENRECTINW - Place custom-proportion rectangles inside a container\n"));
+    acutPrintf(_T("ATGOLDENRECT    - Draw golden-ratio rectangle spiral (Lua command)\n"));
+    acutPrintf(_T("ATGOLDENRECTIN  - Place golden rectangles inside a container (Lua command)\n"));
+    acutPrintf(_T("ATGOLDENRECTINW - Place custom-proportion rectangles inside a container (Lua command)\n"));
     
     acutPrintf(_T("\n--- AI ASSISTANT ---\n"));
     acutPrintf(_T("ATAIASK       - Ask GitHub Copilot a question\n"));
@@ -529,10 +335,10 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATACMLLEX   - Lex ACML script\n"));
     
     acutPrintf(_T("\n--- DATABASE ---\n"));
-    acutPrintf(_T("ATCATENTITIES - Categorize entities by type\n"));
+    acutPrintf(_T("ATCATENTITIES - Categorize entities by type (Lua command)\n"));
 
     acutPrintf(_T("\n--- EXPORT ---\n"));
-    acutPrintf(_T("ATSVGEXPORT - Export selected entities (incl. block references, e.g. wall/door/window blocks) to an .svg file in Documents\n"));
+    acutPrintf(_T("ATSVGEXPORT - Export selected entities (incl. block references, e.g. wall/door/window blocks) to an .svg file in Documents (Lua command)\n"));
 
     acutPrintf(_T("\n--- LUA SCRIPTING ---\n"));
     acutPrintf(_T("ATLUA       - Run a Lua script (inline or @path\\to\\file.lua) against the \"at\" API\n"));

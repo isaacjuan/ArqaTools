@@ -4,7 +4,6 @@
 #include "dbmain.h"
 #include "dbents.h"
 #include "dbsymtb.h"
-#include <algorithm>
 
 namespace CategorizeTools
 {
@@ -59,49 +58,6 @@ size_t DBObjectMap::getCount(const std::wstring& typeName) const
 {
     auto it = m_objectsByType.find(typeName);
     return (it != m_objectsByType.end()) ? it->second.size() : 0;
-}
-
-// ---------------------------------------------------------------------------
-void catEntitiesCommand()
-{
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    if (!pDb)
-    {
-        acutPrintf(_T("\nNo active database.\n"));
-        return;
-    }
-
-    DBObjectMap map(pDb);
-
-    if (map.isEmpty())
-    {
-        acutPrintf(_T("\nNo entities found in model space.\n"));
-        return;
-    }
-
-    // Sort by count descending
-    auto typeNames = map.getTypeNames();
-    std::sort(typeNames.begin(), typeNames.end(),
-        [&](const std::wstring& a, const std::wstring& b)
-        {
-            return map.getCount(a) > map.getCount(b);
-        });
-
-    acutPrintf(_T("\n=== Entity Categories ===\n"));
-    acutPrintf(_T("%-40s %s\n"), _T("Type"), _T("Count"));
-    acutPrintf(_T("---------------------------------------- -------\n"));
-
-    size_t total = 0;
-    for (const auto& name : typeNames)
-    {
-        size_t count = map.getCount(name);
-        total += count;
-        acutPrintf(_T("%-40s %zu\n"), name.c_str(), count);
-    }
-
-    acutPrintf(_T("---------------------------------------- -------\n"));
-    acutPrintf(_T("%-40s %zu\n"), _T("TOTAL"), total);
-    acutPrintf(_T("\n"));
 }
 
 } // namespace CategorizeTools

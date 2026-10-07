@@ -1,5 +1,6 @@
 // ArabesqueTools.cpp - Geometric Arabesque Pattern Generator
-// Commands: ARABESQUE
+// Non-interactive cores; the ATARABESQUE / ATHOJANAZARI / ATARABESCO* commands
+// are Lua (LuaCommands\ATARABESQUE.lua) on top of the at.pattern* bindings.
 
 #include "StdAfx.h"
 #include "ArabesqueTools.h"
@@ -111,84 +112,6 @@ namespace ArabesqueTools
     }
 
     // -----------------------------------------------------------------------
-    // ARABESQUE command
-    // -----------------------------------------------------------------------
-    void arabesqueCommand()
-    {
-        acutPrintf(_T("\nARABESQUE - Geometric arabesque pattern generator"));
-        acutPrintf(_T("\n  [R]osette  = interlocking circles (classic Islamic rosette)"));
-        acutPrintf(_T("\n  [S]tar     = n-pointed star polygon"));
-        acutPrintf(_T("\n  [P]etals   = lens-shaped petal flower"));
-        acutPrintf(_T("\n  [G]eometric= star + inner rosette combined\n"));
-
-        // --- Center ---
-        ads_point cPt;
-        if (acedGetPoint(NULL, _T("\nCenter point: "), cPt) != RTNORM)
-        { acutPrintf(_T("\nCommand cancelled.")); return; }
-        AcGePoint3d center(cPt[0], cPt[1], cPt[2]);
-
-        // --- Radius (with rubber-band preview from center) ---
-        double radius = 1000.0;
-        if (acedGetDist(cPt, _T("\nOuter radius: "), &radius) != RTNORM || radius <= 0.0)
-        { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-        // --- Pattern type ---
-        TCHAR modeBuf[16] = _T("R");
-        int mr = acedGetString(0, _T("\nPattern [R]osette/[S]tar/[P]etals/[G]eometric <R>: "), modeBuf);
-        if (mr != RTNORM && mr != RTNONE)
-        { acutPrintf(_T("\nCommand cancelled.")); return; }
-        CString mode(modeBuf); mode.MakeUpper();
-        if (mode.IsEmpty()) mode = _T("R");
-
-        // --- Number of units ---
-        int n = 8;
-        int nr = acedGetInt(_T("\nNumber of units <8>: "), &n);
-        if (nr != RTNORM && nr != RTNONE)
-        { acutPrintf(_T("\nCommand cancelled.")); return; }
-        if (n < 3)  n = 3;
-        if (n > 64) n = 64;
-
-        // --- Mode-specific parameters and drawing ---
-        if (mode == _T("R"))
-        {
-            DrawRosette(center, radius, n);
-            acutPrintf(_T("\nRosette drawn: %d interlocking circles, radius %.2f."), n, radius);
-        }
-        else if (mode == _T("S"))
-        {
-            double innerFactor = 0.38;
-            double tmp = innerFactor;
-            int ir = acedGetReal(_T("\nInner radius factor (0.1-0.9) <0.38>: "), &tmp);
-            if (ir == RTNORM && tmp > 0.05 && tmp < 0.99)
-                innerFactor = tmp;
-            DrawStar(center, radius, n, innerFactor);
-            acutPrintf(_T("\nStar drawn: %d points, R=%.2f, r=%.2f."), n, radius, radius * innerFactor);
-        }
-        else if (mode == _T("P"))
-        {
-            // Bulge: 0.2679=slender(60°arc), 0.4142=round(90°), 0.5774=wide(120°)
-            double bulge = 0.4142;
-            double tmp = bulge;
-            int br = acedGetReal(_T("\nPetal fullness (0.1=slender - 0.8=wide) <0.41>: "), &tmp);
-            if (br == RTNORM && tmp > 0.0 && tmp < 1.5)
-                bulge = tmp;
-            DrawPetals(center, radius, n, bulge);
-            acutPrintf(_T("\nFlower drawn: %d petals, radius %.2f."), n, radius);
-        }
-        else // G = Geometric
-        {
-            double innerFactor = 0.45;
-            double tmp = innerFactor;
-            int ir = acedGetReal(_T("\nInner radius factor (0.1-0.9) <0.45>: "), &tmp);
-            if (ir == RTNORM && tmp > 0.05 && tmp < 0.99)
-                innerFactor = tmp;
-            DrawGeometric(center, radius, n, innerFactor);
-            acutPrintf(_T("\nGeometric pattern drawn: %d-pointed star + inner rosette."), n);
-        }
-    }
-
-
-    // -----------------------------------------------------------------------
     // HOJA NAZARI (Nasrid Leaf)
     // Interlocking leaf tessellation from the Alhambra (Granada).
     //
@@ -285,50 +208,6 @@ namespace ArabesqueTools
         }
 
         pBTR->close();
-    }
-
-    // -----------------------------------------------------------------------
-    // HOJANAZARI command
-    // -----------------------------------------------------------------------
-    void hojaNazariCommand()
-    {
-        acutPrintf(_T("\nHOJA NAZARI - Patron de hojas nazaries (La Alhambra)"));
-        acutPrintf(_T("\nRed hexagonal de centros de flor con hojas interconectadas.\n"));
-
-        // --- Center ---
-        ads_point cPt;
-        if (acedGetPoint(NULL, _T("\nPunto central: "), cPt) != RTNORM)
-        { acutPrintf(_T("\nComando cancelado.")); return; }
-        AcGePoint3d center(cPt[0], cPt[1], cPt[2]);
-
-        // --- Leaf size (tip-to-tip length, with rubber-band) ---
-        double leafSize = 500.0;
-        int rs = acedGetDist(cPt, _T("\nTamano de hoja (punta a punta) <500>: "), &leafSize);
-        if ((rs != RTNORM && rs != RTNONE) || leafSize <= 0.0)
-        { acutPrintf(_T("\nComando cancelado.")); return; }
-
-        // --- Number of rings ---
-        int numRings = 3;
-        int rr = acedGetInt(_T("\nNumero de anillos <3>: "), &numRings);
-        if (rr != RTNORM && rr != RTNONE)
-        { acutPrintf(_T("\nComando cancelado.")); return; }
-        if (numRings < 1)  numRings = 1;
-        if (numRings > 12) numRings = 12;
-
-        // --- Width factor: leaf max-width / leaf-length ---
-        // 0.2 = aguja (needle), 0.35 = Alhambra clasico, 0.6 = hoja ancha
-        double widthFactor = 0.35;
-        double tmp = widthFactor;
-        int rw = acedGetReal(_T("\nAnchura de hoja 0.1(aguja)-0.7(ancha) <0.35>: "), &tmp);
-        if (rw == RTNORM && tmp > 0.05 && tmp < 0.85)
-            widthFactor = tmp;
-
-        DrawHojaNazari(center, leafSize, numRings, widthFactor);
-
-        // Count: inner leaves = 3 * Sum(k=0..rings-1)(6k) + boundary
-        // Simpler: just report parameters
-        acutPrintf(_T("\nPatron Hoja Nazari generado: %d anillos, tamano=%.2f, anchura=%.2f."),
-                   numRings, leafSize, widthFactor);
     }
 
     // -----------------------------------------------------------------------
@@ -440,30 +319,6 @@ namespace ArabesqueTools
         for (int i = 0; i < 49; i++)
             pts.append(AcGePoint2d(ox + kMain[i][0]*S, oy + kMain[i][1]*S));
         AddOpenPoly(pBTR, pts);
-    }
-
-    // -----------------------------------------------------------------------
-    // ARABESCORL command
-    // -----------------------------------------------------------------------
-    void arabescoRlCommand()
-    {
-        acutPrintf(_T("\nARABESCORL - Retícula de arabesco andaluz (30°/45°)"));
-        acutPrintf(_T("\n  S = A*(3 + 2*sqrt(3))  ~= 6.464*A\n"));
-
-        ads_point iPt;
-        if (acedGetPoint(NULL, _T("\nEsquina inferior izquierda: "), iPt) != RTNORM)
-        { acutPrintf(_T("\nCancelado.")); return; }
-
-        double A = 500.0;
-        if (acedGetDist(iPt, _T("\nLongitud fundamental A <500>: "), &A) != RTNORM || A <= 0.0)
-        { acutPrintf(_T("\nCancelado.")); return; }
-
-        int cols = 3, rows = 3;
-        acedGetInt(_T("\nColumnas <3>: "), &cols);
-        acedGetInt(_T("\nFilas    <3>: "), &rows);
-
-        double S = DrawArabescoRl(AcGePoint3d(iPt[0], iPt[1], iPt[2]), A, cols, rows);
-        acutPrintf(_T("\nRetícula %d×%d  A=%.1f  S=%.1f"), cols, rows, A, S);
     }
 
     double DrawArabescoRl(const AcGePoint3d& corner, double A, int& cols, int& rows)
@@ -674,39 +529,6 @@ namespace ArabesqueTools
         TsPoly(pBTR, kMainPts, 49, Rb, Rs, nT, mT, S, D, ww, hh, cx, cy, cz);
     }
 
-    // -----------------------------------------------------------------------
-    // ARABESCOTOROSOL command
-    // -----------------------------------------------------------------------
-    void arabescotoroSolCommand()
-    {
-        acutPrintf(_T("\nARABESCOTOROSOL - Arabesco Nazari Toro 3D Solido"));
-        acutPrintf(_T("\n  Straps: techo + paredes laterales sobre la superficie del toro\n"));
-
-        ads_point cPt;
-        if (acedGetPoint(NULL, _T("\nCentro del toro: "), cPt) != RTNORM)
-        { acutPrintf(_T("\nCancelado.")); return; }
-
-        double A = 100.0;
-        if (acedGetDist(cPt, _T("\nLongitud fundamental A <100>: "), &A) != RTNORM || A <= 0.0)
-        { acutPrintf(_T("\nCancelado.")); return; }
-
-        int nT = 6;
-        acedGetInt(_T("\nBaldosas circunferencia mayor <6>: "), &nT);
-
-        int mT = 3;
-        acedGetInt(_T("\nBaldosas circunferencia menor <3>: "), &mT);
-
-        int D = 6;
-        acedGetInt(_T("\nSubdivisiones por segmento <6>: "), &D);
-
-        double fw = 0.28;
-        acedGetReal(_T("\nAncho de strap, factor de A <0.28>: "), &fw);
-        double fh = 0.08;
-        acedGetReal(_T("\nAlto de strap, factor de A <0.08>: "), &fh);
-
-        DrawArabescoToroSol(AcGePoint3d(cPt[0], cPt[1], cPt[2]), A, nT, mT, D, fw, fh);
-    }
-
     void DrawArabescoToroSol(const AcGePoint3d& center, double A,
                              int nT, int mT, int D, double fw, double fh)
     {
@@ -886,42 +708,6 @@ namespace ArabesqueTools
             kMainPts[i][1] = oy + kMain[i][1]*S;
         }
         HpPoly(pBTR, kMainPts, 49, nT, mT, S, amp, D, ww, hh, cx, cy, cz);
-    }
-
-    // -----------------------------------------------------------------------
-    // ARABESCOHIPSOL command
-    // -----------------------------------------------------------------------
-    void arabescohipSolCommand()
-    {
-        acutPrintf(_T("\nARABESCOHIPSOL - Arabesco Nazari Paraboloide Hiperbolico Solido"));
-        acutPrintf(_T("\n  Sillon: z = amp*((x/Lx)^2 - (y/Ly)^2)  Lx=nT*S/2  Ly=mT*S/2\n"));
-
-        ads_point cPt;
-        if (acedGetPoint(NULL, _T("\nCentro del sillon: "), cPt) != RTNORM)
-        { acutPrintf(_T("\nCancelado.")); return; }
-
-        double A = 100.0;
-        if (acedGetDist(cPt, _T("\nLongitud fundamental A <100>: "), &A) != RTNORM || A <= 0.0)
-        { acutPrintf(_T("\nCancelado.")); return; }
-
-        int nT = 4;
-        acedGetInt(_T("\nBaldosas en X <4>: "), &nT);
-
-        int mT = 4;
-        acedGetInt(_T("\nBaldosas en Y <4>: "), &mT);
-
-        double fa = 3.0;
-        acedGetReal(_T("\nAmplitud del sillon, factor de A <3.0>: "), &fa);
-
-        int D = 6;
-        acedGetInt(_T("\nSubdivisiones por segmento <6>: "), &D);
-
-        double fw = 0.28;
-        acedGetReal(_T("\nAncho de strap, factor de A <0.28>: "), &fw);
-        double fh = 0.08;
-        acedGetReal(_T("\nAlto de strap, factor de A <0.08>: "), &fh);
-
-        DrawArabescoHipSol(AcGePoint3d(cPt[0], cPt[1], cPt[2]), A, nT, mT, fa, D, fw, fh);
     }
 
     void DrawArabescoHipSol(const AcGePoint3d& center, double A,

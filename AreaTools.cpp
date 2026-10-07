@@ -242,29 +242,8 @@ void PolylineSumLengthReactor::highlightLinkedCurves(bool on)
 }
 
 // ============================================================================
-// INSERTAREA - Insert auto-updating area text in a closed polyline
+// Area label - auto-updating area text in a closed polyline (ATINSERTAREA.lua)
 // ============================================================================
-void insertAreaCommand()
-{
-    acutPrintf(_T("\nINSERTAREA - Insert area value in closed polyline"));
-
-    ads_name ent; ads_point pt;
-    if (acedEntSel(_T("\nSelect a closed polyline: "), ent, pt) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    AcDbObjectId polylineId;
-    acdbGetObjectId(polylineId, ent);
-
-    CString err;
-    AcDbObjectId textId = AreaTools::InsertAreaLabel(polylineId, &err);
-    if (textId.isNull())
-    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
-
-    CString areaText;
-    { CommonTools::AcDbObjectGuard<AcDbText> t(textId); if (t) areaText = t->textStringConst(); }
-    acutPrintf(_T("\nArea text inserted: %s"), (LPCTSTR)areaText);
-}
-
 AcDbObjectId AreaTools::InsertAreaLabel(AcDbObjectId polylineId, CString* err)
 {
     auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };
@@ -377,7 +356,7 @@ AcDbObjectId AreaTools::InsertPerimeterLabel(AcDbObjectId polyId, CString* err)
 }
 
 // ============================================================================
-// LINEARLENGTH / TAGALL helper
+// Length label (ATLINEARLENGTH.lua, ATTAGALL.lua, split segments)
 // Insert a perpendicular length label on a single curve + attach reactor.
 // ============================================================================
 AcDbObjectId AreaTools::InsertLengthLabel(AcDbObjectId curveId, const CString& layerName, CString* err)
@@ -397,41 +376,8 @@ AcDbObjectId AreaTools::InsertLengthLabel(AcDbObjectId curveId, const CString& l
 }
 
 // ============================================================================
-// COUNTBLOCKS - Count block instances in selection or whole drawing
+// Block count - block instances in a selection or the whole drawing (ATCOUNTBLOCKS.lua)
 // ============================================================================
-void countBlocksCommand()
-{
-    acutPrintf(_T("\nCOUNTBLOCKS - Count block instances in drawing\n"));
-
-    TCHAR optBuf[32] = _T("S");
-    int result = acedGetString(0, _T("\nCount in [S]election or [D]rawing? <S>: "), optBuf);
-    if (result != RTNORM && result != RTNONE)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    CString opt(optBuf); opt.MakeUpper();
-    bool wholeDrawing = (opt == _T("D"));
-
-    std::map<CString, int> blockCount;
-    if (wholeDrawing)
-        blockCount = AreaTools::CountBlocks(nullptr);
-    else
-    {
-        std::vector<AcDbObjectId> ids = CommonTools::SelectIds();
-        if (ids.empty()) { acutPrintf(_T("\nNo objects selected.")); return; }
-        blockCount = AreaTools::CountBlocks(&ids);
-    }
-
-    if (blockCount.empty()) { acutPrintf(_T("\nNo block references found.")); return; }
-
-    acutPrintf(_T("\n%-40s  COUNT\n"), _T("BLOCK NAME"));
-    acutPrintf(_T("----------------------------------------  -----\n"));
-    int total = 0;
-    for (auto& kv : blockCount)
-    { acutPrintf(_T("%-40s  %d\n"), (LPCTSTR)kv.first, kv.second); total += kv.second; }
-    acutPrintf(_T("----------------------------------------  -----\n"));
-    acutPrintf(_T("%-40s  %d\n"), _T("TOTAL"), total);
-}
-
 std::map<CString, int> AreaTools::CountBlocks(const std::vector<AcDbObjectId>* ids)
 {
     std::map<CString, int> blockCount;
@@ -474,44 +420,9 @@ static void CollectIntersectionPoints(AcDbCurve* pBase, AcDbObjectId baseId,
     }
 }
 
-// Prompts for the crossing entities (shared by SPLITLINE / SPLITPOLI).
-static bool SelectCrossingEntities(std::vector<AcDbObjectId>& crossIds)
-{
-    acutPrintf(_T("\nSelect crossing lines/polylines: "));
-    crossIds = CommonTools::SelectIds();
-    return !crossIds.empty();
-}
-
 // ============================================================================
-// SPLITLINE - Split a line at intersections, creating tagged AcDbLine segments
+// SplitLine - split a curve at intersections into tagged AcDbLine segments (ATSPLIT.lua)
 // ============================================================================
-void splitLineCommand()
-{
-    acutPrintf(_T("\nSPLITLINE - Create segments from a line intersected by other lines"));
-
-    ads_name baseEnt; ads_point basePt;
-    if (acedEntSel(_T("\nSelect base line to split: "), baseEnt, basePt) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    AcDbObjectId baseId;
-    acdbGetObjectId(baseId, baseEnt);
-    {
-        CommonTools::AcDbObjectGuard<AcDbCurve> base(baseId);
-        if (!base) { acutPrintf(_T("\nError: Cannot open base line.")); return; }
-    }
-
-    std::vector<AcDbObjectId> crossIds;
-    if (!SelectCrossingEntities(crossIds))
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    CString err;
-    std::vector<AcDbObjectId> segIds = AreaTools::SplitLine(baseId, crossIds, _T("doc_areas"), true, &err);
-    if (segIds.empty())
-    { acutPrintf(_T("\n%s."), (LPCTSTR)err); return; }
-
-    acutPrintf(_T("\n%d segment(s) created and tagged."), static_cast<int>(segIds.size()));
-}
-
 std::vector<AcDbObjectId> AreaTools::SplitLine(AcDbObjectId baseId,
                                                const std::vector<AcDbObjectId>& crossIds,
                                                const CString& targetLayer, bool tagLengths,
@@ -568,7 +479,7 @@ std::vector<AcDbObjectId> AreaTools::SplitLine(AcDbObjectId baseId,
 }
 
 // ============================================================================
-// SPLITPOLI - Split a polyline at intersections, preserving arc segments
+// SplitPolyline - split a polyline at intersections, preserving arc segments (ATSPLIT.lua)
 // ============================================================================
 
 // Derive arc center from chord endpoints and bulge (positive = CCW).
@@ -678,33 +589,6 @@ static AcDbPolyline* ExtractSubPolyline(AcDbPolyline* pPoly,
     return pNew;
 }
 
-void splitPoliCommand()
-{
-    acutPrintf(_T("\nSPLITPOLI - Split a polyline at intersections with crossing entities"));
-
-    ads_name baseEnt; ads_point basePt;
-    if (acedEntSel(_T("\nSelect base polyline to split: "), baseEnt, basePt) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    AcDbObjectId baseId;
-    acdbGetObjectId(baseId, baseEnt);
-    {
-        CommonTools::AcDbObjectGuard<AcDbPolyline> base(baseId);
-        if (!base) { acutPrintf(_T("\nError: Selected object is not a polyline.")); return; }
-    }
-
-    std::vector<AcDbObjectId> crossIds;
-    if (!SelectCrossingEntities(crossIds))
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    CString err;
-    std::vector<AcDbObjectId> segIds = AreaTools::SplitPolyline(baseId, crossIds, _T("doc_areas"), true, &err);
-    if (segIds.empty())
-    { acutPrintf(_T("\n%s."), (LPCTSTR)err); return; }
-
-    acutPrintf(_T("\n%d segment(s) created and tagged."), static_cast<int>(segIds.size()));
-}
-
 std::vector<AcDbObjectId> AreaTools::SplitPolyline(AcDbObjectId baseId,
                                                    const std::vector<AcDbObjectId>& crossIds,
                                                    const CString& targetLayer, bool tagLengths,
@@ -777,31 +661,6 @@ std::vector<AcDbObjectId> AreaTools::SplitPolyline(AcDbObjectId baseId,
 
     { CommonTools::AcDbObjectGuard<AcDbEntity> orig(baseId, AcDb::kForWrite); if (orig) orig->erase(); }
     return segIds;
-}
-
-// ============================================================================
-// TAGALL - Batch tag all selected lines/polylines with length text
-// ============================================================================
-void tagAllCommand()
-{
-    acutPrintf(_T("\nTAGALL - Insert length text on all selected lines/polylines"));
-
-    std::vector<AcDbObjectId> ids = CommonTools::SelectIds();
-    if (ids.empty()) { acutPrintf(_T("\nNo objects selected.")); return; }
-
-    int tagged = 0, skipped = 0;
-    for (AcDbObjectId id : ids)
-    {
-        bool isCurve = false;
-        {
-            CommonTools::AcDbObjectGuard<AcDbEntity> ent(id);
-            if (!ent) continue;
-            isCurve = ent->isKindOf(AcDbCurve::desc());
-        }
-        if (isCurve && !AreaTools::InsertLengthLabel(id).isNull()) tagged++;
-        else skipped++;
-    }
-    acutPrintf(_T("\nTAGALL complete: %d tagged, %d skipped."), tagged, skipped);
 }
 
 // ============================================================================

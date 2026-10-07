@@ -26,38 +26,6 @@ namespace PolylineTools
         return static_cast<AcDbRegion*>(regions[0]);
     }
 
-    // Helper function for boolean operations
-    // CC=4  CogC=4  Nesting=2
-    static Acad::ErrorStatus PerformBooleanOperation(
-        AcDb::BoolOperType operation,
-        const TCHAR* operationName)
-    {
-        ads_name ename1; ads_point pt1;
-        if (acedEntSel(_T("\nSelect first polyline: "), ename1, pt1) != RTNORM)
-        { acutPrintf(_T("\nSelection cancelled.\n")); return Acad::eInvalidInput; }
-
-        AcDbObjectId objId1;
-        acdbGetObjectId(objId1, ename1);
-        if (!CommonTools::AcDbObjectGuard<AcDbPolyline>(objId1))
-        { acutPrintf(_T("\nError: Selected object is not a polyline.\n")); return Acad::eInvalidInput; }
-
-        ads_name ename2; ads_point pt2;
-        if (acedEntSel(_T("\nSelect second polyline: "), ename2, pt2) != RTNORM)
-        { acutPrintf(_T("\nSelection cancelled.\n")); return Acad::eInvalidInput; }
-
-        AcDbObjectId objId2;
-        acdbGetObjectId(objId2, ename2);
-
-        CString err;
-        if (BooleanPolylines(objId1, objId2, operation, &err).isNull())
-        {
-            acutPrintf(_T("\nError: %s (%s).\n"), (LPCTSTR)err, operationName);
-            return Acad::eInvalidInput;
-        }
-        acutPrintf(_T("\n%s operation completed successfully!\n"), operationName);
-        return Acad::eOk;
-    }
-
     AcDbObjectId BooleanPolylines(AcDbObjectId first, AcDbObjectId second,
                                   AcDb::BoolOperType op, CString* err)
     {
@@ -90,47 +58,6 @@ namespace PolylineTools
         AcDbObjectId resultId = CommonTools::AppendToModelSpace(pRegion1);
         if (resultId.isNull()) return fail(_T("could not add result to drawing"));
         return resultId;
-    }
-
-    // SUBPOLY command - Subtract second polyline from first
-    void subtractPolyCommand()
-    {
-        acutPrintf(_T("\n=== SUBTRACT POLYLINES (1st - 2nd) ===\n"));
-        PerformBooleanOperation(AcDb::kBoolSubtract, _T("Subtract"));
-    }
-
-    // INPOLY command - Intersection of two polylines
-    void intersectPolyCommand()
-    {
-        acutPrintf(_T("\n=== INTERSECT POLYLINES ===\n"));
-        PerformBooleanOperation(AcDb::kBoolIntersect, _T("Intersection"));
-    }
-
-    // UNIONPOLY command - Union of two polylines
-    void unionPolyCommand()
-    {
-        acutPrintf(_T("\n=== UNION POLYLINES ===\n"));
-        PerformBooleanOperation(AcDb::kBoolUnite, _T("Union"));
-    }
-
-    // BOOLPOLY command - Interactive boolean: prompt for op then delegate.
-    // CC=4  CogC=3  Nesting=1
-    void booleanPolyCommand()
-    {
-        acutPrintf(_T("\n==========================================\n"));
-        acutPrintf(_T("   Boolean Operations on Polylines       \n"));
-        acutPrintf(_T("==========================================\n"));
-        acutPrintf(_T("  U = Union\n  I = Intersection\n  S = Subtract (1st - 2nd)\n"));
-
-        TCHAR opStr[10];
-        if (acedGetString(0, _T("\nEnter operation [U/I/S]: "), opStr) != RTNORM)
-        { acutPrintf(_T("\nCommand cancelled.\n")); return; }
-
-        TCHAR op = _totupper(opStr[0]);
-        if      (op == _T('U')) PerformBooleanOperation(AcDb::kBoolUnite,     _T("Union"));
-        else if (op == _T('I')) PerformBooleanOperation(AcDb::kBoolIntersect, _T("Intersection"));
-        else if (op == _T('S')) PerformBooleanOperation(AcDb::kBoolSubtract,  _T("Subtract"));
-        else    acutPrintf(_T("\nInvalid operation. Use U, I, or S.\n"));
     }
 
     // -------------------------------------------------------------------------
@@ -215,28 +142,6 @@ namespace PolylineTools
         }
 
         return pPoly;
-    }
-
-    // REG2POLY command - Convert region to polyline with ordered segments.
-    // CC=4  CogC=4  Nesting=2
-    void regionToPolyCommand()
-    {
-        acutPrintf(_T("\n=== CONVERT REGION TO POLYLINE ===\n"));
-
-        ads_name ename; ads_point pt;
-        if (acedEntSel(_T("\nSelect region: "), ename, pt) != RTNORM)
-        { acutPrintf(_T("\nSelection cancelled.\n")); return; }
-
-        AcDbObjectId objId;
-        acdbGetObjectId(objId, ename);
-
-        CString err;
-        AcDbObjectId polyId = RegionToPolyline(objId, &err);
-        if (polyId.isNull())
-        { acutPrintf(_T("\nError: %s.\n"), (LPCTSTR)err); return; }
-
-        CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polyId);
-        acutPrintf(_T("\nPolyline created with %d vertices!\n"), poly ? (int)poly->numVerts() : 0);
     }
 
     AcDbObjectId RegionToPolyline(AcDbObjectId regionId, CString* err)
