@@ -192,68 +192,6 @@ namespace AlignTools
         if (modified) aligned++; else skipped++;
     }
 
-    // -------------------------------------------------------------------------
-    // VerifySeqNumGroups: post-operation integrity check on all SEQNUM_ groups.
-    // -------------------------------------------------------------------------
-    static void VerifySeqNumGroups()
-    {
-        acutPrintf(_T("\n=== VERIFYING GROUP INTEGRITY ===\n"));
-        AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-        AcDbDictionary* pGroupDictRaw;
-        if (pDb->getGroupDictionary(pGroupDictRaw, AcDb::kForRead) != Acad::eOk)
-            return;
-        CommonTools::AcDbDictionaryGuard pGroupDict(pGroupDictRaw);
-
-        CommonTools::AcDbIteratorGuard<AcDbDictionaryIterator> iter(pGroupDict->newIterator());
-        int broken = 0;
-        for (; !iter->done(); iter->next())
-        {
-            if (_tcsstr(iter->name(), _T("SEQNUM_")) == nullptr)
-                continue;
-
-            CommonTools::AcDbObjectGuard<AcDbGroup> grp(iter->objectId());
-            if (grp)
-            {
-                int n = grp->numEntities();
-                if (n < 2)
-                { acutPrintf(_T("  *** ALERT: '%s' broken! %d entities ***\n"), iter->name(), n); broken++; }
-                else
-                    acutPrintf(_T("  OK: '%s' has %d entities\n"), iter->name(), n);
-            }
-        }
-
-        if (broken > 0)
-            acutPrintf(_T("\n*** WARNING: %d SEQNUM groups broken ***\n"), broken);
-        else
-            acutPrintf(_T("\nAll SEQNUM groups intact.\n"));
-    }
-
-    // -------------------------------------------------------------------------
-    // AlignObjectsToCoordinate: select objects and align them along one axis.
-    // CC=4  CogC=4  Nesting=2
-    // -------------------------------------------------------------------------
-    static void AlignObjectsToCoordinate(int axis, const AcGePoint3d& refPoint)
-    {
-        static const TCHAR* kAxisNames[] = { _T("X"), _T("Y"), _T("Z") };
-        double coord = (axis == 0) ? refPoint.x : (axis == 1) ? refPoint.y : refPoint.z;
-
-        acutPrintf(_T("\n=== ALIGN TO %s = %.3f ===\n"), kAxisNames[axis], coord);
-
-        CommonTools::SelectionSetGuard ssGuard;
-        if (!ssGuard.Get()) { acutPrintf(CommonTools::MSG_NO_SELECTION); return; }
-
-        Adesk::Int32 length;
-        acedSSLength(ssGuard.ss, &length);
-        acutPrintf(_T("Selected %d objects. Aligning...\n"), length);
-
-        std::vector<AcDbObjectId> ids = CommonTools::SelectionIds(ssGuard.ss);
-
-        int aligned = AlignObjects(ids, axis, coord, true);
-
-        VerifySeqNumGroups();
-        acutPrintf(_T("\nAlignment complete: %d aligned\n"), aligned);
-    }
-
     int AlignObjects(const std::vector<AcDbObjectId>& ids, int axis, double coord, bool verbose)
     {
         int aligned = 0, skipped = 0;
@@ -276,36 +214,6 @@ namespace AlignTools
             }
         }
         return aligned;
-    }
-
-    // -------------------------------------------------------------------------
-    // ALX / ALY / ALZ  — pick a reference point and align along that axis.
-    // -------------------------------------------------------------------------
-    void alignXCommand()
-    {
-        acutPrintf(_T("\n=== ALIGN OBJECTS TO X COORDINATE ===\n"));
-        ads_point pt;
-        if (acedGetPoint(NULL, _T("\nSelect reference point for X coordinate: "), pt) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-        AlignObjectsToCoordinate(0, AcGePoint3d(pt[0], pt[1], pt[2]));
-    }
-
-    void alignYCommand()
-    {
-        acutPrintf(_T("\n=== ALIGN OBJECTS TO Y COORDINATE ===\n"));
-        ads_point pt;
-        if (acedGetPoint(NULL, _T("\nSelect reference point for Y coordinate: "), pt) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-        AlignObjectsToCoordinate(1, AcGePoint3d(pt[0], pt[1], pt[2]));
-    }
-
-    void alignZCommand()
-    {
-        acutPrintf(_T("\n=== ALIGN OBJECTS TO Z COORDINATE ===\n"));
-        ads_point pt;
-        if (acedGetPoint(NULL, _T("\nSelect reference point for Z coordinate: "), pt) != RTNORM)
-        { acutPrintf(CommonTools::MSG_CANCELLED); return; }
-        AlignObjectsToCoordinate(2, AcGePoint3d(pt[0], pt[1], pt[2]));
     }
 
     // -------------------------------------------------------------------------

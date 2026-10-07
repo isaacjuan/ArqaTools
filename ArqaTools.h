@@ -31,9 +31,6 @@ public:
     static void intersectPolyCommand();
     static void unionPolyCommand();
     static void regionToPolyCommand();
-    static void alignXCommand();
-    static void alignYCommand();
-    static void alignZCommand();
     static void sequenceNumberCommand();
     static void distributeLinearCommand();
     static void distributeCopyLinearCommand();

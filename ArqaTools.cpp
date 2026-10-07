@@ -107,9 +107,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         { _T("ATUNIONPOLY"),        unionPolyCommand            },
         { _T("ATREG2POLY"),         regionToPolyCommand         },
         // Align / Move / Copy
-        { _T("ATALX"),              alignXCommand               },
-        { _T("ATALY"),              alignYCommand               },
-        { _T("ATALZ"),              alignZCommand               },
         // Distribute
         { _T("ATDISTLINE"),         distributeLinearCommand     },
         { _T("ATDISTBETWEEN"),      distributeBetweenCommand    },
@@ -257,24 +254,6 @@ void CArqaToolsApp::regionToPolyCommand()
     PolylineTools::regionToPolyCommand();
 }
 
-
-// ALX command - Align to X coordinate
-void CArqaToolsApp::alignXCommand()
-{
-    AlignTools::alignXCommand();
-}
-
-// ALY command - Align to Y coordinate
-void CArqaToolsApp::alignYCommand()
-{
-    AlignTools::alignYCommand();
-}
-
-// ALZ command - Align to Z coordinate
-void CArqaToolsApp::alignZCommand()
-{
-    AlignTools::alignZCommand();
-}
 
 // SEQNUM command - Create sequence of numbers at specified points
 void CArqaToolsApp::sequenceNumberCommand()
@@ -537,9 +516,9 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATREG2POLY  - Convert region to polyline\n"));
     
     acutPrintf(_T("\n--- ALIGNMENT COMMANDS ---\n"));
-    acutPrintf(_T("ATALX       - Align objects by X coordinate\n"));
-    acutPrintf(_T("ATALY       - Align objects by Y coordinate\n"));
-    acutPrintf(_T("ATALZ       - Align objects by Z coordinate\n"));
+    acutPrintf(_T("ATALX       - Align objects by X coordinate (Lua command)\n"));
+    acutPrintf(_T("ATALY       - Align objects by Y coordinate (Lua command)\n"));
+    acutPrintf(_T("ATALZ       - Align objects by Z coordinate (Lua command)\n"));
     acutPrintf(_T("ATPLACEMID  - Place object at midpoint between two points (Lua command)\n"));
     
     acutPrintf(_T("\n--- RESTRICTED MOVEMENT ---\n"));

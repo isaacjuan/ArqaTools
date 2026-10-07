@@ -7,12 +7,7 @@
 
 namespace AlignTools
 {
-    // Alignment commands
-    void alignXCommand();
-    void alignYCommand();
-    void alignZCommand();
-
-    // Non-interactive core of ATALX/ATALY/ATALZ: aligns each entity (or the
+    // Non-interactive core of ATALX/ATALY/ATALZ (Lua, at.alignTo): aligns each entity (or the
     // whole group it belongs to) so its reference point sits at `coord` on
     // `axis` (0 = X, 1 = Y, 2 = Z). Returns the number of items aligned.
     int AlignObjects(const std::vector<AcDbObjectId>& ids, int axis, double coord,
