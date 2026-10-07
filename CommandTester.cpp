@@ -404,6 +404,45 @@ bool RenderPlan(AcDbDatabase* db, const CString& path, const CString& title, std
     return saved;
 }
 
+// Unattended run in the scratch drawing: no prompting (every at.get* gets
+// a sample answer), no reactors or files, an instruction cap.
+LuaTools::LuaRunOptions TestRunOptions(const std::string& params)
+{
+    LuaTools::LuaRunOptions run;
+    run.params          = params;
+    run.answers         = "{n=0}";
+    run.autoAnswer      = true;
+    run.maxInstructions = 50000000;
+    run.testRun         = true;
+    return run;
+}
+
+// After the run: outcome, geometry report and plan view of the scratch drawing.
+void Finish(LuaTools::LuaEngine& engine, ScratchDrawing& scratch, const LuaTools::LuaRunResult& res,
+            CString title, const CString& pngPath, Result& r)
+{
+    r.ran    = true;
+    r.ok     = res.ok;
+    r.output = res.output;
+    r.error  = res.error;
+    r.inputs = res.inputs;
+    if (res.cancelled)
+        r.skipped = _T("the test run was cancelled with ESC");
+    else if (!res.ok && res.error.find(LuaTools::kNotInTestRun) != std::string::npos)
+        r.skipped = _T("only partly test-run: it uses a function that cannot run in a scratch drawing");
+
+    LuaTools::LuaRunOptions ro;
+    ro.readOnly        = true;
+    ro.maxInstructions = 50000000;
+    LuaTools::LuaRunResult rep = engine.runChunk(kReportScript, "=report", ro);
+    r.report = rep.ok ? rep.output : "report failed: " + rep.error;
+
+    std::string err;
+    if (title.GetLength() > 140) title = title.Left(137) + _T("...");
+    if (RenderPlan(scratch.db(), pngPath, title, err)) r.pngPath = pngPath;
+    else if (err != "nothing to draw") r.report += "(plan view not rendered: " + err + ")\n";
+}
+
 } // namespace
 
 Result Run(const CString& name, const CString& code, const CString& pngPath)
@@ -425,33 +464,23 @@ Result Run(const CString& name, const CString& code, const CString& pngPath)
     if (r.params.empty()) { r.skipped = FromUtf8(reason); return r; }
 
     ScratchDrawing scratch;
+    LuaTools::LuaRunResult res = engine.callCommand(nameUtf8, TestRunOptions(r.params));
+    Finish(engine, scratch, res, name + _T(" test run with ") + FromUtf8(r.params), pngPath, r);
+    return r;
+}
 
-    LuaTools::LuaRunOptions run;
-    run.params          = r.params;
-    run.answers         = "{n=0}";   // an at.get* outside the declared parameters fails instead of prompting
-    run.maxInstructions = 50000000;
-    run.testRun         = true;
-    LuaTools::LuaRunResult res = engine.callCommand(nameUtf8, run);
-    r.ran    = true;
-    r.ok     = res.ok;
-    r.output = res.output;
-    r.error  = res.error;
-    if (res.cancelled)
-        r.skipped = _T("the test run was cancelled with ESC");
-    else if (!res.ok && res.error.find(LuaTools::kNotInTestRun) != std::string::npos)
-        r.skipped = _T("only partly test-run: it uses a function that cannot run in a scratch drawing");
-
-    LuaTools::LuaRunOptions ro;
-    ro.readOnly        = true;
-    ro.maxInstructions = 50000000;
-    LuaTools::LuaRunResult rep = engine.runChunk(kReportScript, "=report", ro);
-    r.report = rep.ok ? rep.output : "report failed: " + rep.error;
-
+Result RunScript(const CString& code, const CString& pngPath)
+{
+    Result r;
+    r.params = "(script, no parameters)";
     std::string err;
-    CString title = name + _T(" test run with ") + FromUtf8(r.params);
-    if (title.GetLength() > 140) title = title.Left(137) + _T("...");
-    if (RenderPlan(scratch.db(), pngPath, title, err)) r.pngPath = pngPath;
-    else if (err != "nothing to draw") r.report += "(plan view not rendered: " + err + ")\n";
+    std::string utf8 = ToUtf8(code);
+    if (!LuaTools::compiles(utf8, "=script", err)) { r.skipped = _T("the script does not compile: ") + FromUtf8(err); return r; }
+
+    LuaTools::LuaEngine engine(/*echoOutput=*/false);
+    ScratchDrawing scratch;
+    LuaTools::LuaRunResult res = engine.runChunk(utf8, "=script", TestRunOptions(std::string()));
+    Finish(engine, scratch, res, _T("ATAILUA script test run"), pngPath, r);
     return r;
 }
 

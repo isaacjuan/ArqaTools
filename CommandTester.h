@@ -13,8 +13,11 @@
 //   3. renders a plan view PNG (GDI+) of the result, which the AI reviewer
 //      looks at together with the report (AITools::SendWithImage).
 //
-// Commands that need existing objects (entity/selection parameters) or that
-// declare no parameters are not test-run; the result says why.
+// Prompts outside the declared parameters (and every prompt of a script) get
+// sample answers - points (0,0),(10,0),(10,10),..., defaults, 10, 3 - and the
+// result lists them, so the reviewer knows the inputs. Commands that need
+// existing objects (entity/selection parameters) or that declare no
+// parameters are not test-run; the result says why.
 
 #pragma once
 #include "StdAfx.h"
@@ -28,6 +31,7 @@ namespace CommandTester
         bool        ok  = false;      // ... and finished without a Lua error
         CString     skipped;          // why it was not (fully) test-run; empty when it was
         std::string params;           // test parameter values (Lua table constructor)
+        std::string inputs;           // at.get* prompts answered automatically, one per line
         std::string output;           // what it printed
         std::string error;            // runtime error with traceback, when !ok
         std::string report;           // geometry report of what it drew
@@ -37,4 +41,8 @@ namespace CommandTester
     // `code` is a command file already accepted by LuaCommands' validation
     // that defines `name`. The PNG is written to pngPath.
     Result Run(const CString& name, const CString& code, const CString& pngPath);
+
+    // Same for a one-off script (ATAILUA): run once in a scratch drawing.
+    // Prompts (at.getPoint, ...) get sample answers (LuaRunOptions::autoAnswer).
+    Result RunScript(const CString& code, const CString& pngPath);
 }

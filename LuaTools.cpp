@@ -15,6 +15,8 @@
 #include "AreaTools.h"
 #include "LayerTools.h"
 #include "SvgExportTools.h"
+#include "AiHarness.h"
+#include "CommandTester.h"
 
 extern "C" {
 #include "lua.h"
@@ -55,12 +57,14 @@ struct LuaCtx
     std::string abortMsg;
     size_t      memoryUsed      = 0;       // bytes held by the Lua state (cappedAlloc)
     bool        memoryHit       = false;   // an allocation was refused this run
-    bool        echo            = false;   // print() -> command line, not the buffer
+    bool        echo          = false;   // print() -> command line, not the buffer
     bool        loading         = false;   // a command file's top level is running
     bool        readOnly        = false;   // query functions only (LuaRunOptions::readOnly)
     bool        capture         = false;   // buffer print() even when echoing
     bool        testRun         = false;   // LuaRunOptions::testRun
     bool        scripted        = false;   // at.get* read LuaRunOptions::answers
+    bool        autoAnswer      = false;   // LuaRunOptions::autoAnswer
+    int         autoPoints      = 0;       // sample points handed out so far
     int         answerNext      = 1;
     int         answerCount     = 0;
     std::string asked;                     // scripted inputs requested so far, for errors
@@ -401,6 +405,59 @@ int at_rotateEntity(lua_State* L)
 // (aborting the script, reported as cancelled rather than as an error), Enter
 // with no input returns the default when one was given, else nil.
 
+// Auto-answer (test runs, LuaRunOptions::autoAnswer): pushes a plausible value
+// for the input function `fn` - or nil where the prompt has a default, so the
+// binding uses it - and logs it in c->asked. The binding's own arguments are
+// still on the stack (1 = prompt, 2.. = default / keywords).
+bool PushSampleAnswer(lua_State* L, LuaCtx* c, const char* fn, const char* prompt)
+{
+    char value[96] = "nothing (no objects in a test run)";
+    if (strcmp(fn, "getPoint") == 0)
+    {
+        static const double kPts[4][2] = { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } };
+        int k = c->autoPoints++;
+        double x = kPts[k % 4][0] + 20.0 * (k / 4), y = kPts[k % 4][1];
+        lua_createtable(L, 3, 0);
+        lua_pushnumber(L, x);   lua_rawseti(L, -2, 1);
+        lua_pushnumber(L, y);   lua_rawseti(L, -2, 2);
+        lua_pushnumber(L, 0.0); lua_rawseti(L, -2, 3);
+        sprintf_s(value, "point (%g,%g,0)", x, y);
+    }
+    else if (strcmp(fn, "getDistance") == 0)
+    {
+        lua_pushnumber(L, 10.0);
+        strcpy_s(value, "10");
+    }
+    else if (strcmp(fn, "getReal") == 0 || strcmp(fn, "getInt") == 0 || strcmp(fn, "getString") == 0)
+    {
+        if (!lua_isnoneornil(L, 2)) { lua_pushnil(L); strcpy_s(value, "its default"); }
+        else if (fn[3] == 'R')      { lua_pushnumber(L, 10.0);    strcpy_s(value, "10"); }
+        else if (fn[3] == 'I')      { lua_pushinteger(L, 3);      strcpy_s(value, "3"); }
+        else                        { lua_pushstring(L, "Test");  strcpy_s(value, "\"Test\""); }
+    }
+    else if (strcmp(fn, "getKeyword") == 0)
+    {
+        if (!lua_isnoneornil(L, 3)) { lua_pushnil(L); strcpy_s(value, "its default"); }
+        else
+        {
+            const char* kw = lua_tostring(L, 2);
+            const char* start = kw ? kw : "";
+            while (*start == ' ') ++start;
+            size_t len = strcspn(start, " ");
+            lua_pushlstring(L, start, len);
+            sprintf_s(value, "\"%.*s\"", static_cast<int>((std::min)(len, size_t(60))), start);
+        }
+    }
+    else
+        lua_pushnil(L);   // getEntity / getSelection: an empty drawing has nothing to pick
+
+    char line[400];
+    sprintf_s(line, "  #%d at.%s(\"%.200s\") -> %s (auto)\n", c->answerNext, fn, prompt, value);
+    c->asked += line;
+    ++c->answerNext;
+    return true;
+}
+
 // Scripted input (LuaRunOptions::answers): pushes the next answer, nil for
 // Enter, and returns true; false when the run is interactive. Call it after the
 // binding's argument checks and before any C++ object is created - it raises
@@ -409,6 +466,8 @@ bool NextAnswer(lua_State* L, const char* fn, const char* prompt)
 {
     LuaCtx* c = ctx_from(L);
     if (!c->scripted) return false;
+    if (c->answerNext > c->answerCount && c->autoAnswer)
+        return PushSampleAnswer(L, c, fn, prompt);
     {
         char line[320];
         sprintf_s(line, "  #%d at.%s(\"%.250s\")\n", c->answerNext, fn, prompt);
@@ -2468,6 +2527,39 @@ bool hasApiFunction(const std::string& name)
     return false;
 }
 
+bool checkApiNames(const std::string& code, std::string& err)
+{
+    for (size_t pos = code.find("at."); pos != std::string::npos; pos = code.find("at.", pos + 3))
+    {
+        if (pos > 0)
+        {
+            char prev = code[pos - 1];
+            if (isalnum(static_cast<unsigned char>(prev)) || prev == '_' || prev == '.') continue;
+        }
+        size_t start = pos + 3, end = start;
+        while (end < code.size() && (isalnum(static_cast<unsigned char>(code[end])) || code[end] == '_'))
+            ++end;
+        if (end == start) continue;
+        std::string fn = code.substr(start, end - start);
+        if (!hasApiFunction(fn))
+        {
+            err = "at." + fn + " does not exist - use only the at.* functions listed in the API";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool compiles(const std::string& code, const std::string& chunkName, std::string& err)
+{
+    lua_State* L = luaL_newstate();
+    if (!L) { err = "luaL_newstate failed"; return false; }
+    bool ok = luaL_loadbufferx(L, code.data(), code.size(), chunkName.c_str(), "t") == LUA_OK;
+    if (!ok) err = lua_tostring(L, -1) ? lua_tostring(L, -1) : "syntax error";
+    lua_close(L);
+    return ok;
+}
+
 // Queries only: no drawing changes, no user input, no files written.
 bool isReadOnlyFunction(const char* name)
 {
@@ -2601,6 +2693,8 @@ bool LuaEngine::beginRun(const LuaRunOptions& opts, LuaRunResult& result)
     m_ctx->capture         = opts.captureOutput;
     m_ctx->testRun         = opts.testRun;
     m_ctx->scripted        = false;
+    m_ctx->autoAnswer      = opts.autoAnswer;
+    m_ctx->autoPoints      = 0;
     m_ctx->answerNext      = 1;
     m_ctx->answerCount     = 0;
     m_ctx->asked.clear();
@@ -2626,6 +2720,7 @@ bool LuaEngine::beginRun(const LuaRunOptions& opts, LuaRunResult& result)
 void LuaEngine::finishRun(int status, LuaRunResult& result)
 {
     result.output    = m_ctx->output;
+    result.inputs    = m_ctx->asked;
     result.cancelled = m_ctx->cancelled;
     result.ok        = (status == LUA_OK);
     if (!result.ok)
@@ -2853,61 +2948,59 @@ void aiLuaCommand()
         static_cast<LPCTSTR>(wApi)
     );
 
-    acutPrintf(_T("\nAsking AI to generate Lua code...\n"));
-
     std::vector<AITools::ChatMessage>& history = AITools::GetLuaConversationHistory();
-    std::vector<AITools::ChatMessage> messages;
-
     bool isFirstInteraction = (history.size() == 0);
-    CString userPrompt = isFirstInteraction ? aiPrompt : userInput;
-
-    for (const auto& msg : history)
-        messages.push_back(msg);
 
     AITools::ChatMessage userMsg;
     userMsg.role = _T("user");
-    userMsg.content = userPrompt;
-    messages.push_back(userMsg);
+    userMsg.content = isFirstInteraction ? aiPrompt : userInput;
 
-    CString response = AITools::SendToGitHubCopilotWithHistory(messages);
-
-    if (response.Find(_T("Error:")) == 0)
+    // The harness asks, validates (API names + syntax), test-runs the script in
+    // a scratch drawing with sample answers for its prompts, and reviews it.
+    AiHarness::Task task;
+    task.label    = _T("ATAILUA script");
+    task.request  = userInput;
+    task.messages = history;
+    task.messages.push_back(userMsg);
+    task.validate = [](const CString& code, CString& err)
     {
-        acutPrintf(_T("\n%s\n"), (LPCTSTR)response);
+        if (code.IsEmpty()) { err = _T("the response contained no Lua code"); return false; }
+        CT2A narrow(static_cast<LPCTSTR>(code), CP_UTF8);
+        std::string utf8 = static_cast<const char*>(narrow), e;
+        if (checkApiNames(utf8, e) && compiles(utf8, "=ATAILUA", e)) return true;
+        err = CString(CA2T(e.c_str(), CP_UTF8));
+        return false;
+    };
+    CString pngPath = AiHarness::TestFolder() + _T("\\ATAILUA.png");
+    task.testRun = [&pngPath](const CString& code) { return CommandTester::RunScript(code, pngPath); };
+
+    AiHarness::Outcome outcome = AiHarness::Run(task);
+    if (!outcome.ok)
+    {
+        acutPrintf(_T("\n%s\n"), (LPCTSTR)outcome.error);
+        if (!outcome.code.IsEmpty()) acutPrintf(_T("Last attempt:\n%s\n"), (LPCTSTR)outcome.code);
         return;
     }
-    if (response.IsEmpty() || response.GetLength() < 3)
+    AiHarness::Present(outcome);
+    // As before, a script that passed (or could not be reviewed) runs at once;
+    // only a failed review asks first.
+    if (!AiHarness::Approve(outcome, _T("Run it in your drawing"), /*askWhenOk=*/false))
     {
-        acutPrintf(_T("\nError: Received empty or invalid response from AI.\n"));
+        acutPrintf(_T("\nNot run.\n"));
         return;
     }
-
-    CString luaCode = CleanAiLuaResponse(response);
-
-    if (luaCode.IsEmpty())
-    {
-        acutPrintf(_T("\nError: AI response did not contain any Lua code.\n"));
-        acutPrintf(_T("Response received: %s\n"), (LPCTSTR)response);
-        return;
-    }
-
-    acutPrintf(_T("\n========================================\n"));
-    acutPrintf(_T("AI Generated Lua Code:\n"));
-    acutPrintf(_T("========================================\n"));
-    acutPrintf(_T("%s\n"), (LPCTSTR)luaCode);
-    acutPrintf(_T("========================================\n"));
 
     // AI-written code gets a hard instruction cap on top of ESC, so a runaway
     // loop ends on its own (~ a few seconds of pure Lua) even if nobody is
     // watching the command line.
     LuaRunOptions opts;
     opts.maxInstructions = 500000000;
-    CT2A narrowCode(static_cast<LPCTSTR>(luaCode), CP_UTF8);
+    CT2A narrowCode(static_cast<LPCTSTR>(outcome.code), CP_UTF8);
     ReportResult(_T("ATAILUA"), runLuaScript(static_cast<const char*>(narrowCode), opts));
 
     AITools::ChatMessage assistantMsg;
     assistantMsg.role = _T("assistant");
-    assistantMsg.content = response;
+    assistantMsg.content = outcome.response;
     history.push_back(userMsg);
     history.push_back(assistantMsg);
 

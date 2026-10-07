@@ -4,6 +4,7 @@
 #include "AITools.h"
 #include "SvgExportTools.h"
 #include "CommandTester.h"
+#include "AiHarness.h"
 #include <ShlObj.h>
 #include <shellapi.h>
 #include <array>
@@ -329,36 +330,13 @@ bool ValidateDefine(void* user, const char* name, const char*, char* err, size_t
     return true;
 }
 
-// Every "at.<name>" in the code must be a real at.* function.
-bool CheckApiNames(const std::string& code, CString& err)
-{
-    for (size_t pos = code.find("at."); pos != std::string::npos; pos = code.find("at.", pos + 3))
-    {
-        if (pos > 0)
-        {
-            char prev = code[pos - 1];
-            if (isalnum(static_cast<unsigned char>(prev)) || prev == '_' || prev == '.') continue;
-        }
-        size_t start = pos + 3, end = start;
-        while (end < code.size() && (isalnum(static_cast<unsigned char>(code[end])) || code[end] == '_'))
-            ++end;
-        if (end == start) continue;
-        std::string fn = code.substr(start, end - start);
-        if (!LuaTools::hasApiFunction(fn))
-        {
-            err = _T("at.") + FromUtf8(fn) + _T(" does not exist - use only the at.* functions listed in the API");
-            return false;
-        }
-    }
-    return true;
-}
-
 bool ValidateFile(const CString& code, const CString& name, CString& err)
 {
     if (code.IsEmpty()) { err = _T("the response contained no code"); return false; }
 
     std::string utf8 = ToUtf8(code);
-    if (!CheckApiNames(utf8, err)) return false;
+    std::string apiErr;
+    if (!LuaTools::checkApiNames(utf8, apiErr)) { err = FromUtf8(apiErr); return false; }
 
     LuaTools::LuaEngine sandbox(/*echoOutput=*/false);
     Validation v;
@@ -457,92 +435,6 @@ bool AskYesNo(const TCHAR* prompt, bool defaultYes)
     int rc = acedGetKword(prompt, kw);
     if (rc == RTNONE) return defaultYes;
     return rc == RTNORM && CString(kw.kwszPtr()).CompareNoCase(_T("Yes")) == 0;
-}
-
-// ── Behavior check (CommandTester + AI review) ─────────────────────────────
-enum class Verdict { Pass, Fail, NotReviewed };
-
-CString TestFolder()
-{
-    CString folder = CommandsFolder() + _T("\\test");
-    SHCreateDirectoryEx(NULL, folder, NULL);
-    return folder;
-}
-
-// The test run as text, for the console, the reviewer and the correction prompt.
-CString DescribeTestRun(const CommandTester::Result& t)
-{
-    CString s;
-    if (!t.ran) return _T("Not test-run: ") + t.skipped + _T("\n");
-    s += _T("Parameters used: ") + FromUtf8(t.params) + _T("\n");
-    if (!t.skipped.IsEmpty()) s += _T("Note: ") + t.skipped + _T("\n");
-    if (!t.output.empty()) s += _T("Printed output:\n") + FromUtf8(t.output);
-    if (!t.ok)              s += _T("It stopped with an error:\n") + FromUtf8(t.error) + _T("\n");
-    s += FromUtf8(t.report);
-    return s;
-}
-
-// Lets a second AI request judge the test run against the user's request,
-// with the plan view attached when the provider can read images. A runtime
-// error needs no reviewer: it is a FAIL with the error as the reason.
-Verdict ReviewTestRun(const CString& name, const CString& request, const CString& code,
-                      const CommandTester::Result& t, CString& text)
-{
-    if (!t.ran || (!t.ok && !t.skipped.IsEmpty()))
-    {
-        text = t.ran ? t.skipped : _T("Not test-run: ") + t.skipped;
-        return Verdict::NotReviewed;
-    }
-    if (!t.ok)
-    {
-        text = _T("The test run stopped with an error:\n") + FromUtf8(t.error);
-        return Verdict::Fail;
-    }
-
-    acutPrintf(_T("Reviewing the result%s...\n"), t.pngPath.IsEmpty() ? _T("") : _T(" (with plan view image)"));
-    CString p;
-    p += _T("You are testing an AutoCAD command (Lua, ArqaTools plugin) against what the user asked for.\n\n");
-    p += _T("USER REQUEST for ") + name + _T(": ") + request + _T("\n\n");
-    p += _T("The command was run once in an empty drawing.\n") + DescribeTestRun(t) + _T("\n");
-    CString imageNote = _T("The attached image is a plan view of everything it drew, auto-fitted: +X right, +Y up, ")
-                        _T("the red cross is the origin (0,0) = the base point used for the test, blue dots mark ")
-                        _T("polyline vertices, the grid step is shown bottom-left.\n\n");
-    CString tail;
-    tail += _T("CODE:\n") + code + _T("\n\n");
-    tail += _T("Decide whether the drawn result does what the user asked: the right kind of geometry, counts, ")
-            _T("proportions and directions, nothing missing, no stray, zig-zag, duplicated or overlapping geometry. ")
-            _T("Ignore layers and colors unless the request mentions them. Reply with PASS or FAIL alone on the ")
-            _T("first line, then at most 8 short lines: for FAIL what is wrong and exactly how to fix the code, ")
-            _T("for PASS one line on what you checked.");
-
-    CString response;
-    bool withImage = !t.pngPath.IsEmpty();
-    if (withImage)
-    {
-        response = AITools::SendWithImage(p + imageNote + tail, t.pngPath);
-        if (response.Find(_T("Error:")) == 0)
-        {
-            acutPrintf(_T("(image review not available: %s - reviewing the text report only)\n"), (LPCTSTR)response);
-            withImage = false;
-        }
-    }
-    if (!withImage)
-        response = AITools::SendToGitHubCopilot(p + tail);
-    if (response.Find(_T("Error:")) == 0)
-    {
-        text = _T("Review request failed: ") + response;
-        return Verdict::NotReviewed;
-    }
-
-    response.Replace(_T("\\n"), _T("\n"));   // ExtractContent leaves \n escaped
-    response.Trim();
-    text = response;
-    CString first = response.SpanExcluding(_T("\r\n"));
-    first.Trim(_T(" *#:`\t"));
-    first.MakeUpper();
-    if (first.Find(_T("FAIL")) == 0) return Verdict::Fail;
-    if (first.Find(_T("PASS")) == 0) return Verdict::Pass;
-    return Verdict::NotReviewed;
 }
 
 const TCHAR* const kExampleFile =
@@ -762,86 +654,29 @@ void aiCommand()
     { acutPrintf(_T("\nA description is required.\n")); return; }
     if (request.IsEmpty()) request = _T("Fix the error shown below.");
 
-    // Ask, validate, and let the AI correct itself up to twice.
-    std::vector<AITools::ChatMessage> messages;
+    // The harness asks, validates, test-runs and reviews, with correction rounds.
+    AiHarness::Task task;
+    task.label   = name;
+    task.request = request;
     AITools::ChatMessage first;
     first.role    = _T("user");
     first.content = BuildPrompt(name, request, existing, currentSource, lastError);
-    messages.push_back(first);
+    task.messages.push_back(first);
+    task.validate = [&name](const CString& code, CString& err) { return ValidateFile(code, name, err); };
+    CString pngPath = AiHarness::TestFolder() + _T("\\") + name + _T(".png");
+    task.testRun  = [&name, &pngPath](const CString& code) { return CommandTester::Run(name, code, pngPath); };
 
-    // Ask, validate, test-run and review; a validation error or a failed
-    // review goes back to the AI as a correction round.
-    CString code, validationError, reviewText;
-    CommandTester::Result test;
-    Verdict verdict = Verdict::NotReviewed;
-    CString pngPath = TestFolder() + _T("\\") + name + _T(".png");
-    const int kAttempts = 3;
-    for (int attempt = 1; attempt <= kAttempts; ++attempt)
+    AiHarness::Outcome outcome = AiHarness::Run(task);
+    if (!outcome.ok)
     {
-        acutPrintf(attempt == 1 ? _T("\nAsking AI...\n") : _T("Asking AI to correct it (attempt %d)...\n"), attempt);
-        CString response = AITools::SendToGitHubCopilotWithHistory(messages);
-        if (response.Find(_T("Error:")) == 0 || response.GetLength() < 3)
-        {
-            acutPrintf(_T("\n%s\n"), response.IsEmpty() ? _T("Error: empty AI response.") : (LPCTSTR)response);
-            return;
-        }
-        code = LuaTools::CleanAiLuaResponse(response);
-
-        CString feedback;
-        if (!ValidateFile(code, name, validationError))
-        {
-            acutPrintf(_T("Validation failed: %s\n"), (LPCTSTR)validationError);
-            feedback = _T("That file failed validation:\n") + validationError;
-        }
-        else
-        {
-            validationError.Empty();
-            acutPrintf(_T("Valid. Test-running %s in a scratch drawing...\n"), (LPCTSTR)name);
-            test    = CommandTester::Run(name, code, pngPath);
-            verdict = ReviewTestRun(name, request, code, test, reviewText);
-            if (verdict != Verdict::Fail) break;
-            acutPrintf(_T("Review: FAIL\n"));
-            feedback = _T("A test run shows the command does not do what was asked:\n") + reviewText
-                     + _T("\n\nTEST RUN:\n") + DescribeTestRun(test);
-        }
-        if (attempt == kAttempts) break;
-
-        AITools::ChatMessage reply, fix;
-        reply.role    = _T("assistant");
-        reply.content = response;
-        fix.role      = _T("user");
-        fix.content   = feedback + _T("\nReturn the corrected complete file only.");
-        messages.push_back(reply);
-        messages.push_back(fix);
-    }
-    if (!validationError.IsEmpty())
-    {
-        acutPrintf(_T("\nThe AI did not produce a valid file. Last attempt:\n%s\n"), (LPCTSTR)code);
+        acutPrintf(_T("\n%s\n"), (LPCTSTR)outcome.error);
+        if (!outcome.code.IsEmpty()) acutPrintf(_T("Last attempt:\n%s\n"), (LPCTSTR)outcome.code);
         return;
     }
-
-    acutPrintf(_T("\n========================================\n%s\n========================================\n"),
-               (LPCTSTR)code);
-    acutPrintf(_T("\n=== TEST RUN ===\n%s"), (LPCTSTR)DescribeTestRun(test));
-    if (!test.pngPath.IsEmpty())
-        acutPrintf(_T("Plan view: %s\n"), (LPCTSTR)test.pngPath);
-    acutPrintf(_T("\n=== REVIEW: %s ===\n%s\n"),
-               verdict == Verdict::Pass ? _T("PASS") : verdict == Verdict::Fail ? _T("FAIL") : _T("not reviewed"),
-               (LPCTSTR)reviewText);
-
-    if (!test.pngPath.IsEmpty() && AskYesNo(_T("\nOpen the plan view image? [Yes/No] <No>: "), false))
-        ShellExecute(NULL, _T("open"), test.pngPath, NULL, NULL, SW_SHOWNORMAL);
-
-    if (verdict == Verdict::Fail)
-    {
-        prompt.Format(_T("\nThe review says %s does not do what was asked. Install anyway? [Yes/No] <No>: "), (LPCTSTR)name);
-        if (!AskYesNo(prompt, false)) { acutPrintf(_T("\nNot installed.\n")); return; }
-    }
-    else
-    {
-        prompt.Format(_T("\nInstall %s? [Yes/No] <Yes>: "), (LPCTSTR)name);
-        if (!AskYesNo(prompt, true)) { acutPrintf(_T("\nNot installed.\n")); return; }
-    }
+    AiHarness::Present(outcome);
+    if (!AiHarness::Approve(outcome, _T("Install ") + name, /*askWhenOk=*/true))
+    { acutPrintf(_T("\nNot installed.\n")); return; }
+    const CString& code = outcome.code;
 
     if (GetFileAttributes(targetFile) != INVALID_FILE_ATTRIBUTES)
         Backup(targetFile, /*move=*/false);

@@ -54,6 +54,11 @@ Any other OpenAI-compatible service is one more entry in `providers`.
 `ATAISETENDPOINT` and `ATAISETMODEL` rewrite the `active` line and the provider's `model`
 value in place; everything else in the file, comments included, is kept.
 
+### harness
+
+An optional `harness = { max_attempts, test_run, review, block_on_fail }` table sets how
+`ATAICMD` and `ATAILUA` check AI-written code before you accept it. See `HARNESS.md`.
+
 ### First run (migration)
 
 The file is created from the old registry settings: the old endpoint becomes `active`

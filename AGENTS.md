@@ -107,6 +107,13 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     ("_ATMCPRUN ")` only when the document `isQuiescent()` (typing into an active prompt would feed
     it the string). MCP Lua runs use `LuaRunOptions::readOnly` (`isReadOnlyFunction` whitelist).
     This is the only background thread in the project.
+  - `AiHarness` — the loop around the model for AI-written Lua (`ATAICMD`, `ATAILUA`): model call,
+    cleanup, per-task validation, test run (`CommandTester`, scratch drawing, auto-answered prompts),
+    AI review with the plan-view image, correction rounds, `Present`/`Approve` (human gate).
+    A new AI feature fills in an `AiHarness::Task` instead of writing its own loop. Settings: the
+    `harness` table in `ai_config.lua` (`AiConfig::Harness`). See `HARNESS.md`.
+  - `AiConfig` — providers/models/keys for every AI request, from `Documents\ArqaTools\ai_config.lua`
+    (sandboxed, read on every request); keys per provider in the registry. See `AI_SETUP.md`.
   - `SvgExportTools` (`ATSVGEXPORT`) — selection → `.svg` file. A top-level block
     reference becomes a shared `<g>` in `<defs>` (built once per unique
     `AcDbBlockTableRecord`, geometry left in block-local space) plus one `<use

@@ -44,6 +44,17 @@ namespace AiConfig
         CString        path;   // path + query
     };
 
+    // How ATAICMD / ATAILUA check AI-written code (AiHarness): the optional
+    // `harness = { ... }` table in ai_config.lua. Missing fields keep these defaults.
+    struct HarnessSettings
+    {
+        int  maxAttempts = 3;      // model calls per request, correction rounds included
+        bool testRun     = true;   // run the result in a scratch drawing
+        bool review      = true;   // second AI call judges it against the request
+        bool blockOnFail = false;  // never install/run what the review failed
+    };
+    bool Harness(HarnessSettings& s, CString& err);
+
     // The file's path; writes the defaults first if it does not exist.
     CString ConfigPath();
 

@@ -26,6 +26,7 @@ namespace LuaTools
         bool        cancelled = false;  // user pressed ESC (prompt or running loop)
         std::string output;   // everything written via print()/at.print()
         std::string error;    // Lua compile/runtime error message when ok == false
+        std::string inputs;   // scripted/auto-answered inputs, one per line (LuaRunOptions::answers)
     };
 
     struct LuaRunOptions
@@ -41,6 +42,11 @@ namespace LuaTools
         // instead of prompting; a missing entry is Enter (default or nil);
         // asking for more than n inputs raises. Empty = prompt the user.
         std::string answers;
+        // With answers: once they run out, at.get* return sample values
+        // (points (0,0),(10,0),(10,10),..., the prompt's default, else 10/3/
+        // "Test"/first keyword; nothing for entities) instead of raising.
+        // Used by test runs, so code that asks for input still runs unattended.
+        bool autoAnswer = false;
         // Named parameters for a command declared with a parameter list
         // (at.defineCommand's 4th argument), as a Lua table constructor such
         // as {rows=3,base={0,0,0}}. Validated against the declaration; missing
@@ -136,6 +142,12 @@ namespace LuaTools
 
     // True if at.<name> is usable with LuaRunOptions::readOnly.
     bool isReadOnlyFunction(const char* name);
+
+    // Every "at.<name>" in AI-written code must be a real at.* function.
+    bool checkApiNames(const std::string& code, std::string& err);
+
+    // Compiles without running (syntax check); fills err on failure.
+    bool compiles(const std::string& code, const std::string& chunkName, std::string& err);
 
     // ATLUA - prompts for Lua code (or "@<path>" to load a .lua file) and
     // runs it via runLuaScript(), printing the result to the command line.

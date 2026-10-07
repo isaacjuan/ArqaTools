@@ -102,6 +102,16 @@ const char* const kHeader =
 "-- Add any OpenAI-compatible service as a new entry; no rebuild needed.\n"
 "\n";
 
+const char* const kHarness =
+"-- How ATAICMD / ATAILUA check AI-written code before you accept it (HARNESS.md).\n"
+"harness = {\n"
+"  max_attempts  = 3,      -- model calls per request, correction rounds included\n"
+"  test_run      = true,   -- run the result once in a scratch drawing and report what it drew\n"
+"  review        = true,   -- a second AI call judges the result (and its plan view) against the request\n"
+"  block_on_fail = false,  -- true: never install or run code the review failed\n"
+"}\n"
+"\n";
+
 const char* const kProviders =
 "providers = {\n"
 "  github = {\n"
@@ -168,6 +178,7 @@ void WriteDefaults(const CString& path)
 
     std::string text = kHeader;
     text += "active = " + LuaQuote(ToUtf8(active)) + "\n\n";
+    text += kHarness;
     text += kProviders;
     if (active == _T("custom"))
         text += "  custom = {\n"
@@ -285,16 +296,18 @@ bool SplitUrl(const CString& url, bool& https, CString& host, unsigned short& po
     return !host.IsEmpty() && port != 0;
 }
 
-bool LoadAll(std::vector<Provider>& providers, CString& active, CString& err)
+namespace {
+
+// Runs ai_config.lua in a fresh sandboxed state; the caller reads globals and
+// closes it. nullptr + err on failure.
+lua_State* RunConfig(CString& err)
 {
-    providers.clear();
-    active.Empty();
     CString path = ConfigPath();
     std::string code;
-    if (!ReadFile(path, code)) { err = _T("cannot read ") + path; return false; }
+    if (!ReadFile(path, code)) { err = _T("cannot read ") + path; return nullptr; }
 
     lua_State* L = luaL_newstate();
-    if (!L) { err = _T("cannot create a Lua state"); return false; }
+    if (!L) { err = _T("cannot create a Lua state"); return nullptr; }
     luaL_requiref(L, LUA_GNAME,       luaopen_base,   1); lua_pop(L, 1);
     luaL_requiref(L, LUA_STRLIBNAME,  luaopen_string, 1); lua_pop(L, 1);
     luaL_requiref(L, LUA_TABLIBNAME,  luaopen_table,  1); lua_pop(L, 1);
@@ -305,14 +318,47 @@ bool LoadAll(std::vector<Provider>& providers, CString& active, CString& err)
         lua_setglobal(L, name);
     }
     lua_sethook(L, InstructionCap, LUA_MASKCOUNT, 1000000);
-
-    bool ok = false;
     if (luaL_loadbufferx(L, code.data(), code.size(), "@ai_config.lua", "t") != LUA_OK
         || lua_pcall(L, 0, 0, 0) != LUA_OK)
-        err = FromUtf8(lua_tostring(L, -1));
-    else
     {
-        lua_sethook(L, nullptr, 0, 0);
+        err = path + _T(": ") + FromUtf8(lua_tostring(L, -1));
+        lua_close(L);
+        return nullptr;
+    }
+    lua_sethook(L, nullptr, 0, 0);
+    return L;
+}
+
+} // namespace
+
+bool Harness(HarnessSettings& s, CString& err)
+{
+    s = HarnessSettings();
+    lua_State* L = RunConfig(err);
+    if (!L) return false;
+    lua_getglobal(L, "harness");
+    if (lua_istable(L, -1))
+    {
+        int t = lua_gettop(L);
+        s.maxAttempts = (std::max)(1, static_cast<int>(NumberField(L, t, "max_attempts", s.maxAttempts)));
+        s.testRun     = BoolField(L, t, "test_run", s.testRun);
+        s.review      = BoolField(L, t, "review", s.review);
+        s.blockOnFail = BoolField(L, t, "block_on_fail", s.blockOnFail);
+    }
+    lua_close(L);
+    return true;
+}
+
+bool LoadAll(std::vector<Provider>& providers, CString& active, CString& err)
+{
+    providers.clear();
+    active.Empty();
+    CString path = ConfigPath();
+    lua_State* L = RunConfig(err);
+    if (!L) return false;
+
+    bool ok = false;
+    {
         lua_getglobal(L, "active");
         active = lua_type(L, -1) == LUA_TSTRING ? FromUtf8(lua_tostring(L, -1)) : CString();
         lua_pop(L, 1);
