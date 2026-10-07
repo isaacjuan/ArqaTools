@@ -129,7 +129,8 @@ public class ArqaTools(BridgeClient bridge)
                  "form and the command-line version of commands that open dialogs (e.g. _-LAYER, _-INSERT). The " +
                  "command must finish with the inputs given (end with \"\" where it waits for more), otherwise " +
                  "AutoCAD cancels it; the result lists the entities created (handle, class, layer) and the last " +
-                 "prompt, which shows where it stopped. One UNDO step. Use list_acad_commands to discover commands. " +
+                 "prompt, which shows where it stopped. A command that loops on a prompt (e.g. \"Select objects:\") " +
+                 "shows that prompt last even when it finished; check the drawing or at.getVar to be sure. One UNDO step. Use list_acad_commands to discover commands. " +
                  "Prefer an ArqaTools command tool when one does the job.")]
     public async Task<string> RunAcadCommand(
         [Description("Command name, e.g. _WALLADD")] string command,
