@@ -12,6 +12,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <map>
+#include <algorithm>
+#include "accmd.h"
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;   // this module's HINSTANCE
 
@@ -225,10 +228,86 @@ std::string HandleTestCommand(const std::string& name)
          + ",\"png\":" + Json(r.pngPath) + "}";
 }
 
+// Runs inside ATMCPRUN. body = "NAME\n<Lua table constructor of inputs>"
+// (LuaLiteral.FromAnswers). Any AutoCAD command, through at.command.
+std::string HandleAcadCommand(const std::string& body)
+{
+    size_t nl = body.find('\n');
+    std::string name    = body.substr(0, nl);
+    std::string literal = nl == std::string::npos ? std::string("{n=0}") : body.substr(nl + 1);
+    bool okName = !name.empty() && name.size() <= 64;
+    for (char ch : name)
+        okName = okName && (isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' || ch == '.' || ch == '+');
+    if (!okName) return Error("invalid command name");
+
+    std::string code =
+        "local a = " + literal + "\n"
+        "local r = table.pack(at.command(\"" + name + "\", table.unpack(a, 1, a.n or #a)))\n"
+        "if r[1] == nil then\n"
+        "  if r[3] and r[3] ~= '' then print('Last prompt: ' .. r[3]) end\n"
+        "  error(r[2], 0)\n"
+        "end\n"
+        "print(string.format('Created %d entit%s', #r[1], #r[1] == 1 and 'y' or 'ies'))\n"
+        "for _, h in ipairs(r[1]) do\n"
+        "  local p = at.getProps(h)\n"
+        "  print('  ' .. h .. '  ' .. (p and p.class or '?') .. (p and p.layer and ('  layer ' .. p.layer) or ''))\n"
+        "end\n"
+        "if r[2] and r[2] ~= '' then print('Last prompt: ' .. r[2]) end\n";
+
+    acutPrintf(_T("\n[MCP] running AutoCAD command %s\n"), static_cast<LPCTSTR>(CA2T(name.c_str(), CP_UTF8)));
+    LuaTools::LuaRunOptions opts;
+    opts.maxInstructions = kMaxInstructions;
+    LuaTools::LuaRunResult r = LuaTools::runLuaScript(code, opts);
+
+    std::string json = "{\"ok\":" + std::string(r.ok ? "true" : "false")
+                     + ",\"output\":" + Json(r.output)
+                     + ",\"cancelled\":" + (r.cancelled ? "true" : "false");
+    if (!r.ok) json += ",\"error\":" + Json(r.error);
+    return json + "}";
+}
+
+// Query (main thread): the commands registered by ARX/.NET modules, by group
+// (AutoCAD Architecture, MEP, plugins...). Core commands such as LINE are not
+// registered this way and are not listed. body = optional name filter.
+std::string HandleListAcadCommands(const std::string& filter)
+{
+    CString wFilter(CA2T(filter.c_str(), CP_UTF8));
+    wFilter.Trim();
+    wFilter.MakeUpper();
+    std::map<CString, std::vector<CString>> groups;
+    int total = 0;
+    AcEdCommandIterator* it = acedRegCmds->iterator();
+    for (; it && !it->done(); it->next())
+    {
+        const AcEdCommand* c = it->command();
+        if (!c || !c->globalName()) continue;
+        CString name(c->globalName());
+        CString upper = name;
+        upper.MakeUpper();
+        if (!wFilter.IsEmpty() && upper.Find(wFilter) < 0) continue;
+        groups[CString(it->commandGroup() ? it->commandGroup() : _T("?"))].push_back(name);
+        ++total;
+    }
+    delete it;
+
+    std::string json = "{\"ok\":true,\"total\":" + std::to_string(total) + ",\"groups\":{";
+    bool firstGroup = true;
+    for (auto& kv : groups)
+    {
+        std::sort(kv.second.begin(), kv.second.end());
+        json += (firstGroup ? "" : ",") + Json(kv.first) + ":[";
+        firstGroup = false;
+        for (size_t i = 0; i < kv.second.size(); ++i)
+            json += (i ? "," : "") + Json(kv.second[i]);
+        json += "]";
+    }
+    return json + "}}";
+}
+
 bool NeedsCommand(const std::string& method)
 {
     return method == "run_lua" || method == "run_command" || method == "call_command"
-        || method == "test_command";
+        || method == "test_command" || method == "acad_command";
 }
 
 std::string HandleQuery(const Request& req)
@@ -237,6 +316,7 @@ std::string HandleQuery(const Request& req)
     if (req.method == "get_api")            return HandleApi();
     if (req.method == "list_commands")      return HandleListCommands();
     if (req.method == "get_command_source") return HandleCommandSource(req.body);
+    if (req.method == "list_acad_commands") return HandleListAcadCommands(req.body);
     return Error("unknown method: " + req.method);
 }
 
@@ -535,6 +615,7 @@ void runCommand()
     if (!req || !req->sentAt || !NeedsCommand(req->method)) return;
     if (req->method == "run_lua")           Complete(req, HandleRunLua(req->body));
     else if (req->method == "test_command") Complete(req, HandleTestCommand(req->body));
+    else if (req->method == "acad_command") Complete(req, HandleAcadCommand(req->body));
     else                                    Complete(req, HandleRunCommand(req->body, req->method == "call_command"));
 }
 

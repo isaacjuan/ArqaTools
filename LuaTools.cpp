@@ -28,7 +28,9 @@ extern "C" {
 #include "dbents.h"
 #include "dbsymtb.h"
 #include "dbxutil.h"
+#include "acedCmdNF.h"
 #include <algorithm>
+#include <array>
 #include <sstream>
 #include <cstdio>
 
@@ -2041,6 +2043,232 @@ int at_defineCommand(lua_State* L)
     return 0;
 }
 
+// at.command(NAME, ...) -> {newHandle,...}, lastPrompt | nil, err, lastPrompt
+// Runs any AutoCAD command (core, AutoCAD Architecture, other ARX) with its
+// command-line inputs, like a script line: a string is typed as is ("" or
+// nil = Enter), a number is a value, {x, y [,z]} is a point in WCS,
+// {handle = "2A"} picks that entity ("Select object:") and {handles = {...}}
+// is a selection set ("Select objects:"). The command must finish with the inputs
+// given (AutoCAD cancels it otherwise). Returns the entities it created and
+// the last command-line prompt (LASTPROMPT), which shows where it stopped.
+struct CmdArg { int kind; double x, y, z; const char* s; int index; };   // POD: safe across luaL_error
+enum { kArgStr, kArgInt, kArgReal, kArgPoint, kArgEntity, kArgSelection };
+const int kMaxCmdArgs = 256;
+
+int at_command(lua_State* L)
+{
+    int n = lua_gettop(L);
+    luaL_checkstring(L, 1);
+    if (n > kMaxCmdArgs) return luaL_error(L, "at.command: too many inputs (max %d)", kMaxCmdArgs - 1);
+
+    // Read and check every input before any resbuf or CString exists.
+    CmdArg args[kMaxCmdArgs];
+    for (int i = 1; i <= n; ++i)
+    {
+        CmdArg& a = args[i - 1];
+        a = CmdArg{ kArgStr, 0, 0, 0, "", i };
+        int t = lua_type(L, i);
+        if (t == LUA_TNIL) continue;
+        if (t == LUA_TSTRING) { a.s = lua_tostring(L, i); continue; }
+        if (t == LUA_TNUMBER)
+        {
+            lua_Integer v;
+            if (lua_isinteger(L, i) && (v = lua_tointeger(L, i)) >= -32768 && v <= 32767)
+            { a.kind = kArgInt; a.x = static_cast<double>(v); }
+            else { a.kind = kArgReal; a.x = lua_tonumber(L, i); }
+            continue;
+        }
+        if (t == LUA_TTABLE)
+        {
+            if (lua_getfield(L, i, "handle") == LUA_TSTRING)
+            {
+                a.kind = kArgEntity;
+                a.s = lua_tostring(L, -1);   // the table keeps the string alive
+                lua_pop(L, 1);
+                continue;
+            }
+            lua_pop(L, 1);
+            if (lua_getfield(L, i, "handles") == LUA_TTABLE)
+            {
+                lua_Integer count = static_cast<lua_Integer>(lua_rawlen(L, -1));
+                for (lua_Integer k = 1; k <= count; ++k)
+                {
+                    if (lua_rawgeti(L, -1, k) != LUA_TSTRING)
+                        return luaL_error(L, "at.command: input #%d: handles must be a list of handle strings", i - 1);
+                    lua_pop(L, 1);
+                }
+                lua_pop(L, 1);
+                a.kind = kArgSelection;   // read again from argument a.index when building
+                continue;
+            }
+            lua_pop(L, 1);
+            double c[3] = { 0, 0, 0 };
+            const char* keys[3] = { "x", "y", "z" };
+            for (int k = 0; k < 3; ++k)
+            {
+                int tk = lua_rawgeti(L, i, k + 1);
+                if (tk == LUA_TNIL) { lua_pop(L, 1); tk = lua_getfield(L, i, keys[k]); }
+                if (tk == LUA_TNUMBER) c[k] = lua_tonumber(L, -1);
+                else if (k < 2 || tk != LUA_TNIL)
+                {
+                    lua_pop(L, 1);
+                    return luaL_error(L, "at.command: input #%d: a table must be a point {x, y [,z]}, "
+                                         "an entity {handle = \"...\"} or a selection {handles = {...}}", i - 1);
+                }
+                lua_pop(L, 1);
+            }
+            a.kind = kArgPoint; a.x = c[0]; a.y = c[1]; a.z = c[2];
+            continue;
+        }
+        return luaL_error(L, "at.command: input #%d: %s is not a command input", i - 1, luaL_typename(L, i));
+    }
+
+    int  rc = RTERROR;
+    int  badEntity = 0;
+    std::string lastPrompt, err;
+    std::vector<AcDbObjectId> created;
+    struct SelSet { ads_name n; };
+    std::vector<SelSet> sets;   // selection sets to free after the command
+    {
+        resbuf* head = nullptr;
+        resbuf* tail = nullptr;
+        auto add = [&](resbuf* rb) { if (!rb) return; if (tail) tail->rbnext = rb; else head = rb; tail = rb; };
+        for (int i = 0; i < n && !badEntity; ++i)
+        {
+            const CmdArg& a = args[i];
+            switch (a.kind)
+            {
+            case kArgStr:  add(acutBuildList(RTSTR, static_cast<LPCTSTR>(CA2T(a.s, CP_UTF8)), RTNONE)); break;
+            case kArgInt:  add(acutBuildList(RTSHORT, static_cast<int>(a.x), RTNONE)); break;
+            case kArgReal: add(acutBuildList(RTREAL, a.x, RTNONE)); break;
+            case kArgPoint:
+            {
+                ads_point ucs;
+                WcsToUcs(AcGePoint3d(a.x, a.y, a.z), ucs);
+                add(acutBuildList(RT3DPOINT, ucs, RTNONE));
+                break;
+            }
+            case kArgEntity:
+            {
+                ads_name ename;
+                AcDbObjectId id = ResolveHandle(a.s);
+                if (id.isNull() || acdbGetAdsName(ename, id) != Acad::eOk) { badEntity = i + 1; break; }
+                add(acutBuildList(RTENAME, ename, RTNONE));
+                break;
+            }
+            case kArgSelection:
+            {
+                // A selection set of the listed objects; plain stack reads only
+                // (rawget/rawlen cannot raise).
+                ads_name ss = { 0, 0 };
+                bool okSet = true;
+                lua_getfield(L, a.index, "handles");
+                lua_Integer count = static_cast<lua_Integer>(lua_rawlen(L, -1));
+                for (lua_Integer k = 1; k <= count && okSet; ++k)
+                {
+                    lua_rawgeti(L, -1, k);
+                    AcDbObjectId id = ResolveHandle(lua_tostring(L, -1));
+                    lua_pop(L, 1);
+                    ads_name ename;
+                    okSet = !id.isNull() && acdbGetAdsName(ename, id) == Acad::eOk
+                         && acedSSAdd(ename, (ss[0] || ss[1]) ? ss : nullptr, ss) == RTNORM;
+                }
+                lua_pop(L, 1);
+                if (ss[0] || ss[1]) { sets.emplace_back(); ads_name_set(ss, sets.back().n); }
+                if (!okSet || count == 0) { badEntity = i + 1; break; }
+                add(acutBuildList(RTPICKS, ss, RTNONE));
+                break;
+            }
+            }
+        }
+
+        if (!badEntity)
+        {
+            ads_name last;
+            bool hadLast = acdbEntLast(last) == RTNORM;
+            rc = acedCmdS(head);
+
+            ads_name e, next;
+            int more = hadLast ? acdbEntNext(last, e) : acdbEntNext(nullptr, e);
+            while (more == RTNORM)
+            {
+                AcDbObjectId id;
+                if (acdbGetObjectId(id, e) == Acad::eOk) created.push_back(id);
+                more = acdbEntNext(e, next);
+                ads_name_set(next, e);
+            }
+
+            resbuf var;
+            if (acedGetVar(_T("LASTPROMPT"), &var) == RTNORM && var.restype == RTSTR && var.resval.rstring)
+            {
+                lastPrompt = ToUtf8(CString(var.resval.rstring));
+                acutDelString(var.resval.rstring);
+            }
+            if (rc == RTCAN)
+            {
+                ctx_from(L)->cancelled = false;   // a cancelled command is a result here, not an ESC abort
+                err = "the command was cancelled: it did not finish with the inputs given, or ESC was pressed";
+            }
+            else if (rc != RTNORM)
+                err = "the command failed (unknown command or invalid input)";
+        }
+        if (head) acutRelRb(head);
+        for (auto& set : sets) acedSSFree(set.n);
+    }
+
+    if (badEntity)
+        return PushNilError(L, "an entity or selection input does not name objects in this drawing");
+    if (!err.empty())
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        lua_pushlstring(L, lastPrompt.data(), lastPrompt.size());
+        return 3;
+    }
+    PushIdList(L, created);
+    lua_pushlstring(L, lastPrompt.data(), lastPrompt.size());
+    return 2;
+}
+
+// at.getVar(NAME) -> value | nil  -- an AutoCAD system variable: a number, a
+// string, or {x,y,z} for points (e.g. AREA and PERIMETER after the AREA
+// command, DISTANCE after DIST, CLAYER, INSUNITS).
+int at_getVar(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    resbuf rb;
+    int rc;
+    {
+        CString wName(CA2T(name, CP_UTF8));
+        rc = acedGetVar(wName, &rb);
+    }
+    if (rc != RTNORM) { lua_pushnil(L); return 1; }
+    switch (rb.restype)
+    {
+    case RTSHORT: lua_pushinteger(L, rb.resval.rint); break;
+    case RTLONG:  lua_pushinteger(L, rb.resval.rlong); break;
+    case RTREAL:  lua_pushnumber(L, rb.resval.rreal); break;
+    case RTPOINT: case RT3DPOINT:
+    {
+        AcGePoint3d w = UcsToWcs(rb.resval.rpoint);
+        lua_createtable(L, 0, 3);
+        lua_pushnumber(L, w.x); lua_setfield(L, -2, "x");
+        lua_pushnumber(L, w.y); lua_setfield(L, -2, "y");
+        lua_pushnumber(L, rb.restype == RT3DPOINT ? w.z : 0.0); lua_setfield(L, -2, "z");
+        break;
+    }
+    case RTSTR:
+    {
+        std::string v = rb.resval.rstring ? ToUtf8(CString(rb.resval.rstring)) : std::string();
+        if (rb.resval.rstring) acutDelString(rb.resval.rstring);
+        lua_pushlstring(L, v.data(), v.size());
+        break;
+    }
+    default: lua_pushnil(L); break;
+    }
+    return 1;
+}
+
 CommandHost g_host;
 
 // at.runCommand(NAME [, {param = value, ...}]) -> true, output | nil, err
@@ -2531,6 +2759,14 @@ const AtFn kFns[] = {
     { "runCommand",   at_runCommand,   "(NAME [, {param = value, ...}]) -> true, output | nil, err",
       "runs another installed command (see INSTALLED COMMANDS); with the table its declared parameters come "
       "from it (required ones must be given), without it the user answers the prompts" },
+    { "command",      at_command,      "(NAME, input, ...) -> {newHandle,...}, lastPrompt | nil, err, lastPrompt",
+      "runs any AutoCAD / AutoCAD Architecture command as typed at the command line: \"\" = Enter, "
+      "{x,y[,z]} = point (WCS), {handle=\"2A\"} = one entity (Select object:), {handles={...}} = a selection "
+      "set (Select objects:), numbers and keywords as values; results a command only prints can be read with "
+      "at.getVar; use the English "
+      "_NAME form; the command must finish with the inputs given" },
+    { "getVar",       at_getVar,       "(NAME) -> number | string | {x,y,z} | nil",
+      "an AutoCAD system variable, e.g. AREA / PERIMETER after the AREA command, DISTANCE after DIST, CLAYER" },
     // User input - ESC aborts the script; Enter returns the default, else nil
     { "getPoint",     at_getPoint,     "([prompt [,bx,by,bz]]) -> x,y,z | nil", "pick a point (rubber-band from the optional base point)" },
     { "getDistance",  at_getDistance,  "([prompt [,bx,by,bz]]) -> number | nil", "type or pick a distance" },
@@ -2583,7 +2819,7 @@ const AtFn kFns[] = {
     { "setLayer",     at_setLayer,     "(handle,layerName) -> true|false",     "creates the layer if it does not exist" },
     { "setColor",     at_setColor,     "(handle,aci) -> true|false",           "ACI 1-255, 0 = ByBlock, 256 = ByLayer" },
     { "alignTo",      at_alignTo,      "({handle,...}, \"x\"|\"y\"|\"z\", coord) -> count", "ATALX-style: move each object (or its group) so its reference point sits at coord" },
-    { "polyBoolean",  at_polyBoolean,  "(h1,h2,\"union\"|\"intersect\"|\"subtract\") -> regionHandle | nil,err", "closed polylines; subtract keeps h1 minus h2; originals untouched" },
+    { "polyBoolean",  at_polyBoolean,  "(h1,h2,\"union\"|\"intersect\"|\"subtract\") -> regionHandle | nil,err", "closed curves (polyline, circle, ellipse, closed spline); subtract keeps h1 minus h2; an empty result (e.g. no overlap for intersect) returns nil,err; originals untouched" },
     { "distribute",   at_distribute,   "({handle,...}, x1,y1,z1, x2,y2,z2 [,mode]) -> count, spacing | nil,err",
       "ATDIST*: spread objects (groups move whole) between two points; mode \"linear\" (on endpoints, default), \"between\" (inside), \"equal\" (half gap at ends)" },
     { "distributeCopies", at_distributeCopies, "(handle, count, x1,y1,z1, x2,y2,z2 [,mode]) -> {handle,...}, spacing | nil,err",
@@ -2634,6 +2870,7 @@ bool BlockedInTestRun(const char* key)
 {
     static const char* const kBlocked[] = {
         "areaLabel", "perimeterLabel", "roomTag", "lengthLabel", "sumLengthLabel", "exportSvg",
+        "command",   // runs in the active document, not the scratch drawing
     };
     for (const char* n : kBlocked)
         if (strcmp(key, n) == 0) return true;
@@ -2874,6 +3111,7 @@ bool isReadOnlyFunction(const char* name)
     static const char* const kReadOnly[] = {
         "print", "listEntities", "entities", "getProps", "getText", "sumText",
         "countBlocks", "layers", "getCurrentLayer", "refPoint", "formatArea", "formatLength",
+        "getVar",
     };
     for (const char* n : kReadOnly)
         if (strcmp(name, n) == 0) return true;

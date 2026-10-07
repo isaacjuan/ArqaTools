@@ -9,13 +9,15 @@
 namespace PolylineTools
 {
     // Helper function: Get region from polyline
-    static AcDbRegion* CreateRegionFromPolyline(AcDbPolyline* pPoly)
+    // Region from one closed curve (polyline, circle, ellipse, closed spline),
+    // as AutoCAD's REGION command builds it.
+    static AcDbRegion* CreateRegionFromCurve(AcDbCurve* pCurve)
     {
-        if (!pPoly)
+        if (!pCurve)
             return nullptr;
 
         AcDbVoidPtrArray curves;
-        curves.append(pPoly);
+        curves.append(pCurve);
 
         AcDbVoidPtrArray regions;
         Acad::ErrorStatus es = AcDbRegion::createFromCurves(curves, regions);
@@ -34,25 +36,37 @@ namespace PolylineTools
         AcDbRegion* pRegion1 = nullptr;
         AcDbRegion* pRegion2 = nullptr;
         {
-            CommonTools::AcDbObjectGuard<AcDbPolyline> poly1(first);
-            CommonTools::AcDbObjectGuard<AcDbPolyline> poly2(second);
-            if (!poly1 || !poly2)
-                return fail(_T("both objects must be polylines"));
-            pRegion1 = CreateRegionFromPolyline(poly1.get());
-            pRegion2 = CreateRegionFromPolyline(poly2.get());
+            CommonTools::AcDbObjectGuard<AcDbCurve> curve1(first);
+            CommonTools::AcDbObjectGuard<AcDbCurve> curve2(second);
+            if (!curve1 || !curve2)
+                return fail(_T("both objects must be closed curves (polyline, circle, ellipse, closed spline)"));
+            if (!curve1->isClosed() || !curve2->isClosed())
+                return fail(_T("both curves must be closed"));
+            pRegion1 = CreateRegionFromCurve(curve1.get());
+            pRegion2 = CreateRegionFromCurve(curve2.get());
         }
 
         if (!pRegion1 || !pRegion2)
         {
             delete pRegion1;
             delete pRegion2;
-            return fail(_T("could not create regions from polylines (are they closed?)"));
+            return fail(_T("could not create regions from the curves (self-intersecting?)"));
         }
 
         Acad::ErrorStatus es = pRegion1->booleanOper(op, pRegion2);
         delete pRegion2;
         if (es != Acad::eOk)
         { delete pRegion1; return fail(_T("boolean operation failed")); }
+
+        // An empty result (disjoint shapes for intersect, the second covering
+        // the first for subtract) is a failure, not an invisible region.
+        double area = 0.0;
+        if (pRegion1->isNull() || pRegion1->getArea(area) != Acad::eOk || area <= 1e-9)
+        {
+            delete pRegion1;
+            return fail(op == AcDb::kBoolIntersect ? _T("empty result: the shapes do not overlap")
+                                                   : _T("empty result: nothing is left"));
+        }
 
         pRegion1->setColorIndex(3); // Green
         AcDbObjectId resultId = CommonTools::AppendToModelSpace(pRegion1);

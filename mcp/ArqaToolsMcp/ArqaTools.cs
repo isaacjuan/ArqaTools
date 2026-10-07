@@ -118,6 +118,53 @@ public class ArqaTools(BridgeClient bridge)
         throw new McpException(sb.ToString());
     }
 
+    [McpServerTool(Name = "run_acad_command", Destructive = true),
+     Description("Runs ANY AutoCAD or AutoCAD Architecture command in the open drawing, as if typed at the command " +
+                 "line (e.g. _WALLADD, _DOORADD, _SPACEADD, _LINE, _-LAYER). 'inputs' are the answers to its prompts, " +
+                 "in order: a string is typed as is (keywords, names, \"10,20\"), \"\" or null = Enter, a number is a " +
+                 "value, [x, y, z] is a point in WCS, {\"handle\": \"2A\"} picks one entity (\"Select object:\"), " +
+                 "{\"handles\": [\"2A\", \"2B\"]} is a selection set (\"Select objects:\"; follow it with \"\" to end the " +
+                 "selection). Results a command only prints (AREA, DIST, LIST...) are not returned: read them " +
+                 "afterwards with run_lua, e.g. print(at.getVar(\"AREA\"), at.getVar(\"PERIMETER\")). Use the English _NAME " +
+                 "form and the command-line version of commands that open dialogs (e.g. _-LAYER, _-INSERT). The " +
+                 "command must finish with the inputs given (end with \"\" where it waits for more), otherwise " +
+                 "AutoCAD cancels it; the result lists the entities created (handle, class, layer) and the last " +
+                 "prompt, which shows where it stopped. One UNDO step. Use list_acad_commands to discover commands. " +
+                 "Prefer an ArqaTools command tool when one does the job.")]
+    public async Task<string> RunAcadCommand(
+        [Description("Command name, e.g. _WALLADD")] string command,
+        [Description("Answers to the command's prompts in order, e.g. [[0,0,0], [5000,0,0], \"\"]")] JsonElement[]? inputs = null,
+        CancellationToken ct = default)
+    {
+        command = command.Trim();
+        if (command.Length == 0 || command.Length > 64 ||
+            command.Any(ch => !char.IsLetterOrDigit(ch) && ch != '_' && ch != '-' && ch != '.' && ch != '+'))
+            throw new McpException("Invalid command name.");
+        var body = command + "\n" + LuaLiteral.FromAnswers(inputs ?? []);
+        var r = await bridge.CallAsync("acad_command", body, RunTimeout, ct);
+        var output = r.TryGetProperty("output", out var o) ? o.GetString() ?? "" : "";
+        if (r.GetProperty("ok").GetBoolean())
+            return output.Length > 0 ? output : $"{command} finished.";
+
+        var sb = new StringBuilder();
+        if (r.TryGetProperty("cancelled", out var c) && c.GetBoolean()) sb.Append("Cancelled by the user (ESC). ");
+        sb.Append(command).Append(" failed: ").Append(r.TryGetProperty("error", out var e) ? e.GetString() : "unknown");
+        if (output.Length > 0) sb.Append('\n').Append(output);
+        throw new McpException(sb.ToString());
+    }
+
+    [McpServerTool(Name = "list_acad_commands", ReadOnly = true),
+     Description("Lists the AutoCAD commands registered by modules (AutoCAD Architecture, MEP, ArqaTools, other " +
+                 "plug-ins), grouped by command group, optionally filtered by a name fragment (e.g. WALL, DOOR, " +
+                 "SPACE). Core AutoCAD commands (LINE, CIRCLE, MOVE...) are not listed but run_acad_command runs them too.")]
+    public async Task<string> ListAcadCommands(
+        [Description("Optional part of the command name, e.g. WALL")] string? filter = null,
+        CancellationToken ct = default)
+    {
+        var r = await Call("list_acad_commands", filter ?? "", QueryTimeout, ct);
+        return JsonSerializer.Serialize(r, new JsonSerializerOptions { WriteIndented = true });
+    }
+
     [McpServerTool(Name = "test_command", ReadOnly = true),
      Description("Test-runs an installed Lua command in a scratch drawing (the user's drawing is not touched), " +
                  "using each declared parameter's default or a plausible test value, and returns what it printed, " +
