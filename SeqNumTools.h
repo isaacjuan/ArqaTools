@@ -10,6 +10,5 @@ namespace SeqNumTools
     // (SEQNUM_n). Returns the text id; circleId receives the circle (or kNull).
     AcDbObjectId CreateSeqNumber(const AcGePoint3d& center, const CString& text,
                                  double height, bool withCircle,
-                                 AcDbObjectId* circleId = nullptr,
-                                 bool verbose = true);
+                                 AcDbObjectId* circleId = nullptr);
 }

@@ -198,6 +198,37 @@ void PushIdList(lua_State* L, const std::vector<AcDbObjectId>& ids)
     }
 }
 
+// The two error shapes of the at.* API: nil + reason (functions that return a
+// value) and false + reason (functions that return true on success).
+int PushNilError(lua_State* L, const char* err)   { lua_pushnil(L); lua_pushstring(L, err); return 2; }
+int PushFalseError(lua_State* L, const char* err) { lua_pushboolean(L, 0); lua_pushstring(L, err); return 2; }
+
+// Pushes a handle, or nil + the error text, for core functions that return an
+// id and fill a CString reason. Call after all RAII scopes have closed.
+int PushIdOrError(lua_State* L, const AcDbObjectId& id, const std::string& err)
+{
+    if (id.isNull())
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        return 2;
+    }
+    PushHandle(L, id);
+    return 1;
+}
+
+int PushIdListOrError(lua_State* L, const std::vector<AcDbObjectId>& ids, const std::string& err)
+{
+    if (ids.empty())
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        return 2;
+    }
+    PushIdList(L, ids);
+    return 1;
+}
+
 // Records model space's last entity on construction; collect() then walks
 // everything appended after it. Lets void "draw a pattern" core functions
 // (ArabesqueTools, GoldenRectTools) hand Lua the handles they created without
@@ -287,11 +318,7 @@ int at_drawLine(lua_State* L)
 
     AcDbLine* pLine = new AcDbLine(AcGePoint3d(x1, y1, z1), AcGePoint3d(x2, y2, z2));
     AcDbObjectId id = AppendToModelSpace(pLine);
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
-
-    std::string h = HandleToString(id);
-    lua_pushlstring(L, h.data(), h.size());
-    return 1;
+    return PushIdOrError(L, id, "draw failed");
 }
 
 int at_drawCircle(lua_State* L)
@@ -301,11 +328,7 @@ int at_drawCircle(lua_State* L)
 
     AcDbCircle* pCircle = new AcDbCircle(AcGePoint3d(cx, cy, cz), AcGeVector3d::kZAxis, r);
     AcDbObjectId id = AppendToModelSpace(pCircle);
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
-
-    std::string h = HandleToString(id);
-    lua_pushlstring(L, h.data(), h.size());
-    return 1;
+    return PushIdOrError(L, id, "draw failed");
 }
 
 int at_drawArc(lua_State* L)
@@ -317,11 +340,7 @@ int at_drawArc(lua_State* L)
     AcDbArc* pArc = new AcDbArc(AcGePoint3d(cx, cy, cz), AcGeVector3d::kZAxis, r,
                                  startDeg * M_PI / 180.0, endDeg * M_PI / 180.0);
     AcDbObjectId id = AppendToModelSpace(pArc);
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
-
-    std::string h = HandleToString(id);
-    lua_pushlstring(L, h.data(), h.size());
-    return 1;
+    return PushIdOrError(L, id, "draw failed");
 }
 
 int at_drawRect(lua_State* L)
@@ -338,11 +357,7 @@ int at_drawRect(lua_State* L)
     pPl->setElevation((z1 + z2) * 0.5);
 
     AcDbObjectId id = AppendToModelSpace(pPl);
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
-
-    std::string h = HandleToString(id);
-    lua_pushlstring(L, h.data(), h.size());
-    return 1;
+    return PushIdOrError(L, id, "draw failed");
 }
 
 int at_moveEntity(lua_State* L)
@@ -351,10 +366,9 @@ int at_moveEntity(lua_State* L)
     double dx = luaL_checknumber(L, 2), dy = luaL_checknumber(L, 3), dz = luaL_checknumber(L, 4);
 
     AcDbObjectId id = ResolveHandle(handle);
-    if (id.isNull()) { lua_pushboolean(L, 0); lua_pushstring(L, "handle not found"); return 2; }
+    if (id.isNull()) return PushFalseError(L, "handle not found");
 
-    AcDbObjectIdArray processedGroups;
-    CommonTools::MoveEntityOrGroup(id, AcGeVector3d(dx, dy, dz), processedGroups);
+    CommonTools::MoveObjects({ id }, AcGeVector3d(dx, dy, dz));
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -365,19 +379,15 @@ int at_copyEntity(lua_State* L)
     double dx = luaL_checknumber(L, 2), dy = luaL_checknumber(L, 3), dz = luaL_checknumber(L, 4);
 
     AcDbObjectId id = ResolveHandle(handle);
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "handle not found"); return 2; }
+    if (id.isNull()) return PushNilError(L, "handle not found");
 
     AcGePoint3d refPt;
     if (!CommonTools::GetEntityReferencePoint(id, refPt))
-    { lua_pushnil(L); lua_pushstring(L, "could not determine reference point"); return 2; }
+        return PushNilError(L, "could not determine reference point");
 
     AcGePoint3d target = refPt + AcGeVector3d(dx, dy, dz);
     AcDbObjectId newId = CommonTools::CopyEntityTo(id, target);
-    if (newId.isNull()) { lua_pushnil(L); lua_pushstring(L, "copy failed"); return 2; }
-
-    std::string h = HandleToString(newId);
-    lua_pushlstring(L, h.data(), h.size());
-    return 1;
+    return PushIdOrError(L, newId, "copy failed");
 }
 
 int at_rotateEntity(lua_State* L)
@@ -387,10 +397,10 @@ int at_rotateEntity(lua_State* L)
     double angleDeg = luaL_checknumber(L, 5);
 
     AcDbObjectId id = ResolveHandle(handle);
-    if (id.isNull()) { lua_pushboolean(L, 0); lua_pushstring(L, "handle not found"); return 2; }
+    if (id.isNull()) return PushFalseError(L, "handle not found");
 
     CommonTools::AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForWrite);
-    if (!ent) { lua_pushboolean(L, 0); lua_pushstring(L, "could not open entity"); return 2; }
+    if (!ent) return PushFalseError(L, "could not open entity");
 
     AcGeMatrix3d xfm = AcGeMatrix3d::rotation(angleDeg * M_PI / 180.0,
                                                AcGeVector3d::kZAxis,
@@ -978,7 +988,7 @@ int at_getProps(lua_State* L)
             PushTypeSpecificProps(L, ent.get());
         }
     }
-    if (!opened) { lua_pushnil(L); lua_pushstring(L, "handle not found"); return 2; }
+    if (!opened) return PushNilError(L, "handle not found");
     return 1;
 }
 
@@ -993,7 +1003,7 @@ int at_erase(lua_State* L)
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForWrite);
         if (ent) es = ent->erase();
     }
-    if (es != Acad::eOk) { lua_pushboolean(L, 0); lua_pushstring(L, "could not erase entity"); return 2; }
+    if (es != Acad::eOk) return PushFalseError(L, "could not erase entity");
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -1013,7 +1023,7 @@ int at_setLayer(lua_State* L)
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForWrite);
         if (ent) es = ent->setLayer(wLayer);
     }
-    if (es != Acad::eOk) { lua_pushboolean(L, 0); lua_pushstring(L, "could not set layer"); return 2; }
+    if (es != Acad::eOk) return PushFalseError(L, "could not set layer");
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -1031,7 +1041,7 @@ int at_setColor(lua_State* L)
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForWrite);
         if (ent) es = ent->setColorIndex(static_cast<Adesk::UInt16>(aci));
     }
-    if (es != Acad::eOk) { lua_pushboolean(L, 0); lua_pushstring(L, "could not set color"); return 2; }
+    if (es != Acad::eOk) return PushFalseError(L, "could not set color");
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -1089,9 +1099,7 @@ int at_drawPolyline(lua_State* L)
     pPl->setClosed(closed);
 
     AcDbObjectId id = AppendToModelSpace(pPl);
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
-    PushHandle(L, id);
-    return 1;
+    return PushIdOrError(L, id, "draw failed");
 }
 
 // at.drawText(x,y,z, text [,height [,rotationDeg]]) -> handle
@@ -1112,9 +1120,7 @@ int at_drawText(lua_State* L)
             if (t) t->setHeight(height);
         }
     }
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
-    PushHandle(L, id);
-    return 1;
+    return PushIdOrError(L, id, "draw failed");
 }
 
 // at.drawMText(x,y,z, text [,height]) -> handle
@@ -1134,9 +1140,7 @@ int at_drawMText(lua_State* L)
             if (t) t->setTextHeight(height);
         }
     }
-    if (id.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
-    PushHandle(L, id);
-    return 1;
+    return PushIdOrError(L, id, "draw failed");
 }
 
 // at.ensureLayer(name [, {color=, linetype=, lineweight=, description=, plot=, locked=}]) -> true
@@ -1206,7 +1210,7 @@ int at_refPoint(lua_State* L)
     AcDbObjectId id = ResolveHandle(handle);
     AcGePoint3d p;
     if (id.isNull() || !CommonTools::GetEntityReferencePoint(id, p))
-    { lua_pushnil(L); lua_pushstring(L, "no reference point"); return 2; }
+        return PushNilError(L, "no reference point");
     lua_pushnumber(L, p.x); lua_pushnumber(L, p.y); lua_pushnumber(L, p.z);
     return 3;
 }
@@ -1238,7 +1242,7 @@ int at_alignTo(lua_State* L)
     int aligned;
     {
         std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
-        aligned = AlignTools::AlignObjects(ids, axis, coord, false);
+        aligned = AlignTools::AlignObjects(ids, axis, coord);
     }
     lua_pushinteger(L, aligned);
     return 1;
@@ -1254,10 +1258,7 @@ int at_moveEntities(lua_State* L)
     int moved;
     {
         std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
-        AcDbObjectIdArray processedGroups;
-        auto groupMap = CommonTools::BuildEntityGroupMap(acdbHostApplicationServices()->workingDatabase());
-        for (const AcDbObjectId& id : ids)
-            CommonTools::MoveEntityOrGroup(id, AcGeVector3d(dx, dy, dz), processedGroups, groupMap);
+        CommonTools::MoveObjects(ids, AcGeVector3d(dx, dy, dz));
         moved = static_cast<int>(ids.size());
     }
     lua_pushinteger(L, moved);
@@ -1276,12 +1277,7 @@ int at_copyEntities(lua_State* L)
         std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
         copies = AlignTools::CopyObjects(ids, AcGeVector3d(dx, dy, dz));
     }
-    lua_createtable(L, static_cast<int>(copies.size()), 0);
-    for (size_t i = 0; i < copies.size(); ++i)
-    {
-        PushHandle(L, copies[i]);
-        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
-    }
+    PushIdList(L, copies);
     return 1;
 }
 
@@ -1303,9 +1299,7 @@ int at_polyBoolean(lua_State* L)
         id = PolylineTools::BooleanPolylines(ResolveHandle(h1), ResolveHandle(h2), kOpVals[op], &wErr);
         if (id.isNull()) err = ToUtf8(wErr);
     }
-    if (id.isNull()) { lua_pushnil(L); lua_pushlstring(L, err.data(), err.size()); return 2; }
-    PushHandle(L, id);
-    return 1;
+    return PushIdOrError(L, id, err);
 }
 
 // at.regionToPolyline(regionHandle) -> polyline handle | nil,err
@@ -1320,9 +1314,7 @@ int at_regionToPolyline(lua_State* L)
         id = PolylineTools::RegionToPolyline(ResolveHandle(h), &wErr);
         if (id.isNull()) err = ToUtf8(wErr);
     }
-    if (id.isNull()) { lua_pushnil(L); lua_pushlstring(L, err.data(), err.size()); return 2; }
-    PushHandle(L, id);
-    return 1;
+    return PushIdOrError(L, id, err);
 }
 
 // ── Tier 1: annotation ──────────────────────────────────────────────────────
@@ -1339,9 +1331,9 @@ int at_seqNumber(lua_State* L)
     AcDbObjectId textId, circleId;
     {
         CString wText(CA2T(text, CP_UTF8));
-        textId = SeqNumTools::CreateSeqNumber(AcGePoint3d(x, y, z), wText, height, withCircle, &circleId, false);
+        textId = SeqNumTools::CreateSeqNumber(AcGePoint3d(x, y, z), wText, height, withCircle, &circleId);
     }
-    if (textId.isNull()) { lua_pushnil(L); lua_pushstring(L, "draw failed"); return 2; }
+    if (textId.isNull()) return PushNilError(L, "draw failed");
     PushHandle(L, textId);
     if (circleId.isNull()) return 1;
     PushHandle(L, circleId);
@@ -1452,31 +1444,6 @@ int at_patternArabescoHip(lua_State* L)
 
 // ── Tier 2 helpers ──────────────────────────────────────────────────────────
 
-// Pushes a handle, or nil + the error text, for core functions that return an
-// id and fill a CString reason. Call after all RAII scopes have closed.
-int PushIdOrError(lua_State* L, const AcDbObjectId& id, const std::string& err)
-{
-    if (id.isNull())
-    {
-        lua_pushnil(L);
-        lua_pushlstring(L, err.data(), err.size());
-        return 2;
-    }
-    PushHandle(L, id);
-    return 1;
-}
-
-int PushIdListOrError(lua_State* L, const std::vector<AcDbObjectId>& ids, const std::string& err)
-{
-    if (ids.empty())
-    {
-        lua_pushnil(L);
-        lua_pushlstring(L, err.data(), err.size());
-        return 2;
-    }
-    PushIdList(L, ids);
-    return 1;
-}
 
 int PushBoolOrError(lua_State* L, bool ok, const std::string& err)
 {
@@ -1494,7 +1461,7 @@ const char* const kDistModes[] = { "linear", "between", "equal", nullptr };
 
 // ── Tier 2: distribute ──────────────────────────────────────────────────────
 
-// at.distribute({handle,...}, x1,y1,z1, x2,y2,z2 [, mode]) -> count | nil,err
+// at.distribute({handle,...}, x1,y1,z1, x2,y2,z2 [, mode]) -> count, spacing | nil,err
 int at_distribute(lua_State* L)
 {
     luaL_checktype(L, 1, LUA_TTABLE);
@@ -1503,22 +1470,23 @@ int at_distribute(lua_State* L)
     int mode = luaL_checkoption(L, 8, "linear", kDistModes);
 
     int placed;
+    double spacing = 0.0;
     {
         std::vector<AcDbObjectId> ids = ReadHandleList(L, 1);
-        placed = DistributeTools::DistributeObjects(ids, a, b, mode, false);
+        placed = DistributeTools::DistributeObjects(ids, a, b, mode, &spacing);
     }
     if (placed < 0)
     {
         lua_pushnil(L);
-        lua_pushstring(L, mode == 0 ? "need at least 2 objects and two distinct points"
-                                    : "need at least 1 object and two distinct points");
+        lua_pushfstring(L, "need at least %d object(s) and two distinct points", DistributeTools::MinCount(mode));
         return 2;
     }
     lua_pushinteger(L, placed);
-    return 1;
+    lua_pushnumber(L, spacing);
+    return 2;
 }
 
-// at.distributeCopies(handle, count, x1,y1,z1, x2,y2,z2 [, mode]) -> {handle,...} | nil,err
+// at.distributeCopies(handle, count, x1,y1,z1, x2,y2,z2 [, mode]) -> {handle,...}, spacing | nil,err
 int at_distributeCopies(lua_State* L)
 {
     const char* h = luaL_checkstring(L, 1);
@@ -1526,16 +1494,19 @@ int at_distributeCopies(lua_State* L)
     AcGePoint3d a(luaL_checknumber(L, 3), luaL_checknumber(L, 4), luaL_checknumber(L, 5));
     AcGePoint3d b(luaL_checknumber(L, 6), luaL_checknumber(L, 7), luaL_checknumber(L, 8));
     int mode = luaL_checkoption(L, 9, "linear", kDistModes);
-    luaL_argcheck(L, count >= (mode == 0 ? 2 : 1) && count <= 10000, 2,
+    luaL_argcheck(L, count >= DistributeTools::MinCount(mode) && count <= 10000, 2,
                   "count must be >= 2 for linear, >= 1 otherwise");
 
     std::vector<AcDbObjectId> ids;
+    double spacing = 0.0;
     {
         AcDbObjectId src = ResolveHandle(h);
         if (!src.isNull())
-            ids = DistributeTools::DistributeCopies(src, static_cast<int>(count), a, b, mode);
+            ids = DistributeTools::DistributeCopies(src, static_cast<int>(count), a, b, mode, &spacing);
     }
-    return PushIdListOrError(L, ids, "copy failed (unknown handle or coincident points)");
+    if (PushIdListOrError(L, ids, "copy failed (unknown handle or coincident points)") == 2) return 2;
+    lua_pushnumber(L, spacing);
+    return 2;
 }
 
 // ── Tier 2: text ────────────────────────────────────────────────────────────
@@ -1582,7 +1553,7 @@ int at_copyTextStyle(lua_State* L)
         std::vector<AcDbObjectId> dest = ReadHandleList(L, 2);
         updated = TextTools::CopyTextStyle(ResolveHandle(h), dest, includeHeight);
     }
-    if (updated < 0) { lua_pushnil(L); lua_pushstring(L, "source is not a text object"); return 2; }
+    if (updated < 0) return PushNilError(L, "source is not a text object");
     lua_pushinteger(L, updated);
     return 1;
 }
@@ -1598,7 +1569,7 @@ int at_copyDimStyle(lua_State* L)
         std::vector<AcDbObjectId> dest = ReadHandleList(L, 2);
         updated = TextTools::CopyDimStyle(ResolveHandle(h), dest);
     }
-    if (updated < 0) { lua_pushnil(L); lua_pushstring(L, "source is not a dimension"); return 2; }
+    if (updated < 0) return PushNilError(L, "source is not a dimension");
     lua_pushinteger(L, updated);
     return 1;
 }
@@ -1664,8 +1635,8 @@ int at_perimeterLabel(lua_State* L)
 int at_lengthLabel(lua_State* L)
 {
     const char* layer = luaL_optstring(L, 2, "");
-    return LabelBinding(L, [layer](AcDbObjectId id, CString&)
-        { return AreaTools::InsertLengthLabel(id, CString(CA2T(layer, CP_UTF8))); });
+    return LabelBinding(L, [layer](AcDbObjectId id, CString& e)
+        { return AreaTools::InsertLengthLabel(id, CString(CA2T(layer, CP_UTF8)), &e); });
 }
 
 // at.roomTag(handle, name) -> mtextHandle | nil,err
@@ -2339,9 +2310,9 @@ const AtFn kFns[] = {
     { "setColor",     at_setColor,     "(handle,aci) -> true|false",           "ACI 1-255, 0 = ByBlock, 256 = ByLayer" },
     { "alignTo",      at_alignTo,      "({handle,...}, \"x\"|\"y\"|\"z\", coord) -> count", "ATALX-style: move each object (or its group) so its reference point sits at coord" },
     { "polyBoolean",  at_polyBoolean,  "(h1,h2,\"union\"|\"intersect\"|\"subtract\") -> regionHandle | nil,err", "closed polylines; subtract keeps h1 minus h2; originals untouched" },
-    { "distribute",   at_distribute,   "({handle,...}, x1,y1,z1, x2,y2,z2 [,mode]) -> count | nil,err",
+    { "distribute",   at_distribute,   "({handle,...}, x1,y1,z1, x2,y2,z2 [,mode]) -> count, spacing | nil,err",
       "ATDIST*: spread objects (groups move whole) between two points; mode \"linear\" (on endpoints, default), \"between\" (inside), \"equal\" (half gap at ends)" },
-    { "distributeCopies", at_distributeCopies, "(handle, count, x1,y1,z1, x2,y2,z2 [,mode]) -> {handle,...} | nil,err",
+    { "distributeCopies", at_distributeCopies, "(handle, count, x1,y1,z1, x2,y2,z2 [,mode]) -> {handle,...}, spacing | nil,err",
       "ATDISTCOPY*: place count copies between two points; same modes as distribute" },
     // Text
     { "getText",      at_getText,      "(handle) -> string | nil",             "TEXT or MTEXT content (MText keeps its format codes)" },

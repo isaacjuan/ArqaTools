@@ -13,66 +13,53 @@ namespace ReactorPersistence
 {
 
 // ── In-memory reactor stores ──────────────────────────────────────────────────
-static std::vector<PolylineAreaReactor*>      g_area;
-static std::vector<PerimeterReactor*>         g_perim;
-static std::vector<RoomTagReactor*>           g_room;
-static std::vector<PolylineSumLengthReactor*> g_sum;
-static std::vector<LinearLengthReactor*>      g_ll;
+static std::vector<CurveTextReactor*>         g_labels;   // one curve, one label
+static std::vector<PolylineSumLengthReactor*> g_sum;      // many curves, one label
 
 // ── Registration ──────────────────────────────────────────────────────────────
-void Register(PolylineAreaReactor*      r) { g_area.push_back(r); }
-void Register(PerimeterReactor*         r) { g_perim.push_back(r); }
-void Register(RoomTagReactor*           r) { g_room.push_back(r); }
+void Register(CurveTextReactor*         r) { g_labels.push_back(r); }
 void Register(PolylineSumLengthReactor* r) { g_sum.push_back(r); }
-void Register(LinearLengthReactor*      r) { g_ll.push_back(r); }
 
-// ── Rebuild helpers ───────────────────────────────────────────────────────────
+// ── Rebuild from saved xdata ─────────────────────────────────────────────────
 
-static void RebuildArea(AcDbDatabase* pDb)
+// One row per single-curve label kind: its xdata app, the entity type its
+// label must be, and how to recreate its reactor.
+struct LabelKind
 {
-    std::set<AcDbObjectId> already;
-    for (auto* r : g_area) already.insert(r->getCurveId());
+    const TCHAR*      appName;
+    AcRxClass*        labelClass;
+    CurveTextReactor* (*make)(const CadInfra::XDataLink&);
+};
 
-    std::vector<std::pair<AcDbObjectId, AcDbObjectId>> pairs;
-    CadInfra::CollectXDataPairs(pDb, CadInfra::AREA_APP_NAME, pairs);
-
-    for (auto& [curveId, textId] : pairs)
-    {
-        if (already.count(curveId)) continue;
-        CommonTools::AcDbObjectGuard<AcDbEntity> t(textId);
-        if (!t || !t->isKindOf(AcDbText::desc())) continue;
-        g_area.push_back(new PolylineAreaReactor(curveId, textId));
-    }
-}
-
-static void RebuildPerim(AcDbDatabase* pDb)
+static void RebuildLabels(AcDbDatabase* pDb)
 {
+    const LabelKind kinds[] = {
+        { CadInfra::AREA_APP_NAME,  AcDbText::desc(),
+          [](const CadInfra::XDataLink& l) -> CurveTextReactor* { return new PolylineAreaReactor(l.curveId, l.labelId); } },
+        { CadInfra::PERIM_APP_NAME, AcDbText::desc(),
+          [](const CadInfra::XDataLink& l) -> CurveTextReactor* { return new PerimeterReactor(l.curveId, l.labelId); } },
+        { CadInfra::LL_APP_NAME,    AcDbText::desc(),
+          [](const CadInfra::XDataLink& l) -> CurveTextReactor* { return new LinearLengthReactor(l.curveId, l.labelId); } },
+        { CadInfra::ROOM_APP_NAME,  AcDbMText::desc(),
+          [](const CadInfra::XDataLink& l) -> CurveTextReactor* { return new RoomTagReactor(l.curveId, l.labelId, l.text); } },
+    };
+
+    // Keyed by label, so one curve can carry several label kinds.
     std::set<AcDbObjectId> already;
-    for (auto* r : g_perim) already.insert(r->getCurveId());
+    for (auto* r : g_labels) already.insert(r->getLabelId());
 
-    std::vector<std::pair<AcDbObjectId, AcDbObjectId>> pairs;
-    CadInfra::CollectXDataPairs(pDb, CadInfra::PERIM_APP_NAME, pairs);
-
-    for (auto& [curveId, textId] : pairs)
+    for (const LabelKind& kind : kinds)
     {
-        if (already.count(curveId)) continue;
-        CommonTools::AcDbObjectGuard<AcDbEntity> t(textId);
-        if (!t || !t->isKindOf(AcDbText::desc())) continue;
-        g_perim.push_back(new PerimeterReactor(curveId, textId));
-    }
-}
-
-static void RebuildRoom(AcDbDatabase* pDb)
-{
-    std::set<AcDbObjectId> already;
-    for (auto* r : g_room) already.insert(r->getCurveId());
-
-    for (const auto& link : CadInfra::CollectXDataLinks(pDb, CadInfra::ROOM_APP_NAME))
-    {
-        if (already.count(link.curveId)) continue;
-        CommonTools::AcDbObjectGuard<AcDbEntity> t(link.labelId);
-        if (!t || !t->isKindOf(AcDbMText::desc())) continue;
-        g_room.push_back(new RoomTagReactor(link.curveId, link.labelId, link.text));
+        for (const CadInfra::XDataLink& link : CadInfra::CollectXDataLinks(pDb, kind.appName))
+        {
+            if (already.count(link.labelId)) continue;
+            {
+                CommonTools::AcDbObjectGuard<AcDbEntity> t(link.labelId);
+                if (!t || !t->isKindOf(kind.labelClass)) continue;
+            }
+            g_labels.push_back(kind.make(link));
+            already.insert(link.labelId);
+        }
     }
 }
 
@@ -81,49 +68,47 @@ static void RebuildSum(AcDbDatabase* pDb)
     std::set<AcDbObjectId> already;
     for (auto* r : g_sum) already.insert(r->getTextId());
 
-    std::vector<std::pair<AcDbObjectId, AcDbObjectId>> pairs;
-    CadInfra::CollectXDataPairs(pDb, CadInfra::SUM_APP_NAME, pairs);
-
     // Group curve IDs by textId — each unique textId gets one reactor.
     std::map<AcDbObjectId, std::vector<AcDbObjectId>> byText;
-    for (auto& [curveId, textId] : pairs)
+    for (const CadInfra::XDataLink& link : CadInfra::CollectXDataLinks(pDb, CadInfra::SUM_APP_NAME))
     {
-        if (!already.count(textId))
-            byText[textId].push_back(curveId);
+        if (!already.count(link.labelId))
+            byText[link.labelId].push_back(link.curveId);
     }
 
     for (auto& [textId, curveIds] : byText)
     {
-        CommonTools::AcDbObjectGuard<AcDbEntity> t(textId);
-        if (!t || !t->isKindOf(AcDbText::desc())) continue;
+        {
+            CommonTools::AcDbObjectGuard<AcDbEntity> t(textId);
+            if (!t || !t->isKindOf(AcDbText::desc())) continue;
+        }
         g_sum.push_back(new PolylineSumLengthReactor(curveIds, textId));
-    }
-}
-
-static void RebuildLL(AcDbDatabase* pDb)
-{
-    std::set<AcDbObjectId> already;
-    for (auto* r : g_ll) already.insert(r->getCurveId());
-
-    std::vector<std::pair<AcDbObjectId, AcDbObjectId>> pairs;
-    CadInfra::CollectXDataPairs(pDb, CadInfra::LL_APP_NAME, pairs);
-
-    for (auto& [curveId, textId] : pairs)
-    {
-        if (already.count(curveId)) continue;
-        CommonTools::AcDbObjectGuard<AcDbEntity> t(textId);
-        if (!t || !t->isKindOf(AcDbText::desc())) continue;
-        g_ll.push_back(new LinearLengthReactor(curveId, textId));
     }
 }
 
 static void RebuildAll(AcDbDatabase* pDb)
 {
-    RebuildArea(pDb);
-    RebuildPerim(pDb);
-    RebuildRoom(pDb);
+    RebuildLabels(pDb);
     RebuildSum(pDb);
-    RebuildLL(pDb);
+}
+
+// Deletes (and drops) the reactors whose key object belongs to pDb, or all of
+// them when pDb is null.
+template<typename R, typename Key>
+static void DeleteReactors(std::vector<R*>& vec, AcDbDatabase* pDb, Key key)
+{
+    auto it = vec.begin();
+    while (it != vec.end())
+    {
+        if (!pDb || key(*it).database() == pDb) { delete *it; it = vec.erase(it); }
+        else ++it;
+    }
+}
+
+static void DeleteAll(AcDbDatabase* pDb)
+{
+    DeleteReactors(g_labels, pDb, [](CurveTextReactor* r) { return r->getCurveId(); });
+    DeleteReactors(g_sum,    pDb, [](PolylineSumLengthReactor* r) { return r->getTextId(); });
 }
 
 // ── Document lifecycle reactor ────────────────────────────────────────────────
@@ -138,32 +123,8 @@ public:
 
     void documentToBeDestroyed(AcApDocument* pDoc) override
     {
-        if (!pDoc || !pDoc->database()) return;
-        AcDbDatabase* pDb = pDoc->database();
-
-        auto eraseByDb = [&](auto& vec)
-        {
-            auto it = vec.begin();
-            while (it != vec.end())
-            {
-                if ((*it)->getCurveId().database() == pDb)
-                { delete *it; it = vec.erase(it); }
-                else ++it;
-            }
-        };
-        eraseByDb(g_area);
-        eraseByDb(g_perim);
-        eraseByDb(g_room);
-        eraseByDb(g_ll);
-
-        // PolylineSumLengthReactor has no getCurveId() — use textId database.
-        auto it = g_sum.begin();
-        while (it != g_sum.end())
-        {
-            if ((*it)->getTextId().database() == pDb)
-            { delete *it; it = g_sum.erase(it); }
-            else ++it;
-        }
+        if (pDoc && pDoc->database())
+            DeleteAll(pDoc->database());
     }
 };
 
@@ -195,16 +156,7 @@ void Uninit()
         delete g_docReactor;
         g_docReactor = nullptr;
     }
-    for (auto* r : g_area)  delete r;
-    for (auto* r : g_perim) delete r;
-    for (auto* r : g_room)  delete r;
-    for (auto* r : g_sum)   delete r;
-    for (auto* r : g_ll)    delete r;
-    g_area.clear();
-    g_perim.clear();
-    g_room.clear();
-    g_sum.clear();
-    g_ll.clear();
+    DeleteAll(nullptr);
 }
 
 } // namespace ReactorPersistence

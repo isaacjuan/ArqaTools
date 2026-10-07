@@ -32,75 +32,34 @@ namespace AlignTools
     }
 
     // -------------------------------------------------------------------------
-    // GetGroupCircleCenter: returns the center of the first AcDbCircle found
-    // inside a group. Used as the alignment reference point for SEQNUM groups.
+    // AlignGroup: move a whole group so the center of its first circle sits at
+    // coord (SEQNUM groups: number + circle). Groups without a circle are skipped.
     // -------------------------------------------------------------------------
-    static bool GetGroupCircleCenter(AcDbGroup* pGroup, AcGePoint3d& center)
+    static bool AlignGroup(const CommonTools::GroupUnit& u, int axis, double coord)
     {
-        CommonTools::AcDbIteratorGuard<AcDbGroupIterator> iter(pGroup->newIterator());
-        bool found = false;
-        for (; !iter->done(); iter->next())
+        for (AcDbObjectId id : u.members)
         {
-            CommonTools::AcDbObjectGuard<AcDbEntity> ent(iter->objectId());
-            if (ent && ent->isKindOf(AcDbCircle::desc()))
+            AcGePoint3d center;
             {
-                center = static_cast<AcDbCircle*>(ent.get())->center();
-                found = true;
-                break;
+                CommonTools::AcDbObjectGuard<AcDbCircle> circle(id);
+                if (!circle) continue;
+                center = circle->center();
             }
+            CommonTools::TranslateEntities(u.members, AxisDelta(axis, coord, center));
+            return true;
         }
-        return found;
-    }
-
-    // -------------------------------------------------------------------------
-    // AlignGroup: align every entity in a group along one axis to coord.
-    // Uses the group's first circle as the reference point.
-    // -------------------------------------------------------------------------
-    static void AlignGroup(AcDbObjectId groupId, int axis, double coord,
-                           int idx, int& aligned, bool verbose)
-    {
-        CommonTools::AcDbObjectGuard<AcDbGroup> group(groupId);
-        if (!group) return;
-
-        TCHAR groupName[256];
-        _tcscpy_s(groupName, 256, group->name());
-        int numBefore = group->numEntities();
-        if (verbose) acutPrintf(_T("  [GROUP] Processing '%s' (%d entities)\n"), groupName, numBefore);
-
-        AcGePoint3d circleCenter;
-        if (!GetGroupCircleCenter(group.get(), circleCenter)) return;
-
-        AcGeVector3d delta = AxisDelta(axis, coord, circleCenter);
-
-        int moved = 0;
-        CommonTools::AcDbIteratorGuard<AcDbGroupIterator> iter(group->newIterator());
-        for (; !iter->done(); iter->next())
-        {
-            CommonTools::AcDbObjectGuard<AcDbEntity> ent(iter->objectId(), AcDb::kForWrite);
-            if (ent) { ent->transformBy(AcGeMatrix3d::translation(delta)); moved++; }
-        }
-
-        int numAfter = group->numEntities();
-        if (numAfter != numBefore)
-            if (verbose) acutPrintf(_T("  *** WARNING: '%s' entity count %d→%d ***\n"),
-                       groupName, numBefore, numAfter);
-
-        if (verbose) acutPrintf(_T("  [%d] Group '%s' aligned (%d entities)\n"), idx + 1, groupName, moved);
-        aligned++;
+        return false;
     }
 
     // -------------------------------------------------------------------------
     // AlignEntity: align a single entity (not in a group) along one axis.
     // Dispatches by entity type; falls back to bounding-box min-point.
     // -------------------------------------------------------------------------
-    static void AlignEntity(AcDbObjectId objId, int axis, double coord,
-                            int idx, int& aligned, int& skipped, bool verbose)
+    static bool AlignEntity(AcDbObjectId objId, int axis, double coord)
     {
         CommonTools::AcDbObjectGuard<AcDbEntity> ent(objId, AcDb::kForWrite);
-        if (!ent) { skipped++; return; }
+        if (!ent) return false;
         AcDbEntity* pEnt = ent.get();
-
-        bool modified = false;
 
         if (pEnt->isKindOf(AcDbCircle::desc()))
         {
@@ -108,158 +67,83 @@ namespace AlignTools
             AcGePoint3d c = p->center();
             SetAxisCoord(c, axis, coord);
             p->setCenter(c);
-            modified = true;
-            if (verbose) acutPrintf(_T("  [%d] Circle aligned by center\n"), idx + 1);
+            return true;
         }
-        else if (pEnt->isKindOf(AcDbArc::desc()))
+        if (pEnt->isKindOf(AcDbArc::desc()))
         {
             AcDbArc* p = static_cast<AcDbArc*>(pEnt);
             AcGePoint3d c = p->center();
             SetAxisCoord(c, axis, coord);
             p->setCenter(c);
-            modified = true;
-            if (verbose) acutPrintf(_T("  [%d] Arc aligned by center\n"), idx + 1);
+            return true;
         }
-        else if (pEnt->isKindOf(AcDbCurve::desc()))
+        if (pEnt->isKindOf(AcDbCurve::desc()))
         {
-            AcDbCurve* p = static_cast<AcDbCurve*>(pEnt);
             AcGePoint3d start;
-            if (p->getStartPoint(start) == Acad::eOk)
-            {
-                p->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, start)));
-                modified = true;
-                if (verbose) acutPrintf(_T("  [%d] Curve aligned by start point\n"), idx + 1);
-            }
+            if (static_cast<AcDbCurve*>(pEnt)->getStartPoint(start) != Acad::eOk) return false;
+            pEnt->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, start)));
+            return true;
         }
-        else if (pEnt->isKindOf(AcDbText::desc()))
+        if (pEnt->isKindOf(AcDbText::desc()))
         {
             AcDbText* p = static_cast<AcDbText*>(pEnt);
             AcGePoint3d pos = p->position();
             SetAxisCoord(pos, axis, coord);
             p->setPosition(pos);
-            modified = true;
-            if (verbose) acutPrintf(_T("  [%d] Text aligned by position\n"), idx + 1);
+            return true;
         }
-        else if (pEnt->isKindOf(AcDbMText::desc()))
+        if (pEnt->isKindOf(AcDbMText::desc()))
         {
             AcDbMText* p = static_cast<AcDbMText*>(pEnt);
             AcGePoint3d loc = p->location();
             SetAxisCoord(loc, axis, coord);
             p->setLocation(loc);
-            modified = true;
-            if (verbose) acutPrintf(_T("  [%d] MText aligned by location\n"), idx + 1);
+            return true;
         }
-        else if (pEnt->isKindOf(AcDbBlockReference::desc()))
+        if (pEnt->isKindOf(AcDbBlockReference::desc()))
         {
             AcDbBlockReference* p = static_cast<AcDbBlockReference*>(pEnt);
             AcGePoint3d pos = p->position();
             SetAxisCoord(pos, axis, coord);
             p->setPosition(pos);
-            modified = true;
-            if (verbose) acutPrintf(_T("  [%d] Block aligned by position\n"), idx + 1);
+            return true;
         }
-        else if (pEnt->isKindOf(AcDbRegion::desc()))
+        if (pEnt->isKindOf(AcDbRegion::desc()))
         {
-            AcDbRegion* p = static_cast<AcDbRegion*>(pEnt);
             AcDbVoidPtrArray curves;
-            if (p->explode(curves) == Acad::eOk && curves.length() > 0)
+            if (static_cast<AcDbRegion*>(pEnt)->explode(curves) != Acad::eOk) return false;
+            bool modified = false;
+            if (curves.length() > 0)
             {
                 AcDbCurve* pFirst = AcDbCurve::cast(static_cast<AcDbEntity*>(curves[0]));
                 AcGePoint3d refPt;
                 if (pFirst && pFirst->getStartPoint(refPt) == Acad::eOk)
                 {
-                    p->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, refPt)));
+                    pEnt->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, refPt)));
                     modified = true;
-                    if (verbose) acutPrintf(_T("  [%d] Region aligned by boundary\n"), idx + 1);
                 }
-                for (int j = 0; j < curves.length(); j++)
-                    delete static_cast<AcDbEntity*>(curves[j]);
             }
-            else
-                if (verbose) acutPrintf(_T("  [%d] Region - could not explode\n"), idx + 1);
-        }
-        else
-        {
-            AcDbExtents ext;
-            if (pEnt->getGeomExtents(ext) == Acad::eOk)
-            {
-                pEnt->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, ext.minPoint())));
-                modified = true;
-                if (verbose) acutPrintf(_T("  [%d] Entity aligned by extents\n"), idx + 1);
-            }
+            for (int j = 0; j < curves.length(); j++)
+                delete static_cast<AcDbEntity*>(curves[j]);
+            return modified;
         }
 
-        if (modified) aligned++; else skipped++;
+        AcDbExtents ext;
+        if (pEnt->getGeomExtents(ext) != Acad::eOk) return false;
+        pEnt->transformBy(AcGeMatrix3d::translation(AxisDelta(axis, coord, ext.minPoint())));
+        return true;
     }
 
-    int AlignObjects(const std::vector<AcDbObjectId>& ids, int axis, double coord, bool verbose)
+    int AlignObjects(const std::vector<AcDbObjectId>& ids, int axis, double coord)
     {
-        int aligned = 0, skipped = 0;
-        AcDbObjectIdArray processedGroups;
-        auto groupMap = CommonTools::BuildEntityGroupMap(
-            acdbHostApplicationServices()->workingDatabase());
-
-        for (AcDbObjectId objId : ids)
+        int aligned = 0;
+        for (const CommonTools::GroupUnit& u : CommonTools::GroupUnits(ids))
         {
-            auto it = groupMap.find(objId);
-            if (it != groupMap.end())
-            {
-                if (processedGroups.contains(it->second)) continue;
-                processedGroups.append(it->second);
-                AlignGroup(it->second, axis, coord, 0, aligned, verbose);
-            }
-            else
-            {
-                AlignEntity(objId, axis, coord, 0, aligned, skipped, verbose);
-            }
+            bool ok = u.groupId.isNull() ? AlignEntity(u.picked, axis, coord)
+                                         : AlignGroup(u, axis, coord);
+            if (ok) aligned++;
         }
         return aligned;
-    }
-
-    // -------------------------------------------------------------------------
-    // CopyObjectWithTransform: clone one entity (or its whole group) into
-    // model space and apply transform. Group copies are not re-grouped.
-    // -------------------------------------------------------------------------
-    static void CopyObjectWithTransform(AcDbObjectId objId, const AcGeMatrix3d& transform,
-                                        AcDbBlockTableRecord* pModelSpace,
-                                        AcDbObjectIdArray& processedGroups,
-                                        const CommonTools::EntityGroupMap& groupMap,
-                                        std::vector<AcDbObjectId>& newIds)
-    {
-        auto copyOne = [&](AcDbEntity* ent)
-        {
-            AcDbEntity* pCopy = AcDbEntity::cast(ent->clone());
-            if (!pCopy) return;
-            pCopy->transformBy(transform);
-            AcDbObjectId id = CommonTools::AppendEntity(pModelSpace, pCopy);
-            if (!id.isNull()) newIds.push_back(id);
-        };
-
-        auto it = groupMap.find(objId);
-        if (it != groupMap.end())
-        {
-            AcDbObjectId groupId = it->second;
-            if (processedGroups.contains(groupId)) return;
-            processedGroups.append(groupId);
-
-            {
-                CommonTools::AcDbObjectGuard<AcDbGroup> group(groupId);
-                if (group)
-                {
-                    CommonTools::AcDbIteratorGuard<AcDbGroupIterator> iter(group->newIterator());
-                    for (; !iter->done(); iter->next())
-                    {
-                        CommonTools::AcDbObjectGuard<AcDbEntity> ent(iter->objectId());
-                        if (ent) copyOne(ent.get());
-                    }
-                }
-            }
-        }
-        else
-        {
-            CommonTools::AcDbObjectGuard<AcDbEntity> ent(objId);
-            if (ent) copyOne(ent.get());
-        }
     }
 
     std::vector<AcDbObjectId> CopyObjects(const std::vector<AcDbObjectId>& ids, const AcGeVector3d& delta)
@@ -269,10 +153,19 @@ namespace AlignTools
         if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk) return newIds;
 
         AcGeMatrix3d transform = AcGeMatrix3d::translation(delta);
-        AcDbObjectIdArray processedGroups;
-        auto groupMap = CommonTools::BuildEntityGroupMap(acdbHostApplicationServices()->workingDatabase());
-        for (const AcDbObjectId& id : ids)
-            CopyObjectWithTransform(id, transform, pModelSpace, processedGroups, groupMap, newIds);
+        for (const CommonTools::GroupUnit& u : CommonTools::GroupUnits(ids))
+        {
+            for (AcDbObjectId id : u.members)
+            {
+                CommonTools::AcDbObjectGuard<AcDbEntity> ent(id);
+                if (!ent) continue;
+                AcDbEntity* pCopy = AcDbEntity::cast(ent->clone());
+                if (!pCopy) continue;
+                pCopy->transformBy(transform);
+                AcDbObjectId newId = CommonTools::AppendEntity(pModelSpace, pCopy);
+                if (!newId.isNull()) newIds.push_back(newId);
+            }
+        }
 
         pModelSpace->close();
         return newIds;

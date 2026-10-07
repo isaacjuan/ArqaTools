@@ -5,13 +5,7 @@
 
 namespace CommonTools
 {
-    // -------------------------------------------------------------------------
-    // Message constants
-    // -------------------------------------------------------------------------
-    const TCHAR* const MSG_CANCELLED       = _T("\nCommand cancelled.\n");
-    const TCHAR* const MSG_CANCELLED_NL    = _T("\nCommand cancelled.");
     const TCHAR* const MSG_NO_SELECTION    = _T("\nNo objects selected.\n");
-    const TCHAR* const MSG_MODEL_SPACE_ERR = _T("\nError: could not open model space.\n");
 
     // -------------------------------------------------------------------------
     // GetModelSpace
@@ -159,36 +153,6 @@ namespace CommonTools
     }
 
     // -------------------------------------------------------------------------
-    // GetEntityGroups
-    // -------------------------------------------------------------------------
-    bool GetEntityGroups(AcDbObjectId entityId, AcDbObjectIdArray& groupIds)
-    {
-        AcDbDatabase* pDb = entityId.database();
-        if (!pDb) return false;
-
-        AcDbDictionary* pGroupDict;
-        if (pDb->getGroupDictionary(pGroupDict, AcDb::kForRead) != Acad::eOk)
-            return false;
-
-        AcDbIteratorGuard<AcDbDictionaryIterator> iter(pGroupDict->newIterator());
-        for (; !iter->done(); iter->next())
-        {
-            AcDbObjectId groupId = iter->objectId();
-            AcDbObjectGuard<AcDbGroup> group(groupId);
-            if (!group) continue;
-
-            AcDbIteratorGuard<AcDbGroupIterator> gi(group->newIterator());
-            for (; !gi->done(); gi->next())
-            {
-                if (gi->objectId() == entityId)
-                { groupIds.append(groupId); break; }
-            }
-        }
-        pGroupDict->close();
-        return (groupIds.length() > 0);
-    }
-
-    // -------------------------------------------------------------------------
     // GetEntityReferencePoint
     // -------------------------------------------------------------------------
     bool GetEntityReferencePoint(AcDbObjectId objId, AcGePoint3d& refPoint)
@@ -235,60 +199,52 @@ namespace CommonTools
     }
 
     // -------------------------------------------------------------------------
-    // MoveEntityOrGroup — shared move-group body extracted to avoid duplication
+    // GroupUnits / TranslateEntities / MoveObjects
     // -------------------------------------------------------------------------
-    static void MoveGroup(AcDbObjectId groupId, const AcGeMatrix3d& mat,
-                          AcDbObjectIdArray& processedGroups)
+    std::vector<GroupUnit> GroupUnits(const std::vector<AcDbObjectId>& ids)
     {
-        if (processedGroups.contains(groupId)) return;
-        processedGroups.append(groupId);
-
-        AcDbObjectGuard<AcDbGroup> group(groupId);
-        if (!group) return;
-
-        AcDbIteratorGuard<AcDbGroupIterator> iter(group->newIterator());
-        for (; !iter->done(); iter->next())
+        std::vector<GroupUnit> units;
+        auto groupMap = BuildEntityGroupMap(acdbHostApplicationServices()->workingDatabase());
+        AcDbObjectIdArray seenGroups;
+        for (AcDbObjectId id : ids)
         {
-            AcDbObjectGuard<AcDbEntity> ent(iter->objectId(), AcDb::kForWrite);
+            GroupUnit u;
+            u.picked = id;
+            auto it = groupMap.find(id);
+            if (it != groupMap.end())
+            {
+                if (seenGroups.contains(it->second)) continue;
+                seenGroups.append(it->second);
+                u.groupId = it->second;
+                AcDbObjectGuard<AcDbGroup> group(u.groupId);
+                if (group)
+                {
+                    AcDbIteratorGuard<AcDbGroupIterator> gi(group->newIterator());
+                    for (; !gi->done(); gi->next())
+                        u.members.push_back(gi->objectId());
+                }
+            }
+            else
+                u.members.push_back(id);
+            units.push_back(std::move(u));
+        }
+        return units;
+    }
+
+    void TranslateEntities(const std::vector<AcDbObjectId>& ids, const AcGeVector3d& delta)
+    {
+        AcGeMatrix3d mat = AcGeMatrix3d::translation(delta);
+        for (AcDbObjectId id : ids)
+        {
+            AcDbObjectGuard<AcDbEntity> ent(id, AcDb::kForWrite);
             if (ent) ent->transformBy(mat);
         }
     }
 
-    // Overload A — single-entity use (O(G × M) group lookup)
-    void MoveEntityOrGroup(AcDbObjectId           objId,
-                           const AcGeVector3d&     delta,
-                           AcDbObjectIdArray&      processedGroups)
+    void MoveObjects(const std::vector<AcDbObjectId>& ids, const AcGeVector3d& delta)
     {
-        AcGeMatrix3d mat;
-        mat.setToTranslation(delta);
-
-        AcDbObjectIdArray groupIds;
-        if (GetEntityGroups(objId, groupIds) && groupIds.length() > 0)
-            MoveGroup(groupIds[0], mat, processedGroups);
-        else
-        {
-            AcDbObjectGuard<AcDbEntity> ent(objId, AcDb::kForWrite);
-            if (ent) ent->transformBy(mat);
-        }
-    }
-
-    // Overload B — batch use (O(1) map lookup)
-    void MoveEntityOrGroup(AcDbObjectId            objId,
-                           const AcGeVector3d&      delta,
-                           AcDbObjectIdArray&       processedGroups,
-                           const EntityGroupMap&    groupMap)
-    {
-        AcGeMatrix3d mat;
-        mat.setToTranslation(delta);
-
-        auto it = groupMap.find(objId);
-        if (it != groupMap.end())
-            MoveGroup(it->second, mat, processedGroups);
-        else
-        {
-            AcDbObjectGuard<AcDbEntity> ent(objId, AcDb::kForWrite);
-            if (ent) ent->transformBy(mat);
-        }
+        for (const GroupUnit& u : GroupUnits(ids))
+            TranslateEntities(u.members, delta);
     }
 
     // -------------------------------------------------------------------------
@@ -296,16 +252,10 @@ namespace CommonTools
     // -------------------------------------------------------------------------
     AcDbObjectId CopyEntityTo(AcDbObjectId srcId, const AcGePoint3d& targetPos)
     {
+        if (srcId.isNull()) return AcDbObjectId::kNull;
         AcGePoint3d srcCentroid;
-        {
-            AcDbObjectGuard<AcDbEntity> src(srcId);
-            if (!src) return AcDbObjectId::kNull;
-            AcDbExtents ext;
-            if (src->getGeomExtents(ext) == Acad::eOk)
-                srcCentroid = ext.minPoint() + (ext.maxPoint() - ext.minPoint()) * 0.5;
-            else
-                srcCentroid = AcGePoint3d::kOrigin;
-        }
+        if (!GetEntityReferencePoint(srcId, srcCentroid))
+            srcCentroid = AcGePoint3d::kOrigin;
 
         AcGeVector3d delta = targetPos - srcCentroid;
 

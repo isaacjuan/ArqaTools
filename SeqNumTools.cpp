@@ -52,8 +52,7 @@ namespace SeqNumTools
     // Helper: Create and add centered text entity to model space, returns ObjectId
     // If circleRadius > 0, adjusts widthFactor to ensure text width <= 80% of circle diameter
     static AcDbObjectId CreateCenteredText(const AcGePoint3d& position, const TCHAR* text, 
-                                    double height, double circleRadius, AcDbBlockTableRecord* pModelSpace,
-                                    bool verbose = true)
+                                    double height, double circleRadius, AcDbBlockTableRecord* pModelSpace)
     {
         AcDbText* pText = new AcDbText();
         pText->setPosition(position);
@@ -77,32 +76,18 @@ namespace SeqNumTools
                 // Maximum allowed width is 80% of circle diameter
                 const double MAX_WIDTH_RATIO = 0.8;
                 double maxWidth = circleRadius * 2.0 * MAX_WIDTH_RATIO;
-                
-                if (verbose) acutPrintf(_T("  [WIDTH CHECK] Text='%s' ActualWidth=%.2f MaxWidth=%.2f (%.0f%% of dia)\n"), 
-                           text, actualWidth, maxWidth, MAX_WIDTH_RATIO * 100.0);
-                
+
                 // If text is too wide, compress it
                 if (actualWidth > maxWidth)
-                {
-                    double newWidthFactor = maxWidth / actualWidth;
-                    pText->setWidthFactor(newWidthFactor);
-                    if (verbose) acutPrintf(_T("  [COMPRESS] WidthFactor adjusted: 1.0 -> %.3f\n"), newWidthFactor);
-                }
-                else
-                {
-                    if (verbose) acutPrintf(_T("  [OK] Text fits within circle (no compression needed)\n"));
-                }
+                    pText->setWidthFactor(maxWidth / actualWidth);
             }
         }
-        
-        if (verbose) acutPrintf(_T("  [TEXT CREATED] Text='%s' Height=%.2f WidthFactor=%.3f\n"), 
-                   text, height, pText->widthFactor());
-        
+
         return CommonTools::AppendEntity(pModelSpace, pText);
     }
 
     // Helper: Create a group containing circle and text
-    static void CreateNumberGroup(AcDbObjectId circleId, AcDbObjectId textId, bool verbose = true)
+    static void CreateNumberGroup(AcDbObjectId circleId, AcDbObjectId textId)
     {
         AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
         AcDbDictionary* pGroupDictRaw;
@@ -127,13 +112,10 @@ namespace SeqNumTools
         
         pGroup->close();
         // pGroupDict closed automatically by AcDbDictionaryGuard destructor
-
-        if (verbose) acutPrintf(_T("  [GROUP] Created group '%s' with circle and text\n"), groupName);
     }
 
     AcDbObjectId CreateSeqNumber(const AcGePoint3d& center, const CString& text,
-                                 double height, bool withCircle, AcDbObjectId* circleId,
-                                 bool verbose)
+                                 double height, bool withCircle, AcDbObjectId* circleId)
     {
         if (circleId) *circleId = AcDbObjectId::kNull;
 
@@ -141,7 +123,7 @@ namespace SeqNumTools
         if (CommonTools::GetModelSpace(pModelSpace) != Acad::eOk)
             return AcDbObjectId::kNull;
 
-        // Same golden-ratio sizing as the interactive SEQNUM command.
+        // Golden-ratio sizing: circle radius = 1.618 x text height.
         const double GOLDEN_RATIO = 1.618;
         double circleRadius = height * GOLDEN_RATIO;
 
@@ -149,12 +131,12 @@ namespace SeqNumTools
         if (withCircle)
             cId = CreateCircle(center, circleRadius, pModelSpace);
         AcDbObjectId textId = CreateCenteredText(center, text, height,
-                                                 withCircle ? circleRadius : 0.0, pModelSpace, verbose);
+                                                 withCircle ? circleRadius : 0.0, pModelSpace);
         pModelSpace->close();
 
         if (withCircle)
         {
-            CreateNumberGroup(cId, textId, verbose);
+            CreateNumberGroup(cId, textId);
             if (circleId) *circleId = cId;
         }
         return textId;

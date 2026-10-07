@@ -34,12 +34,15 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
   `CArqaToolsApp` has a static `func()` that calls `FooTools::func()`. Commands are
   registered as `{ _T("CMD"), CArqaToolsApp::func }`.
 - **Infrastructure**:
-  - `CommonTools` — model space access, group-aware transforms, RAII guards
+  - `CommonTools` — model space access, group-aware transforms (`GroupUnits`: a selection
+    resolved into objects/whole groups, each group once; `MoveObjects`), RAII guards
     (`AcDbObjectGuard<T>`, `SelectionSetGuard`, `ForEachSsEntity`), entity reference points
-  - `CadInfra` — low-level DB plumbing: `InsertText`, `InsertMText`, xData read/write,
-    `EnsureLayer`, `EnsureLinetype`, `GetPolylineCentroid`, `UpdateAreaText`
+  - `CadInfra` — low-level DB plumbing: `InsertText`, `InsertMText`, curve-to-label xData
+    (`StoreLinkXData`, `CollectXDataLinks`), `EnsureLayer`, `EnsureLinetype`, `GetPolylineCentroid`
   - `MeasureFormat` — area/unit formatting with locale support
-  - `ReactorPersistence` — transient reactor lifecycle (rebuild on DWG open, cleanup on unload)
+  - `ReactorPersistence` — transient reactor lifecycle (rebuild on DWG open, cleanup on unload).
+    A new single-curve label kind is one `CurveTextReactor` subclass, one xData app name and
+    one row in `RebuildLabels`' table; its `Insert*` core ends with `LinkLabel` (AreaTools.cpp).
   - `LuaTools` (`ATLUA`, `ATAILUA`) — second, additive scripting engine alongside AutoLISP/ACML.
     Vendors plain Lua 5.4 (`ThirdParty\Lua\src\`, source-only, no prebuilt lib) directly into this
     project. `LuaTools::runLuaScript(code)` runs synchronously (`lua_pcall`) and returns a real

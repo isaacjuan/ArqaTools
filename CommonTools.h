@@ -2,14 +2,13 @@
 //
 // Provides:
 //   - GetModelSpace()           : open model space for writing
-//   - GetEntityGroups()         : find groups containing an entity  (single-entity use)
-//   - BuildEntityGroupMap()     : build reverse index entity→group  (batch use, O(G×M) once)
+//   - BuildEntityGroupMap()     : build reverse index entity→group  (O(G×M) once)
+//   - GroupUnits()              : selection → objects/groups, each group once
+//   - MoveObjects()             : group-aware translation
 //   - GetEntityReferencePoint() : bounding-box centroid of any entity
-//   - MoveEntityOrGroup()       : group-aware translation (two overloads)
 //   - CopyEntityTo()            : deep-clone entity to a target position
-//   - OpenFromEname<T>()        : typed open from selection-set index (template)
 //   - SelectionSetGuard         : RAII wrapper for ads_name selection sets
-//   - Message string constants  : MSG_CANCELLED, MSG_NO_SELECTION, etc.
+//   - MSG_NO_SELECTION
 
 #pragma once
 #include "StdAfx.h"
@@ -19,13 +18,7 @@
 
 namespace CommonTools
 {
-    // -------------------------------------------------------------------------
-    // Message constants
-    // -------------------------------------------------------------------------
-    extern const TCHAR* const MSG_CANCELLED;        // "\nCommand cancelled.\n"
-    extern const TCHAR* const MSG_CANCELLED_NL;     // "\nCommand cancelled."  (no trailing \n)
     extern const TCHAR* const MSG_NO_SELECTION;     // "\nNo objects selected.\n"
-    extern const TCHAR* const MSG_MODEL_SPACE_ERR;  // "\nError: could not open model space.\n"
 
     // -------------------------------------------------------------------------
     // GetModelSpace
@@ -73,14 +66,6 @@ namespace CommonTools
     CString BlockName(const AcDbBlockReference* pRef);
 
     // -------------------------------------------------------------------------
-    // GetEntityGroups
-    // Fills groupIds with every group that contains entityId.
-    // Returns true when at least one group was found.
-    // O(G × M) per call — use BuildEntityGroupMap() when querying inside a loop.
-    // -------------------------------------------------------------------------
-    bool GetEntityGroups(AcDbObjectId entityId, AcDbObjectIdArray& groupIds);
-
-    // -------------------------------------------------------------------------
     // EntityGroupMap / BuildEntityGroupMap
     //
     // EntityGroupMap is a reverse index: entity ID → primary (first) group ID.
@@ -107,20 +92,26 @@ namespace CommonTools
     bool GetEntityReferencePoint(AcDbObjectId objId, AcGePoint3d& refPoint);
 
     // -------------------------------------------------------------------------
-    // MoveEntityOrGroup  (two overloads)
+    // GroupUnits / MoveObjects
     //
-    // Overload A — single-entity use, builds group index on the fly (O(G × M)).
-    // Overload B — batch use, accepts a pre-built EntityGroupMap (O(1) lookup).
-    //              Prefer overload B inside selection-set processing loops.
+    // A selection resolved into the units that move or copy together: an
+    // entity in a group becomes its whole group (once, however many members
+    // are selected); any other entity stays alone (groupId kNull). `picked`
+    // is the first selected entity of the unit.
     // -------------------------------------------------------------------------
-    void MoveEntityOrGroup(AcDbObjectId           objId,
-                           const AcGeVector3d&     delta,
-                           AcDbObjectIdArray&      processedGroups);
+    struct GroupUnit
+    {
+        AcDbObjectId              picked;
+        AcDbObjectId              groupId;
+        std::vector<AcDbObjectId> members;
+    };
+    std::vector<GroupUnit> GroupUnits(const std::vector<AcDbObjectId>& ids);
 
-    void MoveEntityOrGroup(AcDbObjectId            objId,
-                           const AcGeVector3d&      delta,
-                           AcDbObjectIdArray&       processedGroups,
-                           const EntityGroupMap&    groupMap);
+    // Translates exactly these entities.
+    void TranslateEntities(const std::vector<AcDbObjectId>& ids, const AcGeVector3d& delta);
+
+    // Moves each entity, or its whole group once.
+    void MoveObjects(const std::vector<AcDbObjectId>& ids, const AcGeVector3d& delta);
 
     // -------------------------------------------------------------------------
     // CopyEntityTo
@@ -129,50 +120,6 @@ namespace CommonTools
     // Returns the clone's ObjectId, or AcDbObjectId::kNull on failure.
     // -------------------------------------------------------------------------
     AcDbObjectId CopyEntityTo(AcDbObjectId srcId, const AcGePoint3d& targetPos);
-
-    // -------------------------------------------------------------------------
-    // OpenFromEname  (template — full body in header)
-    // Opens a typed entity from a selection set by index.
-    // Returns Acad::eOk and sets pObj on success; pObj is nullptr on failure.
-    // Caller MUST call pObj->close().
-    //
-    // Usage:
-    //   AcDbPolyline* pPoly = nullptr;
-    //   if (CommonTools::OpenFromEname(ss, i, AcDb::kForRead, pPoly) == Acad::eOk)
-    //   { ... pPoly->close(); }
-    // -------------------------------------------------------------------------
-    template<typename T>
-    Acad::ErrorStatus OpenFromEname(const ads_name   ss,
-                                    Adesk::Int32     index,
-                                    AcDb::OpenMode   mode,
-                                    T*&              pObj)
-    {
-        pObj = nullptr;
-        ads_name ename;
-        if (acedSSName(ss, index, ename) != RTNORM)
-            return Acad::eInvalidInput;
-        AcDbObjectId objId;
-        if (acdbGetObjectId(objId, ename) != Acad::eOk)
-            return Acad::eInvalidInput;
-        return acdbOpenObject(pObj, objId, mode);
-    }
-
-    // Overload that also returns the ObjectId (needed in distribute loops).
-    template<typename T>
-    Acad::ErrorStatus OpenFromEname(const ads_name   ss,
-                                    Adesk::Int32     index,
-                                    AcDb::OpenMode   mode,
-                                    T*&              pObj,
-                                    AcDbObjectId&    objId)
-    {
-        pObj = nullptr;
-        ads_name ename;
-        if (acedSSName(ss, index, ename) != RTNORM)
-            return Acad::eInvalidInput;
-        if (acdbGetObjectId(objId, ename) != Acad::eOk)
-            return Acad::eInvalidInput;
-        return acdbOpenObject(pObj, objId, mode);
-    }
 
     // -------------------------------------------------------------------------
     // AcDbObjectGuard<T>

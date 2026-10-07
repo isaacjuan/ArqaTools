@@ -274,24 +274,6 @@ bool GetPolylineCentroid(AcDbPolyline* pPoly, AcGePoint3d& centroid)
     return true;
 }
 
-bool UpdateAreaText(AcDbObjectId polylineId, AcDbObjectId textId)
-{
-    CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polylineId);
-    if (!poly) return false;
-    if (!poly->isClosed()) return false;
-
-    double area = 0.0;
-    if (poly->getArea(area) != Acad::eOk) return false;
-
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    CString areaText = MeasureFormat::FormatArea(area, pDb->insunits());
-
-    CommonTools::AcDbObjectGuard<AcDbText> text(textId, AcDb::kForWrite);
-    if (!text) return false;
-    text->setTextString(areaText);
-    return true;
-}
-
 // ── xData helpers ─────────────────────────────────────────────────────────────
 void EnsureAppRegistered(AcDbDatabase* pDb, const TCHAR* appName)
 {
@@ -308,44 +290,24 @@ void EnsureAppRegistered(AcDbDatabase* pDb, const TCHAR* appName)
     pTable->close();
 }
 
-// Internal: write a single {appName, textHandle} xData pair onto a curve.
-static void WriteCurveTextXData(AcDbObjectId curveId, AcDbObjectId textId,
-                                 const TCHAR* appName)
+void StoreLinkXData(AcDbObjectId curveId, AcDbObjectId labelId, const TCHAR* appName,
+                    const CString* text)
 {
-    CString handle = CommonTools::HandleString(textId);
+    CString handle = CommonTools::HandleString(labelId);
 
     CommonTools::AcDbObjectGuard<AcDbEntity> curve(curveId, AcDb::kForWrite);
     if (!curve) return;
 
     EnsureAppRegistered(curve->database(), appName);
 
-    resbuf* pRb = acutBuildList(
-        AcDb::kDxfRegAppName, appName,
-        AcDb::kDxfXdHandle,   (LPCTSTR)handle,
-        RTNONE);
-    if (pRb) { curve->setXData(pRb); acutRelRb(pRb); }
-}
-
-void StoreAreaXData        (AcDbObjectId c, AcDbObjectId t) { WriteCurveTextXData(c, t, AREA_APP_NAME);  }
-void StorePerimXData       (AcDbObjectId c, AcDbObjectId t) { WriteCurveTextXData(c, t, PERIM_APP_NAME); }
-void StoreSumXData         (AcDbObjectId c, AcDbObjectId t) { WriteCurveTextXData(c, t, SUM_APP_NAME);   }
-void StoreLinearLengthXData(AcDbObjectId c, AcDbObjectId t) { WriteCurveTextXData(c, t, LL_APP_NAME);    }
-
-void StoreRoomXData(AcDbObjectId curveId, AcDbObjectId textId,
-                    const CString& roomName)
-{
-    CString handle = CommonTools::HandleString(textId);
-
-    CommonTools::AcDbObjectGuard<AcDbEntity> curve(curveId, AcDb::kForWrite);
-    if (!curve) return;
-
-    EnsureAppRegistered(curve->database(), ROOM_APP_NAME);
-
-    resbuf* pRb = acutBuildList(
-        AcDb::kDxfRegAppName,    ROOM_APP_NAME,
-        AcDb::kDxfXdHandle,      (LPCTSTR)handle,
-        AcDb::kDxfXdAsciiString, (LPCTSTR)roomName,
-        RTNONE);
+    resbuf* pRb = text
+        ? acutBuildList(AcDb::kDxfRegAppName,    appName,
+                        AcDb::kDxfXdHandle,      (LPCTSTR)handle,
+                        AcDb::kDxfXdAsciiString, (LPCTSTR)*text,
+                        RTNONE)
+        : acutBuildList(AcDb::kDxfRegAppName,    appName,
+                        AcDb::kDxfXdHandle,      (LPCTSTR)handle,
+                        RTNONE);
     if (pRb) { curve->setXData(pRb); acutRelRb(pRb); }
 }
 
@@ -376,13 +338,6 @@ std::vector<XDataLink> CollectXDataLinks(AcDbDatabase* pDb, const TCHAR* appName
         links.push_back(link);
     }
     return links;
-}
-
-void CollectXDataPairs(AcDbDatabase* pDb, const TCHAR* appName,
-                       std::vector<std::pair<AcDbObjectId, AcDbObjectId>>& pairs)
-{
-    for (const XDataLink& link : CollectXDataLinks(pDb, appName))
-        pairs.push_back({ link.curveId, link.labelId });
 }
 
 } // namespace CadInfra

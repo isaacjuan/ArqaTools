@@ -20,6 +20,7 @@ public:
     void erased  (const AcDbObject* pObj, Adesk::Boolean) override;
 
     AcDbObjectId getCurveId() const { return m_curveId; }
+    AcDbObjectId getLabelId() const { return m_labelId; }
 
 protected:
     AcDbObjectId m_curveId;
@@ -112,7 +113,8 @@ namespace AreaTools
     AcDbObjectId InsertRoomTag(AcDbObjectId polylineId, const CString& roomName,
                                CString* err = nullptr);
     // Perpendicular length label at the curve's midpoint.
-    AcDbObjectId InsertLengthLabel(AcDbObjectId curveId, const CString& layerName = CString());
+    AcDbObjectId InsertLengthLabel(AcDbObjectId curveId, const CString& layerName = CString(),
+                                   CString* err = nullptr);
     // One label at pos showing the summed length of curveIds (non-curves skipped).
     AcDbObjectId InsertSumLengthLabel(const std::vector<AcDbObjectId>& curveIds,
                                       const AcGePoint3d& pos, double* total = nullptr,

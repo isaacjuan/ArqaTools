@@ -12,13 +12,16 @@ namespace DistributeTools
     // mode: 0 = linear (endpoints included), 1 = between (endpoints excluded),
     //       2 = equal (half spacing at each end).
 
+    // Fewest items a mode can place: 2 for linear, 1 otherwise.
+    int MinCount(int mode);
+
     // Moves the objects (deduplicated by group, whole groups move together) so
     // their reference points are spread from startPt to endPt. Returns the
     // number of items placed, or -1 if there are too few objects or the points
     // coincide.
     int DistributeObjects(const std::vector<AcDbObjectId>& ids,
                           const AcGePoint3d& startPt, const AcGePoint3d& endPt,
-                          int mode, bool verbose = true, double* spacingOut = nullptr);
+                          int mode, double* spacingOut = nullptr);
 
     // Places `count` copies of srcId from startPt to endPt. Returns the new ids
     // (empty if count is too small for the mode or the points coincide).

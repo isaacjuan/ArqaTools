@@ -9,8 +9,9 @@ namespace DistributeTools
 {
 
     using CommonTools::GetEntityReferencePoint;
-    using CommonTools::MoveEntityOrGroup;
     using CommonTools::CopyEntityTo;
+
+    int MinCount(int mode) { return mode == 0 ? 2 : 1; }
 
     // Spacing and first-slot offset for each mode (count N items over distance D):
     //   mode 0  Linear  - items on both endpoints:  spacing = D/(N-1), pos[i] = start + u*spacing*i
@@ -28,47 +29,35 @@ namespace DistributeTools
 
     int DistributeObjects(const std::vector<AcDbObjectId>& ids,
                           const AcGePoint3d& startPt, const AcGePoint3d& endPt,
-                          int mode, bool verbose, double* spacingOut)
+                          int mode, double* spacingOut)
     {
         AcGeVector3d v = endPt - startPt;
         double totalDistance = v.length();
         if (totalDistance < 0.001) return -1;
         AcGeVector3d unitVector = v.normal();
 
-        auto groupMap = CommonTools::BuildEntityGroupMap(
-            acdbHostApplicationServices()->workingDatabase());
-
-        // Deduplicate by group, keep (id, reference point) pairs.
-        AcArray<AcDbObjectId> objectIds;
-        AcArray<AcGePoint3d>  refPoints;
-        AcDbObjectIdArray seenGroups;
-        for (AcDbObjectId objId : ids)
+        // One item per object or group; a group is placed by the reference
+        // point of its first selected member.
+        std::vector<CommonTools::GroupUnit> units;
+        std::vector<AcGePoint3d>            refPoints;
+        for (CommonTools::GroupUnit& u : CommonTools::GroupUnits(ids))
         {
-            auto it = groupMap.find(objId);
-            if (it != groupMap.end())
-            {
-                if (seenGroups.contains(it->second)) continue;
-                seenGroups.append(it->second);
-            }
             AcGePoint3d refPt;
-            if (GetEntityReferencePoint(objId, refPt))
-            { objectIds.append(objId); refPoints.append(refPt); }
+            if (!GetEntityReferencePoint(u.picked, refPt)) continue;
+            units.push_back(std::move(u));
+            refPoints.push_back(refPt);
         }
 
-        int numObjects = objectIds.length();
-        int minSelect = (mode == 0) ? 2 : 1;
-        if (numObjects < minSelect) return -1;
-        if (verbose) acutPrintf(_T("Distributing %d objects...\n"), numObjects);
+        int numObjects = static_cast<int>(units.size());
+        if (numObjects < MinCount(mode)) return -1;
 
         double spacing, offset0;
         ModeSpacing(mode, numObjects, totalDistance, spacing, offset0);
 
-        AcDbObjectIdArray processedGroups;
         for (int i = 0; i < numObjects; i++)
         {
             AcGePoint3d target = startPt + unitVector * (spacing * (i + offset0));
-            MoveEntityOrGroup(objectIds[i], target - refPoints[i], processedGroups, groupMap);
-            if (verbose) acutPrintf(_T("  [%d] Moved to %.2f, %.2f\n"), i + 1, target.x, target.y);
+            CommonTools::TranslateEntities(units[i].members, target - refPoints[i]);
         }
         if (spacingOut) *spacingOut = spacing;
         return numObjects;
@@ -80,8 +69,7 @@ namespace DistributeTools
     {
         std::vector<AcDbObjectId> newIds;
         double total = startPt.distanceTo(endPt);
-        int minCount = (mode == 0) ? 2 : 1;
-        if (total < 0.001 || count < minCount) return newIds;
+        if (total < 0.001 || count < MinCount(mode)) return newIds;
 
         AcGeVector3d dir = (endPt - startPt).normal();
         double spacing, offset0;

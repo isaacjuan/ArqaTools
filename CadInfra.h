@@ -73,9 +73,6 @@ namespace CadInfra
     // Approximate centroid of a closed polyline (bounding-box centre).
     bool GetPolylineCentroid(AcDbPolyline* pPoly, AcGePoint3d& centroid);
 
-    // Open polylineId and textId, recalculate area, update text string.
-    bool UpdateAreaText(AcDbObjectId polylineId, AcDbObjectId textId);
-
     // ── xData persistence ────────────────────────────────────────────────────
     // App names — one per reactor type.
     extern const TCHAR* const AREA_APP_NAME;
@@ -86,15 +83,11 @@ namespace CadInfra
 
     void EnsureAppRegistered(AcDbDatabase* pDb, const TCHAR* appName);
 
-    void StoreAreaXData        (AcDbObjectId curveId, AcDbObjectId textId);
-    void StorePerimXData       (AcDbObjectId curveId, AcDbObjectId textId);
-    void StoreRoomXData        (AcDbObjectId curveId, AcDbObjectId textId,
-                                const CString& roomName);
-    void StoreSumXData         (AcDbObjectId curveId, AcDbObjectId textId);
-    void StoreLinearLengthXData(AcDbObjectId curveId, AcDbObjectId textId);
+    // Writes the curve -> label link as xdata under appName: the label's
+    // handle, plus an optional string (ATROOMTAG keeps the room name there).
+    void StoreLinkXData(AcDbObjectId curveId, AcDbObjectId labelId, const TCHAR* appName,
+                        const CString* text = nullptr);
 
-    // Scan model space of pDb and return all {curveId, textId} pairs that
-    // carry xData under appName.
     // A curve carrying appName xdata: the label it points at (handle) and the
     // first string stored with it (ATROOMTAG keeps the room name there).
     struct XDataLink
@@ -103,9 +96,6 @@ namespace CadInfra
         AcDbObjectId labelId;
         CString      text;
     };
+    // Every curve in model space of pDb that carries appName xdata.
     std::vector<XDataLink> CollectXDataLinks(AcDbDatabase* pDb, const TCHAR* appName);
-
-    void CollectXDataPairs(AcDbDatabase* pDb, const TCHAR* appName,
-                           std::vector<std::pair<AcDbObjectId,
-                                                 AcDbObjectId>>& pairs);
 }

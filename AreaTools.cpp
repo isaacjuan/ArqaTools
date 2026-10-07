@@ -44,88 +44,123 @@ void CurveTextReactor::erased(const AcDbObject*, Adesk::Boolean bErasing)
     }
 }
 
-// ── PolylineAreaReactor ──────────────────────────────────────────────────────
+// ── Label text and placement, shared by the Insert* cores and the reactors ──
+namespace
+{
+    AcDb::UnitsValue Units() { return acdbHostApplicationServices()->workingDatabase()->insunits(); }
+
+    CString AreaText(double area)        { return MeasureFormat::FormatArea(area, Units()); }
+    CString SumLengthText(double length) { return MeasureFormat::FormatLength(length, Units()); }
+    CString LengthText(double length)    { return MeasureFormat::FormatLength(length, Units(), true, true); }
+
+    CString PerimeterText(double length)
+    {
+        CString s;
+        s.Format(_T("P: %s"), (LPCTSTR)MeasureFormat::FormatLength(length, Units()));
+        return s;
+    }
+
+    CString RoomText(const CString& roomName, double area)
+    {
+        CString s;
+        s.Format(_T("%s\\P%s"), (LPCTSTR)roomName, (LPCTSTR)AreaText(area));
+        return s;
+    }
+
+    // Length label: text at the curve's midpoint, rotated perpendicular to it
+    // (kept readable) and offset half a text height to the left of the curve.
+    bool LengthLayout(AcDbObjectId curveId, CString& text, AcGePoint3d& pos, double& angle)
+    {
+        double length = 0.0;
+        AcGePoint3d midPt;
+        AcGeVector3d perp(0.0, 1.0, 0.0);
+        {
+            CommonTools::AcDbObjectGuard<AcDbCurve> curve(curveId);
+            if (!curve) return false;
+
+            double startParam, endParam;
+            curve->getStartParam(startParam);
+            curve->getEndParam(endParam);
+            CommonTools::CurveLength(curve.get(), length);
+
+            double midParam = (startParam + endParam) * 0.5;
+            curve->getPointAtParam(midParam, midPt);
+
+            AcGeVector3d tangent(1.0, 0.0, 0.0);
+            curve->getFirstDeriv(midParam, tangent);
+            if (tangent.length() > 1e-10) tangent.normalize();
+
+            perp  = AcGeVector3d(-tangent.y, tangent.x, 0.0);
+            angle = atan2(perp.y, perp.x);
+            if (angle > M_PI / 2.0 || angle <= -M_PI / 2.0) angle += M_PI;
+        }
+
+        double textHeight = CadInfra::ResolveTextHeight(acdbHostApplicationServices()->workingDatabase());
+        pos  = midPt + perp * (textHeight * 0.5);
+        text = LengthText(length);
+        return true;
+    }
+
+    // Keeps a new label linked to its curve: registers the reactor (so it
+    // updates now) and stores the link as xdata (so it is rebuilt on reopen).
+    AcDbObjectId LinkLabel(CurveTextReactor* reactor, const TCHAR* appName,
+                           const CString* xdataText = nullptr)
+    {
+        ReactorPersistence::Register(reactor);
+        CadInfra::StoreLinkXData(reactor->getCurveId(), reactor->getLabelId(), appName, xdataText);
+        return reactor->getLabelId();
+    }
+}
+
+// ── Concrete reactors: recompute the label from the curve ───────────────────
 void PolylineAreaReactor::updateLabel()
 {
-    CadInfra::UpdateAreaText(m_curveId, m_labelId);
+    double area = 0.0;
+    {
+        CommonTools::AcDbObjectGuard<AcDbPolyline> poly(m_curveId);
+        if (!poly || !poly->isClosed() || poly->getArea(area) != Acad::eOk) return;
+    }
+    CommonTools::AcDbObjectGuard<AcDbText> text(m_labelId, AcDb::kForWrite);
+    if (text) text->setTextString(AreaText(area));
 }
 
-// ── PerimeterReactor ─────────────────────────────────────────────────────────
 void PerimeterReactor::updateLabel()
 {
-    CommonTools::AcDbObjectGuard<AcDbCurve> curve(m_curveId);
-    if (!curve) return;
-
     double length = 0.0;
-    CommonTools::CurveLength(curve.get(), length);
-
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    CString label;
-    label.Format(_T("P: %s"),
-        (LPCTSTR)MeasureFormat::FormatLength(length, pDb->insunits()));
-
-    CommonTools::AcDbObjectGuard<AcDbText> text(m_labelId, AcDb::kForWrite);
-    if (text) text->setTextString(label);
-}
-
-// ── LinearLengthReactor ──────────────────────────────────────────────────────
-void LinearLengthReactor::updateLabel()
-{
-    double length = 0.0;
-    AcGePoint3d midPt;
-    double angle = 0.0;
-    AcGeVector3d perp(0.0, 1.0, 0.0);
-
     {
         CommonTools::AcDbObjectGuard<AcDbCurve> curve(m_curveId);
         if (!curve) return;
-
-        double startParam, endParam;
-        curve->getStartParam(startParam);
-        curve->getEndParam(endParam);
         CommonTools::CurveLength(curve.get(), length);
-
-        double midParam = (startParam + endParam) * 0.5;
-        curve->getPointAtParam(midParam, midPt);
-
-        AcGeVector3d tangent(1.0, 0.0, 0.0);
-        curve->getFirstDeriv(midParam, tangent);
-        if (tangent.length() > 1e-10) tangent.normalize();
-
-        perp  = AcGeVector3d(-tangent.y, tangent.x, 0.0);
-        angle = atan2(perp.y, perp.x);
-        if (angle > M_PI / 2.0 || angle <= -M_PI / 2.0) angle += M_PI;
     }
+    CommonTools::AcDbObjectGuard<AcDbText> text(m_labelId, AcDb::kForWrite);
+    if (text) text->setTextString(PerimeterText(length));
+}
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    double textHeight = CadInfra::ResolveTextHeight(pDb);
-    AcGePoint3d textPos = midPt + perp * (textHeight * 0.5);
+void LinearLengthReactor::updateLabel()
+{
+    CString str;
+    AcGePoint3d pos;
+    double angle = 0.0;
+    if (!LengthLayout(m_curveId, str, pos, angle)) return;
 
     CommonTools::AcDbObjectGuard<AcDbText> text(m_labelId, AcDb::kForWrite);
     if (!text) return;
-    text->setTextString(MeasureFormat::FormatLength(length, pDb->insunits(), true, true));
-    text->setPosition(textPos);
-    text->setAlignmentPoint(textPos);
+    text->setTextString(str);
+    text->setPosition(pos);
+    text->setAlignmentPoint(pos);
     text->setRotation(angle);
 }
 
-// ── RoomTagReactor ───────────────────────────────────────────────────────────
 void RoomTagReactor::updateLabel()
 {
-    CommonTools::AcDbObjectGuard<AcDbPolyline> poly(m_curveId);
-    if (!poly) return;
-
     double area = 0.0;
-    poly->getArea(area);
-
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    CString tagStr;
-    tagStr.Format(_T("%s\\P%s"),
-        (LPCTSTR)m_roomName,
-        (LPCTSTR)MeasureFormat::FormatArea(area, pDb->insunits()));
-
+    {
+        CommonTools::AcDbObjectGuard<AcDbPolyline> poly(m_curveId);
+        if (!poly) return;
+        poly->getArea(area);
+    }
     CommonTools::AcDbObjectGuard<AcDbMText> mtext(m_labelId, AcDb::kForWrite);
-    if (mtext) mtext->setContents(tagStr);
+    if (mtext) mtext->setContents(RoomText(m_roomName, area));
 }
 
 // ============================================================================
@@ -187,10 +222,8 @@ void PolylineSumLengthReactor::updateSumLengthText()
         if (CommonTools::CurveLength(curve.get(), len))
             total += len;
     }
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
     CommonTools::AcDbObjectGuard<AcDbText> text(m_textId, AcDb::kForWrite);
-    if (text)
-        text->setTextString(MeasureFormat::FormatLength(total, pDb->insunits()));
+    if (text) text->setTextString(SumLengthText(total));
 }
 
 void PolylineSumLengthReactor::removePolylineFromList(AcDbObjectId id)
@@ -247,16 +280,10 @@ AcDbObjectId AreaTools::InsertAreaLabel(AcDbObjectId polylineId, CString* err)
             return fail(_T("could not calculate centroid"));
     }
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    CString areaText = MeasureFormat::FormatArea(area, pDb->insunits());
-
-    AcDbObjectId textId = CadInfra::InsertText(centroid, areaText);
+    AcDbObjectId textId = CadInfra::InsertText(centroid, AreaText(area));
     if (textId.isNull()) return fail(_T("could not add text to drawing"));
 
-    auto* pReactor = new PolylineAreaReactor(polylineId, textId);
-    ReactorPersistence::Register(pReactor);
-    CadInfra::StoreAreaXData(polylineId, textId);
-    return textId;
+    return LinkLabel(new PolylineAreaReactor(polylineId, textId), CadInfra::AREA_APP_NAME);
 }
 
 // ============================================================================
@@ -265,36 +292,19 @@ AcDbObjectId AreaTools::InsertAreaLabel(AcDbObjectId polylineId, CString* err)
 
 // Accumulate curve lengths from a list of ids (non-curves are skipped).
 static bool CollectCurveLengths(const std::vector<AcDbObjectId>& candidates,
-                                 std::vector<AcDbObjectId>& ids,
-                                 double& totalLength, AcGePoint3d& centroid)
+                                 std::vector<AcDbObjectId>& ids, double& totalLength)
 {
-    double sumX = 0.0, sumY = 0.0, sumZ = 0.0;
-    int validCount = 0;
-
     for (AcDbObjectId objId : candidates)
     {
         CommonTools::AcDbObjectGuard<AcDbCurve> curve(objId);
-        if (!curve) continue;
         double len = 0.0;
-        if (CommonTools::CurveLength(curve.get(), len))
+        if (curve && CommonTools::CurveLength(curve.get(), len))
         {
             totalLength += len;
             ids.push_back(objId);
-            AcGePoint3d sp, ep;
-            if (curve->getStartPoint(sp) == Acad::eOk &&
-                curve->getEndPoint(ep)   == Acad::eOk)
-            {
-                AcGePoint3d mid = sp + (ep - sp) * 0.5;
-                sumX += mid.x; sumY += mid.y; sumZ += mid.z;
-                validCount++;
-            }
         }
     }
-
-    if (ids.empty()) return false;
-    if (validCount > 0)
-        centroid = AcGePoint3d(sumX / validCount, sumY / validCount, sumZ / validCount);
-    return true;
+    return !ids.empty();
 }
 
 AcDbObjectId AreaTools::InsertSumLengthLabel(const std::vector<AcDbObjectId>& curveIds,
@@ -305,20 +315,15 @@ AcDbObjectId AreaTools::InsertSumLengthLabel(const std::vector<AcDbObjectId>& cu
 
     std::vector<AcDbObjectId> ids;
     double total = 0.0;
-    AcGePoint3d centroid(0, 0, 0);
-    if (!CollectCurveLengths(curveIds, ids, total, centroid))
+    if (!CollectCurveLengths(curveIds, ids, total))
         return fail(_T("no valid curves"));
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    CString text = MeasureFormat::FormatLength(total, pDb->insunits());
-
-    AcDbObjectId textId = CadInfra::InsertText(pos, text);
+    AcDbObjectId textId = CadInfra::InsertText(pos, SumLengthText(total));
     if (textId.isNull()) return fail(_T("could not add text to drawing"));
 
-    auto* pReactor = new PolylineSumLengthReactor(ids, textId);
-    ReactorPersistence::Register(pReactor);
+    ReactorPersistence::Register(new PolylineSumLengthReactor(ids, textId));
     for (const auto& id : ids)
-        CadInfra::StoreSumXData(id, textId);
+        CadInfra::StoreLinkXData(id, textId, CadInfra::SUM_APP_NAME);
 
     if (totalOut)     *totalOut = total;
     if (monitoredOut) *monitoredOut = static_cast<int>(ids.size());
@@ -339,18 +344,10 @@ AcDbObjectId AreaTools::InsertRoomTag(AcDbObjectId polyId, const CString& roomNa
         CadInfra::GetPolylineCentroid(poly.get(), centroid);
     }
 
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    CString areaStr = MeasureFormat::FormatArea(area, pDb->insunits());
-    CString tagStr;
-    tagStr.Format(_T("%s\\P%s"), (LPCTSTR)roomName, (LPCTSTR)areaStr);
-
-    AcDbObjectId mtextId = CadInfra::InsertMText(centroid, tagStr);
+    AcDbObjectId mtextId = CadInfra::InsertMText(centroid, RoomText(roomName, area));
     if (mtextId.isNull()) return fail(_T("could not insert room tag"));
 
-    auto* pReactor = new RoomTagReactor(polyId, mtextId, roomName);
-    ReactorPersistence::Register(pReactor);
-    CadInfra::StoreRoomXData(polyId, mtextId, roomName);
-    return mtextId;
+    return LinkLabel(new RoomTagReactor(polyId, mtextId, roomName), CadInfra::ROOM_APP_NAME, &roomName);
 }
 
 AcDbObjectId AreaTools::InsertPerimeterLabel(AcDbObjectId polyId, CString* err)
@@ -373,66 +370,30 @@ AcDbObjectId AreaTools::InsertPerimeterLabel(AcDbObjectId polyId, CString* err)
     double offset = CadInfra::ResolveTextHeight(pDb) * 1.5;
     AcGePoint3d textPos(centroid.x, centroid.y - offset, centroid.z);
 
-    CString label;
-    label.Format(_T("P: %s"),
-        (LPCTSTR)MeasureFormat::FormatLength(length, pDb->insunits()));
-
-    AcDbObjectId textId = CadInfra::InsertText(textPos, label);
+    AcDbObjectId textId = CadInfra::InsertText(textPos, PerimeterText(length));
     if (textId.isNull()) return fail(_T("could not insert text"));
 
-    auto* pReactor = new PerimeterReactor(polyId, textId);
-    ReactorPersistence::Register(pReactor);
-    CadInfra::StorePerimXData(polyId, textId);
-    return textId;
+    return LinkLabel(new PerimeterReactor(polyId, textId), CadInfra::PERIM_APP_NAME);
 }
 
 // ============================================================================
 // LINEARLENGTH / TAGALL helper
 // Insert a perpendicular length label on a single curve + attach reactor.
 // ============================================================================
-AcDbObjectId AreaTools::InsertLengthLabel(AcDbObjectId curveId, const CString& layerName)
+AcDbObjectId AreaTools::InsertLengthLabel(AcDbObjectId curveId, const CString& layerName, CString* err)
 {
-    double length = 0.0;
-    AcGePoint3d  midPt;
+    CString str;
+    AcGePoint3d pos;
     double angle = 0.0;
-    AcGeVector3d perp(0.0, 1.0, 0.0);
-
-    {
-        CommonTools::AcDbObjectGuard<AcDbCurve> curve(curveId);
-        if (!curve) return AcDbObjectId::kNull;
-
-        double startParam, endParam;
-        curve->getStartParam(startParam);
-        curve->getEndParam(endParam);
-        CommonTools::CurveLength(curve.get(), length);
-
-        double midParam = (startParam + endParam) * 0.5;
-        curve->getPointAtParam(midParam, midPt);
-
-        AcGeVector3d tangent(1.0, 0.0, 0.0);
-        curve->getFirstDeriv(midParam, tangent);
-        if (tangent.length() > 1e-10) tangent.normalize();
-
-        perp  = AcGeVector3d(-tangent.y, tangent.x, 0.0);
-        angle = atan2(perp.y, perp.x);
-        if (angle > M_PI / 2.0 || angle <= -M_PI / 2.0) angle += M_PI;
-    } // curve closed before reactor construction
-
-    AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();
-    double textHeight = CadInfra::ResolveTextHeight(pDb);
-    AcGePoint3d textPos = midPt + perp * (textHeight * 0.5);
+    if (!LengthLayout(curveId, str, pos, angle))
+    { if (err) *err = _T("object is not a curve"); return AcDbObjectId::kNull; }
 
     // Left+base alignment so text grows away from the segment, not over it.
-    AcDbObjectId textId = CadInfra::InsertText(textPos,
-        MeasureFormat::FormatLength(length, pDb->insunits(), true, true),
-        angle, AcDb::kTextLeft, AcDb::kTextBase, layerName);
+    AcDbObjectId textId = CadInfra::InsertText(pos, str, angle, AcDb::kTextLeft, AcDb::kTextBase, layerName);
+    if (textId.isNull())
+    { if (err) *err = _T("could not add text to drawing"); return AcDbObjectId::kNull; }
 
-    if (textId == AcDbObjectId::kNull) return AcDbObjectId::kNull;
-
-    auto* pReactor = new LinearLengthReactor(curveId, textId);
-    ReactorPersistence::Register(pReactor);
-    CadInfra::StoreLinearLengthXData(curveId, textId);
-    return textId;
+    return LinkLabel(new LinearLengthReactor(curveId, textId), CadInfra::LL_APP_NAME);
 }
 
 // ============================================================================

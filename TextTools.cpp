@@ -118,12 +118,6 @@ namespace TextTools
         return TextType_None;
     }
 
-    // Check if entity is a text object (AcDbText or AcDbMText)
-    static bool IsTextEntity(AcDbEntity* pEnt)
-    {
-        return GetTextType(pEnt, nullptr, nullptr) != TextType_None;
-    }
-
     // Check if entity is a dimension
     static bool IsDimensionEntity(AcDbObject* pObj)
     {

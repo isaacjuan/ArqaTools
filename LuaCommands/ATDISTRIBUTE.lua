@@ -8,18 +8,8 @@
 -- Was C++; edit this file and run ATLUARELOAD, no rebuild needed. Holds several
 -- commands, so ATAICMD / ATLUACMDDEL leave it to be edited by hand.
 
+-- Fewest items per mode (DistributeTools::MinCount); checked here for a clear message.
 local MIN = { linear = 2, between = 1, equal = 1 }
-
--- Gap between neighbours for n items over distance d (DistributeTools::ModeSpacing).
-local function spacing(mode, n, d)
-    if mode == "linear" then return d / (n - 1) end
-    if mode == "between" then return d / (n + 1) end
-    return d / n
-end
-
-local function distance(a, b)
-    return math.sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2 + (b.z - a.z) ^ 2)
-end
 
 local function spacingText(mode, s)
     if mode == "equal" then return string.format("equal spacing %.2f (%.2f from ends)", s, s / 2) end
@@ -43,17 +33,17 @@ local function copyDistribute(name, mode, source, count, a, b)
         print(string.format("%s: need at least %d copies.", name, MIN[mode]))
         return
     end
-    local copies, err = at.distributeCopies(source, count, a.x, a.y, a.z, b.x, b.y, b.z, mode)
-    if not copies then print(name .. ": " .. err); return end
-    print(string.format("%s: %d copies placed, %s.", name, #copies, spacingText(mode, spacing(mode, count, distance(a, b)))))
+    local copies, gap = at.distributeCopies(source, count, a.x, a.y, a.z, b.x, b.y, b.z, mode)
+    if not copies then print(name .. ": " .. gap); return end
+    print(string.format("%s: %d copies placed, %s.", name, #copies, spacingText(mode, gap)))
 end
 
 -- ATDIST<LINE|BETWEEN|EQUAL>: move the selected objects.
 local function defineDistribute(name, mode, what)
     at.defineCommand(name, function(p)
-        local n, err = at.distribute(p.objects, p.from.x, p.from.y, p.from.z, p.to.x, p.to.y, p.to.z, mode)
-        if not n then print(name .. ": " .. err); return end
-        print(string.format("%s: distributed %d object(s), %s.", name, n, spacingText(mode, spacing(mode, n, distance(p.from, p.to)))))
+        local n, gap = at.distribute(p.objects, p.from.x, p.from.y, p.from.z, p.to.x, p.to.y, p.to.z, mode)
+        if not n then print(name .. ": " .. gap); return end
+        print(string.format("%s: distributed %d object(s), %s.", name, n, spacingText(mode, gap)))
     end, "Distributes objects " .. what .. " (grouped objects move as a whole)", withLine({
         { name = "objects", type = "selection", prompt = "Select objects", description = "Objects to distribute" },
     }))
