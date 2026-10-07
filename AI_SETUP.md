@@ -36,20 +36,36 @@ providers = {
 |---|---|
 | `label` | Shown by `ATAISETENDPOINT` |
 | `url` | Request URL; `{model}` is replaced by the model (used by Gemini) |
-| `format` | `"openai"` (chat/completions JSON) or `"gemini"` (generateContent) |
-| `auth` | `"bearer"` (Authorization header), `"query"` (`?key=`, Gemini) or `"none"` (Ollama) |
+| `format` | `"openai"` (chat/completions JSON), `"gemini"` (generateContent) or `"anthropic"` (Claude Messages API) |
+| `auth` | `"bearer"` (Authorization header), `"x-api-key"` (Anthropic), `"query"` (`?key=`, Gemini) or `"none"` (Ollama) |
 | `model` | Model sent with each request (`ATAISETMODEL` rewrites it) |
 | `vision` | `true` if the model reads images: `ATAICMD`'s test-run review then attaches a plan view of what the new command drew; `false` falls back to the text report |
-| `max_tokens`, `temperature` | Request limits (defaults 8192 and 0.7) |
+| `max_tokens`, `temperature` | Request limits (defaults 8192 and 0.7). `anthropic` sends `temperature` only when it is set in the file: Claude 4.7 and later reject any non-default value with HTTP 400 |
 | `timeout` | Seconds to wait for the reply (default 180). WinHTTP's own default is 30 s, too short for models that reason before answering (DeepSeek's default thinking mode) |
 | `key_env` | Optional: environment variable holding the key (wins over the stored key) |
 | `key_url` | Where to get a key (shown by `ATAISETENDPOINT` / `ATAISETTOKEN`) |
 | `models_url` | Optional: URL that lists the models (`ATAILISTMODELS`) |
 | `extra` | Optional: raw JSON members added to every request body, e.g. `'"thinking":{"type":"disabled"}'` |
 
-Default providers: `github` (GitHub Models), `copilot`, `gemini`, `openai`, `deepseek`
+Default providers: `github` (GitHub Models), `copilot`, `gemini`, `openai`, `anthropic`, `deepseek`
 (`deepseek-flash` reads images, `deepseek-v4-pro` is text-only), `ollama` (local, no key).
 Any other OpenAI-compatible service is one more entry in `providers`.
+
+`anthropic` (Claude) is in the defaults of a newly written file. An existing `ai_config.lua` is
+never rewritten, so add it by hand:
+
+```lua
+  anthropic = {
+    label = "Anthropic Claude",
+    url = "https://api.anthropic.com/v1/messages",
+    format = "anthropic", auth = "x-api-key", model = "claude-sonnet-5-5", vision = true,
+    key_url = "https://platform.claude.com/settings/keys",
+    models_url = "https://api.anthropic.com/v1/models",
+  },
+```
+
+A Claude reply cut off at `max_tokens`, or refused, is reported as an error instead of being
+treated as code.
 
 `ATAISETENDPOINT` and `ATAISETMODEL` rewrite the `active` line and the provider's `model`
 value in place; everything else in the file, comments included, is kept.

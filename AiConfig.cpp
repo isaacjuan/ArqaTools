@@ -84,12 +84,15 @@ const char* const kHeader =
 "-- providers    one entry per service:\n"
 "--   label        shown by ATAISETENDPOINT\n"
 "--   url          request URL; {model} is replaced by the model\n"
-"--   format       \"openai\" (chat/completions JSON) or \"gemini\" (generateContent)\n"
-"--   auth         \"bearer\" (Authorization header), \"query\" (?key=, Gemini) or \"none\"\n"
+"--   format       \"openai\" (chat/completions JSON), \"gemini\" (generateContent)\n"
+"--                or \"anthropic\" (Claude Messages API)\n"
+"--   auth         \"bearer\" (Authorization header), \"x-api-key\" (Anthropic),\n"
+"--                \"query\" (?key=, Gemini) or \"none\"\n"
 "--   model        model sent with each request (ATAISETMODEL changes it)\n"
 "--   vision       true if the model reads images: ATAICMD's test-run review then\n"
 "--                attaches a plan view of what the new command drew\n"
-"--   max_tokens, temperature\n"
+"--   max_tokens, temperature (anthropic: sent only when set here; Claude 4.7+\n"
+"--                models reject any value but the default)\n"
 "--   timeout      seconds to wait for the reply (default 180; models that think first are slow)\n"
 "--   key_env      optional: environment variable holding the API key\n"
 "--   key_url      where to get a key\n"
@@ -140,6 +143,13 @@ const char* const kProviders =
 "    key_url = \"https://platform.openai.com/api-keys\",\n"
 "    models_url = \"https://api.openai.com/v1/models\",\n"
 "  },\n"
+"  anthropic = {\n"
+"    label = \"Anthropic Claude\",\n"
+"    url = \"https://api.anthropic.com/v1/messages\",\n"
+"    format = \"anthropic\", auth = \"x-api-key\", model = \"claude-sonnet-5-5\", vision = true,\n"
+"    key_url = \"https://platform.claude.com/settings/keys\",\n"
+"    models_url = \"https://api.anthropic.com/v1/models\",\n"
+"  },\n"
 "  deepseek = {\n"
 "    label = \"DeepSeek (deepseek-flash reads images, deepseek-v4-pro is text-only)\",\n"
 "    url = \"https://api.deepseek.com/chat/completions\",\n"
@@ -163,6 +173,7 @@ CString ProviderForLegacyEndpoint(const CString& endpoint)
     if (e.Find(_T("githubcopilot")) >= 0)                                return _T("copilot");
     if (e.Find(_T("generativelanguage")) >= 0)                           return _T("gemini");
     if (e.Find(_T("api.openai.com")) >= 0)                               return _T("openai");
+    if (e.Find(_T("api.anthropic.com")) >= 0)                            return _T("anthropic");
     if (e.Find(_T("deepseek")) >= 0)                                     return _T("deepseek");
     if (e.Find(_T("localhost")) >= 0 || e.Find(_T("127.0.0.1")) >= 0)    return _T("ollama");
     return _T("custom");
@@ -243,6 +254,9 @@ bool ReadProvider(lua_State* L, int idx, const CString& name, Provider& p, CStri
     p.vision      = BoolField(L, idx, "vision", false);
     p.maxTokens   = static_cast<int>(NumberField(L, idx, "max_tokens", 8192));
     p.temperature = NumberField(L, idx, "temperature", 0.7);
+    lua_getfield(L, idx, "temperature");
+    p.temperatureSet = lua_isnumber(L, -1) != 0;
+    lua_pop(L, 1);
     p.timeoutSeconds = static_cast<int>(NumberField(L, idx, "timeout", 180));
     if (p.timeoutSeconds < 5) p.timeoutSeconds = 5;
     p.keyEnv      = StringField(L, idx, "key_env");
@@ -253,10 +267,10 @@ bool ReadProvider(lua_State* L, int idx, const CString& name, Provider& p, CStri
     p.auth.MakeLower();
 
     if (p.url.IsEmpty()) { err = _T("provider '") + name + _T("' has no url"); return false; }
-    if (p.format != _T("openai") && p.format != _T("gemini"))
-    { err = _T("provider '") + name + _T("': format must be \"openai\" or \"gemini\""); return false; }
-    if (p.auth != _T("bearer") && p.auth != _T("query") && p.auth != _T("none"))
-    { err = _T("provider '") + name + _T("': auth must be \"bearer\", \"query\" or \"none\""); return false; }
+    if (p.format != _T("openai") && p.format != _T("gemini") && p.format != _T("anthropic"))
+    { err = _T("provider '") + name + _T("': format must be \"openai\", \"gemini\" or \"anthropic\""); return false; }
+    if (p.auth != _T("bearer") && p.auth != _T("x-api-key") && p.auth != _T("query") && p.auth != _T("none"))
+    { err = _T("provider '") + name + _T("': auth must be \"bearer\", \"x-api-key\", \"query\" or \"none\""); return false; }
 
     CString url = p.url;
     url.Replace(_T("{model}"), p.model);

@@ -73,12 +73,13 @@ namespace AITools
 
     // -------------------------------------------------------------------------
     // HttpRequest: GET or POST via WinHTTP. Supports both HTTPS (cloud APIs)
-    // and plain HTTP (local Ollama). An empty payload sends no body. Sets
+    // and plain HTTP (local Ollama). An empty payload sends no body. `headers`
+    // are extra request headers, each ending in \r\n (see AuthHeaders). Sets
     // statusCode to the HTTP status (0 on error).
     // -------------------------------------------------------------------------
     static CString HttpRequest(const wchar_t* method, const CString& host, INTERNET_PORT port, bool useHttps,
                                const CString& requestPath, const CString& jsonPayload,
-                               bool addBearerAuth, const CString& token, DWORD& statusCode,
+                               const CString& headers, DWORD& statusCode,
                                int timeoutSeconds = 180)
     {
         statusCode = 0;
@@ -117,11 +118,8 @@ namespace AITools
         if (!jsonPayload.IsEmpty())
             WinHttpAddRequestHeaders(hRequest, _T("Content-Type: application/json"),
                                      -1, WINHTTP_ADDREQ_FLAG_ADD);
-        if (addBearerAuth)
-        {
-            CString auth = _T("Authorization: Bearer ") + token;
-            WinHttpAddRequestHeaders(hRequest, auth, -1, WINHTTP_ADDREQ_FLAG_ADD);
-        }
+        if (!headers.IsEmpty())
+            WinHttpAddRequestHeaders(hRequest, headers, -1, WINHTTP_ADDREQ_FLAG_ADD);
 
         int utf8Len = WideCharToMultiByte(CP_UTF8, 0, jsonPayload, -1, NULL, 0, NULL, NULL);
         std::vector<char> utf8Buf(utf8Len);
@@ -167,6 +165,17 @@ namespace AITools
         std::vector<wchar_t> wideBuf(wideLen);
         MultiByteToWideChar(CP_UTF8, 0, body.c_str(), -1, wideBuf.data(), wideLen);
         return CString(wideBuf.data());
+    }
+
+    // Auth headers for a provider: "bearer" -> Authorization, "x-api-key" ->
+    // Anthropic's key header. The Anthropic format always needs its version header.
+    static CString AuthHeaders(const AiConfig::Provider& p, const CString& key)
+    {
+        CString h;
+        if (p.auth == _T("bearer"))    h += _T("Authorization: Bearer ") + key + _T("\r\n");
+        if (p.auth == _T("x-api-key")) h += _T("x-api-key: ") + key + _T("\r\n");
+        if (p.format == _T("anthropic")) h += _T("anthropic-version: 2023-06-01\r\n");
+        return h;
     }
 
     // -------------------------------------------------------------------------
@@ -335,6 +344,67 @@ namespace AITools
         return CString(buf);
     }
 
+    // Anthropic Messages API reply: {"content":[{"type":"text","text":"..."},...],
+    // "stop_reason":"..."}. Joins every "text" member of the content blocks (other
+    // block types, e.g. thinking, are skipped) and turns a cut-off or refused
+    // reply into an error, so the harness does not treat it as code. Same
+    // unescaping as ExtractContent (\n stays escaped).
+    static CString ExtractAnthropicContent(const CString& json, const AiConfig::Provider& p)
+    {
+        auto stringAt = [&json](int quoteStart, int& end) -> CString
+        {
+            int i = quoteStart + 1;
+            while (i < json.GetLength() && json[i] != _T('"'))
+                i += json[i] == _T('\\') ? 2 : 1;
+            end = i;
+            return json.Mid(quoteStart + 1, i - quoteStart - 1);
+        };
+        // Value of the string member `"name":` at or after `from`; empty if absent.
+        auto member = [&](const CString& name, int from, int& end) -> CString
+        {
+            CString key = _T("\"") + name + _T("\"");
+            for (int pos = json.Find(key, from); pos >= 0; pos = json.Find(key, pos + 1))
+            {
+                int i = pos + key.GetLength();
+                while (i < json.GetLength() && _istspace(json[i])) ++i;
+                if (i >= json.GetLength() || json[i] != _T(':')) continue;   // a value, not a key
+                ++i;
+                while (i < json.GetLength() && _istspace(json[i])) ++i;
+                if (i < json.GetLength() && json[i] == _T('"')) return stringAt(i, end);
+                end = i;
+                return CString();
+            }
+            end = -1;
+            return CString();
+        };
+
+        int end = 0;
+        CString stopReason = member(_T("stop_reason"), 0, end);
+        if (stopReason == _T("refusal"))
+            return _T("Error: the model refused the request (stop_reason refusal). ") + json.Left(300);
+
+        int contentPos = json.Find(_T("\"content\""));
+        if (contentPos < 0) return _T("Error: Could not parse response");
+        CString text;
+        for (int from = contentPos;;)
+        {
+            CString part = member(_T("text"), from, end);
+            if (end < 0) break;
+            text += part;
+            from = end + 1;
+        }
+        if (stopReason == _T("max_tokens"))
+            return _T("Error: the reply was cut off at max_tokens (") + JsonNumber(p.maxTokens)
+                 + _T(") - raise max_tokens for '") + p.name + _T("' in ai_config.lua (ATAICONFIG).");
+        if (text.IsEmpty()) return _T("Error: empty reply (stop_reason ") + stopReason + _T(")");
+
+        text.Replace(_T("\\r"), _T("\r"));
+        text.Replace(_T("\\t"), _T("\t"));
+        text.Replace(_T("\\\""), _T("\""));
+        text.Replace(_T("\\\\"), _T("\\"));
+        return text;
+    }
+
     // One request to the active provider (ai_config.lua). An image rides on
     // the last user message - the only role that may carry one.
     static CString SendRequest(const std::vector<ChatMessage>& messages, const CString* imageBase64)
@@ -374,6 +444,28 @@ namespace AITools
             body += _T("]}],\"generationConfig\":{\"maxOutputTokens\":") + JsonNumber(p.maxTokens)
                   + _T(",\"temperature\":") + JsonNumber(p.temperature) + _T("}");
         }
+        else if (p.format == _T("anthropic"))
+        {
+            // Messages API. No prefill (history always ends on a user turn) and no
+            // temperature unless the config sets one: newer Claude models reject
+            // a non-default value with HTTP 400.
+            body = _T("{\"model\":\"") + EscapeJsonString(p.model) + _T("\",\"max_tokens\":") + JsonNumber(p.maxTokens)
+                 + _T(",\"messages\":[");
+            for (int i = 0; i < static_cast<int>(messages.size()); ++i)
+            {
+                if (i > 0) body += _T(",");
+                CString text = _T("\"") + EscapeJsonString(messages[i].content) + _T("\"");
+                body += _T("{\"role\":\"") + messages[i].role + _T("\",\"content\":");
+                if (imageBase64 && i == lastUser)
+                    body += _T("[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":\"")
+                          + *imageBase64 + _T("\"}},{\"type\":\"text\",\"text\":") + text + _T("}]");
+                else
+                    body += text;
+                body += _T("}");
+            }
+            body += _T("]");
+            if (p.temperatureSet) body += _T(",\"temperature\":") + JsonNumber(p.temperature);
+        }
         else
         {
             body = _T("{\"model\":\"") + EscapeJsonString(p.model) + _T("\",\"messages\":[");
@@ -401,9 +493,10 @@ namespace AITools
 
         DWORD statusCode = 0;
         CString response = HttpRequest(L"POST", p.host, p.port, p.https, path, body,
-                                       p.auth == _T("bearer"), key, statusCode, p.timeoutSeconds);
+                                       AuthHeaders(p, key), statusCode, p.timeoutSeconds);
         if (statusCode == 0)   return response;
         if (statusCode != 200) return FormatHttpError(statusCode, response, p);
+        if (p.format == _T("anthropic")) return ExtractAnthropicContent(response, p);
         return ExtractContent(response);
     }
 
@@ -561,7 +654,7 @@ namespace AITools
 
         acutPrintf(_T("Provider: %s\nFetching %s ...\n\n"), (LPCTSTR)p.name, (LPCTSTR)p.modelsUrl);
         DWORD statusCode = 0;
-        CString body = HttpRequest(L"GET", host, port, https, path, CString(), p.auth == _T("bearer"), key, statusCode);
+        CString body = HttpRequest(L"GET", host, port, https, path, CString(), AuthHeaders(p, key), statusCode);
         if (statusCode == 0)        acutPrintf(_T("%s\n"), (LPCTSTR)body);
         else if (statusCode != 200) acutPrintf(_T("%s\n"), (LPCTSTR)FormatHttpError(statusCode, body, p));
         else

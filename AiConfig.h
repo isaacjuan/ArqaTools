@@ -25,12 +25,13 @@ namespace AiConfig
         CString name;          // key in `providers`
         CString label;         // shown by ATAISETENDPOINT
         CString url;           // request URL; {model} is replaced by `model`
-        CString format;        // "openai" (chat/completions) or "gemini" (generateContent)
-        CString auth;          // "bearer", "query" (?key=) or "none"
+        CString format;        // "openai" (chat/completions), "gemini" (generateContent) or "anthropic" (messages)
+        CString auth;          // "bearer", "x-api-key" (Anthropic), "query" (?key=) or "none"
         CString model;
         bool    vision = false;    // may receive images (ATAICMD's test-run review)
         int     maxTokens = 8192;
         double  temperature = 0.7;
+        bool    temperatureSet = false;   // set in the file; "anthropic" sends temperature only then
         int     timeoutSeconds = 180;   // waiting for the reply (models that think first are slow)
         CString keyEnv;       // environment variable holding the key (optional)
         CString keyUrl;        // where to get a key (shown to the user)
