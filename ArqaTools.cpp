@@ -112,7 +112,6 @@ AcRx::AppRetCode CArqaToolsApp::On_kInitAppMsg(void* pAppData)
         // Area / Measurement
         { _T("ATINSERTAREA"),       insertAreaCommand           },
         { _T("ATSUMLENGTH"),        sumLengthCommand            },
-        { _T("ATROOMTAG"),          roomTagCommand              },
         { _T("ATPERIMETER"),        perimeterCommand            },
         { _T("ATLINEARLENGTH"),     linearLengthCommand         },
         { _T("ATCOUNTBLOCKS"),      countBlocksCommand          },
@@ -344,12 +343,6 @@ void CArqaToolsApp::versionCommand()
     acutPrintf(_T("====================================\n"));
 }
 
-// ROOMTAG command
-void CArqaToolsApp::roomTagCommand()
-{
-    ::roomTagCommand();
-}
-
 // PERIMETER command
 void CArqaToolsApp::perimeterCommand()
 {
@@ -516,7 +509,7 @@ void CArqaToolsApp::arqaHelpCommand()
     acutPrintf(_T("ATTAGALL      - Insert length text on all selected lines/polylines\n"));
     acutPrintf(_T("ATSPLITLINE   - Split a line by intersecting lines, creating individual segments\n"));
     acutPrintf(_T("ATSPLITPOLI   - Split a polyline by intersecting lines, creating individual polyline segments\n"));
-    acutPrintf(_T("ATROOMTAG     - Insert room name + area label in closed polyline\n"));
+    acutPrintf(_T("ATROOMTAG     - Insert room name + area label in closed polyline (Lua command)\n"));
     acutPrintf(_T("ATCOUNTBLOCKS - Count block instances in selection or drawing\n"));
     
     acutPrintf(_T("\n--- DECORATIVE / PATTERN TOOLS ---\n"));

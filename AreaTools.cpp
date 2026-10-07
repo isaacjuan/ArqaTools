@@ -357,39 +357,6 @@ AcDbObjectId AreaTools::InsertSumLengthLabel(const std::vector<AcDbObjectId>& cu
     return textId;
 }
 
-// ============================================================================
-// ROOMTAG - Insert room name + area label on a closed polyline
-// ============================================================================
-void roomTagCommand()
-{
-    acutPrintf(_T("\nROOMTAG - Insert room tag (name + area) in closed polyline"));
-
-    ads_name ent; ads_point pt;
-    if (acedEntSel(_T("\nSelect closed polyline (room boundary): "), ent, pt) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    AcDbObjectId polyId;
-    acdbGetObjectId(polyId, ent);
-
-    {
-        CommonTools::AcDbObjectGuard<AcDbPolyline> poly(polyId);
-        if (!poly) { acutPrintf(_T("\nError: Cannot open object.")); return; }
-        if (!poly->isClosed()) { acutPrintf(_T("\nError: Polyline must be closed.")); return; }
-    }
-
-    TCHAR roomNameBuf[256];
-    if (acedGetString(1, _T("\nRoom name: "), roomNameBuf) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-    CString roomName(roomNameBuf);
-
-    CString err;
-    AcDbObjectId mtextId = AreaTools::InsertRoomTag(polyId, roomName, &err);
-    if (mtextId.isNull())
-    { acutPrintf(_T("\nError: %s."), (LPCTSTR)err); return; }
-
-    acutPrintf(_T("\nRoom tag inserted: %s"), (LPCTSTR)roomName);
-}
-
 AcDbObjectId AreaTools::InsertRoomTag(AcDbObjectId polyId, const CString& roomName, CString* err)
 {
     auto fail = [err](const TCHAR* msg) { if (err) *err = msg; return AcDbObjectId::kNull; };

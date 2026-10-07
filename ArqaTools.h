@@ -38,7 +38,6 @@ public:
     static void reloadCommand();
     static void versionCommand();
     static void arqaHelpCommand();
-    static void roomTagCommand();
     static void perimeterCommand();
     static void linearLengthCommand();
     static void countBlocksCommand();
