@@ -5,12 +5,15 @@
 --   ATCOPYTEXTFULL  same as ATCOPYSTYLE plus the text height
 --   ATCOPYDIMSTYLE  dimension style
 -- The style work is at.copyTextStyle / at.copyDimStyle (TextTools::CopyTextStyle /
--- CopyDimStyle). The source is checked before the destinations are asked for.
+-- CopyDimStyle). The source is checked before the destinations are asked for
+-- (p.dests is only asked when first read).
 -- Was C++; edit this file and run ATLUARELOAD, no rebuild needed. Holds several
 -- commands, so ATAICMD / ATLUACMDDEL leave it to be edited by hand.
 
 local SOURCE = { name = "source", type = "entity", prompt = "Select source", optional = true,
                  description = "Object to copy from" }
+local DESTS  = { name = "dests", type = "selection", prompt = "Select destination objects", optional = true,
+                 description = "Objects to copy to (the source is skipped)" }
 
 at.defineCommand("ATCOPYTEXT", function(p)
     if not p.source then print("ATCOPYTEXT: command cancelled."); return end
@@ -19,8 +22,8 @@ at.defineCommand("ATCOPYTEXT", function(p)
 
     print('Source text: "' .. text .. '"')
     print("Select destination text objects...")
-    local dests = at.getSelection()
-    if #dests == 0 then print("ATCOPYTEXT: no destination objects selected."); return end
+    local dests = p.dests
+    if not dests then print("ATCOPYTEXT: no destination objects selected."); return end
     print(string.format("Selected %d destination objects.", #dests))
 
     local updated, skipped = 0, 0
@@ -29,7 +32,7 @@ at.defineCommand("ATCOPYTEXT", function(p)
         else skipped = skipped + 1 end
     end
     print(string.format("Copy complete: %d text objects updated, %d skipped", updated, skipped))
-end, "Copies the text content of one TEXT/MTEXT to other text objects", { SOURCE })
+end, "Copies the text content of one TEXT/MTEXT to other text objects", { SOURCE, DESTS })
 
 -- ATCOPYSTYLE / ATCOPYTEXTFULL: one body, includeHeight decides the height.
 local function defineCopyStyle(name, includeHeight, description)
@@ -40,15 +43,15 @@ local function defineCopyStyle(name, includeHeight, description)
             print(name .. ": source entity is not a text object."); return
         end
 
-        local dests = at.getSelection()
-        if #dests == 0 then print(name .. ": no destination objects selected."); return end
+        local dests = p.dests
+        if not dests then print(name .. ": no destination objects selected."); return end
         print(string.format("Processing %d destination object(s)...", #dests))
 
         local updated, err = at.copyTextStyle(p.source, dests, includeHeight)
         if not updated then print(name .. ": " .. err .. "."); return end
         -- Every destination is either updated or skipped.
         print(string.format("Updated: %d | Skipped: %d", updated, #dests - updated))
-    end, description, { SOURCE })
+    end, description, { SOURCE, DESTS })
 end
 
 defineCopyStyle("ATCOPYSTYLE", false, "Copies text style properties (not height) from one text to others")
@@ -60,11 +63,11 @@ at.defineCommand("ATCOPYDIMSTYLE", function(p)
         print("ATCOPYDIMSTYLE: source entity is not a dimension."); return
     end
 
-    local dests = at.getSelection()
-    if #dests == 0 then print("ATCOPYDIMSTYLE: no destination objects selected."); return end
+    local dests = p.dests
+    if not dests then print("ATCOPYDIMSTYLE: no destination objects selected."); return end
     print(string.format("Processing %d destination object(s)...", #dests))
 
     local updated, err = at.copyDimStyle(p.source, dests)
     if not updated then print("ATCOPYDIMSTYLE: " .. err .. "."); return end
     print(string.format("Updated: %d | Skipped: %d", updated, #dests - updated))
-end, "Copies the dimension style of one dimension to other dimensions", { SOURCE })
+end, "Copies the dimension style of one dimension to other dimensions", { SOURCE, DESTS })

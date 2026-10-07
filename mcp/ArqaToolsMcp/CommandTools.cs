@@ -125,11 +125,14 @@ public sealed class CommandTools(BridgeClient bridge, ILogger<CommandTools> log)
         if (required.Count > 0) input["required"] = required;
 
         var description = command.GetProperty("description").GetString() ?? "";
+        bool promptsInBody = command.TryGetProperty("promptsInBody", out var pib) && pib.GetBoolean();
         return new Tool
         {
             Name = name,
             Description = (description.Length > 0 ? description + ". " : "") +
-                          $"ArqaTools Lua command {name}, run in the open AutoCAD drawing as one UNDO step.",
+                          $"ArqaTools Lua command {name}, run in the open AutoCAD drawing as one UNDO step." +
+                          (promptsInBody ? " It also asks for input that is not a parameter, so a call can fail " +
+                                           "with 'no answer'; use run_command with answers for those." : ""),
             InputSchema = JsonSerializer.SerializeToElement(input),
             Annotations = new ToolAnnotations { DestructiveHint = true, ReadOnlyHint = false },
         };
@@ -147,6 +150,9 @@ public sealed class CommandTools(BridgeClient bridge, ILogger<CommandTools> log)
             "keyword"   => new() { ["type"] = "string",
                                    ["enum"] = JsonNode.Parse(p.GetProperty("options").GetRawText()) },
             "selection" => new() { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string" } },
+            "points"    => new() { ["type"] = "array", ["minItems"] = 1,
+                                   ["items"] = new JsonObject { ["type"] = "array", ["minItems"] = 2, ["maxItems"] = 3,
+                                                                ["items"] = new JsonObject { ["type"] = "number" } } },
             _           => new() { ["type"] = "string" },
         };
 
@@ -154,6 +160,7 @@ public sealed class CommandTools(BridgeClient bridge, ILogger<CommandTools> log)
         if (p.TryGetProperty("description", out var d)) text.Append(d.GetString());
         else if (p.TryGetProperty("prompt", out var pr)) text.Append(pr.GetString());
         if (type == "point")     text.Append(" [x, y, z] in WCS (z optional)");
+        if (type == "points")    text.Append(" [[x, y, z], ...] in WCS (z optional)");
         if (type == "entity")    text.Append(" (entity handle)");
         if (type == "selection") text.Append(" (entity handles");
         if (type == "selection" && p.TryGetProperty("filter", out var f)) text.Append(", types ").Append(f.GetString());

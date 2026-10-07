@@ -16,13 +16,15 @@ at.defineCommand("ATSUMLENGTH", function(p)
     if #curves == 0 then print("ATSUMLENGTH: no valid curves selected."); return end
     print("Total length: " .. at.formatLength(total))
 
-    local x, y, z = at.getPoint("Specify position for text")
-    if not x then print("ATSUMLENGTH: cancelled."); return end
+    local pos = p.position   -- asked here, after the total is shown
+    if not pos then print("ATSUMLENGTH: cancelled."); return end
 
-    local text, err = at.sumLengthLabel(curves, x, y, z)
+    local text, err = at.sumLengthLabel(curves, pos.x, pos.y, pos.z)
     if not text then print("ATSUMLENGTH: " .. err .. "."); return end
     print(string.format("Sum length text inserted. Monitoring %d curve(s).", #curves))
 end, "Inserts an auto-updating sum of lengths for the selected curves", {
     { name = "objects", type = "selection", prompt = "Select curves",
       description = "Lines, arcs, circles, polylines; other objects are skipped" },
+    { name = "position", type = "point", optional = true, prompt = "Specify position for text",
+      description = "Where the sum text goes" },
 })

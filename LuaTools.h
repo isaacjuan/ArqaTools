@@ -99,6 +99,10 @@ namespace LuaTools
         // description, default, optional, options, filter); empty when none.
         std::string commandParamsJson(const std::string& name);
 
+        // The declared parameters in one line for AI prompts, e.g.
+        // "base (point); rows (integer, default 3) Number of rows"; empty when none.
+        std::string commandParamsBrief(const std::string& name);
+
         // Values for a test run of a command with declared parameters (each
         // default, else a plausible value per type) as a Lua table
         // constructor for LuaRunOptions::params. Empty + reason when the
@@ -130,6 +134,23 @@ namespace LuaTools
     // Runs inside the calling command, so everything a script does is a
     // single UNDO step.
     LuaRunResult runLuaScript(const std::string& code, const LuaRunOptions& opts = {});
+
+    // LuaCommands, which owns the installed commands, plugs in here so every
+    // engine can use them: at.runCommand runs a command the calling engine
+    // does not hold, and describeApi() lists them for the AI prompts.
+    struct CommandHost
+    {
+        // params: Lua table constructor of named parameters; empty = the
+        // user answers the prompts.
+        bool (*run)(const std::string& name, const std::string& params, bool testRun,
+                    std::string& output, std::string& error, bool& cancelled) = nullptr;
+        // One entry per installed command: name, description, parameters.
+        std::string (*catalog)() = nullptr;
+    };
+    void setCommandHost(const CommandHost& host);
+
+    // The installed commands (CommandHost::catalog), or "" without a host.
+    std::string commandCatalog();
 
     // Human/AI-readable reference of the `at` API, generated from the same
     // table that registers the functions - so the ATAILUA prompt can never

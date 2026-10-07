@@ -29,6 +29,7 @@ struct CmdInfo
     CString file;          // full path of the defining file
     int     slot = -1;
     CString lastError;     // last failed run (with traceback); empty when fine
+    bool    promptsInBody = false;   // the file calls at.get* (see PromptsInBody)
 };
 
 std::unique_ptr<LuaTools::LuaEngine> g_engine;
@@ -218,6 +219,40 @@ bool LiveDefine(void*, const char* name, const char* desc, char* err, size_t err
     return true;
 }
 
+// True when Lua code (comments ignored) calls an at.get* input function
+// itself. Such inputs are not declared parameters, so AI agents and
+// at.runCommand cannot pass them by name.
+bool PromptsInBody(const std::string& code)
+{
+    static const char* const kInputs[] = { "getPoint", "getDistance", "getReal", "getInt", "getString",
+                                           "getKeyword", "getEntity", "getSelection" };
+    size_t pos = 0;
+    while (pos < code.size())
+    {
+        size_t eol = code.find('\n', pos);
+        if (eol == std::string::npos) eol = code.size();
+        std::string line = code.substr(pos, eol - pos);
+        size_t comment = line.find("--");
+        if (comment != std::string::npos) line.resize(comment);
+        for (size_t at = line.find("at."); at != std::string::npos; at = line.find("at.", at + 3))
+        {
+            if (at > 0 && (isalnum(static_cast<unsigned char>(line[at - 1])) || line[at - 1] == '_')) continue;
+            for (const char* fn : kInputs)
+            {
+                size_t n = strlen(fn);
+                if (line.compare(at + 3, n, fn) == 0)
+                {
+                    size_t k = at + 3 + n;
+                    while (k < line.size() && line[k] == ' ') ++k;
+                    if (k < line.size() && line[k] == '(') return true;
+                }
+            }
+        }
+        pos = eol + 1;
+    }
+    return false;
+}
+
 // Runs one file's top level in the live engine; on failure, unregisters
 // whatever it had already defined so a broken file leaves nothing behind.
 bool LoadFile(const CString& path, CString& err)
@@ -235,7 +270,13 @@ bool LoadFile(const CString& path, CString& err)
     LuaTools::LuaRunResult r = g_engine->runChunk(code, "@" + ToUtf8(FileNameOf(path)), opts);
     g_engine->setLoading(false);
     g_loadingFile.Empty();
-    if (r.ok) return true;
+    if (r.ok)
+    {
+        bool inBody = PromptsInBody(code);
+        for (auto& kv : g_cmds)
+            if (kv.second.file.CompareNoCase(path) == 0) kv.second.promptsInBody = inBody;
+        return true;
+    }
 
     err = FromUtf8(r.error);
     for (auto it = g_cmds.begin(); it != g_cmds.end(); )
@@ -377,18 +418,23 @@ CString BuildPrompt(const CString& name, const CString& request, bool existing,
 
     p += _T("FILE FORMAT - return one complete Lua file shaped like this:\n");
     p += _T("at.defineCommand(\"") + name + _T("\", function(p)\n");
-    p += _T("    -- p.base is {x=,y=,z=}, p.rows a number, ... (already asked for)\n");
+    p += _T("    -- p.base is {x=,y=,z=}, p.rows a number, ... (asked when first read)\n");
     p += _T("    -- do the work with the at API\n");
     p += _T("    -- report results with print(...)\n");
     p += _T("end, \"<one-line description of the command>\", {\n");
     p += _T("    { name = \"base\", type = \"point\",   prompt = \"Base point\" },\n");
     p += _T("    { name = \"rows\", type = \"integer\", prompt = \"Number of rows\", default = 3 },\n");
     p += _T("})\n\n");
-    p += _T("Declare every input the command needs in that parameter list instead of calling at.get* yourself: ")
-         _T("AutoCAD prompts for each one in order (Enter = default), and AI agents can call the command ")
-         _T("with named values. Types: point, integer, number, distance, string, keyword (options = \"A B C\"), ")
-         _T("entity (a handle), selection (a list of handles, optional filter = \"LINE,ARC\"). Give a default ")
-         _T("where a sensible one exists; optional = true lets a value be nil.\n\n");
+    p += _T("Declare EVERY input the command needs in that parameter list; never call at.get* yourself. ")
+         _T("AutoCAD asks a parameter the first time the function reads p.<name> (after the ones declared ")
+         _T("before it), so the function can check one input before the next is asked; AI agents and ")
+         _T("at.runCommand pass the same parameters by name. Types: point, points (a list of points, picked ")
+         _T("until Enter), integer, number, distance, string, keyword (options = \"A B C\"), entity (a handle), ")
+         _T("selection (a list of handles, optional filter = \"LINE,ARC\"). base = \"<earlier point ")
+         _T("parameter>\" on a point or distance gives a rubber-band preview from it. Give a default where a ")
+         _T("sensible one exists; optional = true lets a value be nil; conditional = true marks an input that ")
+         _T("only some branches read (it is asked only when read). To reuse another installed command, ")
+         _T("call at.runCommand(NAME, {param = value, ...}).\n\n");
 
     p += _T("RULES:\n");
     p += _T("1. Respond with ONLY the raw Lua file - no explanation, no markdown fences.\n");
@@ -396,8 +442,8 @@ CString BuildPrompt(const CString& name, const CString& request, bool existing,
     p += _T("3. Outside that function only plain Lua is allowed (local helper functions, constants); ")
          _T("every at.* call must run inside a function.\n");
     p += _T("4. Only the base/table/string/math libraries exist - no io/os/require/dofile.\n");
-    p += _T("5. ESC at any prompt cancels the command automatically; a required parameter left empty ")
-         _T("skips the function, so p.<name> is never nil unless it is optional.\n");
+    p += _T("5. ESC at any prompt cancels the command automatically; Enter on a required parameter ")
+         _T("ends the command quietly, so p.<name> is never nil unless it is optional.\n");
     p += _T("6. Coordinates are WCS, handles are strings, angles are degrees.\n");
     p += _T("7. Use only the at.* functions listed below - nothing else exists.\n\n");
 
@@ -457,8 +503,59 @@ CString CommandsFolder()
     return folder;
 }
 
+// CommandHost::run - at.runCommand from an engine that does not hold the
+// command (ATLUA, ATAILUA, a test run). Empty params: the user answers.
+bool HostRun(const std::string& name, const std::string& params, bool testRun,
+             std::string& output, std::string& error, bool& cancelled)
+{
+    static bool busy = false;
+    CString upper = FromUtf8(name);
+    upper.MakeUpper();
+    auto it = g_cmds.find(upper);
+    if (!g_engine || it == g_cmds.end()) { error = name + " is not an installed command"; return false; }
+    if (busy) { error = "the commands engine is already running " + name; return false; }
+
+    LuaTools::LuaRunOptions opts;
+    opts.params        = params;
+    opts.captureOutput = true;
+    opts.testRun       = testRun;
+    busy = true;
+    LuaTools::LuaRunResult r = g_engine->callCommand(ToUtf8(upper), opts);
+    busy = false;
+
+    output    = r.output;
+    error     = r.error;
+    cancelled = r.cancelled;
+    it->second.lastError = r.ok ? CString() : FromUtf8(r.error);
+    return r.ok;
+}
+
+// CommandHost::catalog - every installed command for the AI prompts.
+std::string HostCatalog()
+{
+    std::string out;
+    for (const auto& kv : g_cmds)
+    {
+        const CmdInfo& c = kv.second;
+        out += "- " + ToUtf8(c.name) + ": " + ToUtf8(c.description) + "\n";
+        std::string brief = g_engine ? g_engine->commandParamsBrief(ToUtf8(kv.first)) : std::string();
+        if (brief.empty())
+            out += "    no declared parameters (asks the user)\n";
+        else
+            out += "    params: " + brief + "\n";
+        if (c.promptsInBody)
+            out += "    also asks the user for more input while it runs\n";
+    }
+    return out;
+}
+
 void Init()
 {
+    LuaTools::CommandHost host;
+    host.run     = HostRun;
+    host.catalog = HostCatalog;
+    LuaTools::setCommandHost(host);
+
     CString folder = CommandsFolder();
     if (ListLuaFiles(folder).empty() && GetFileAttributes(HistoryFolder()) == INVALID_FILE_ATTRIBUTES)
         WriteFileUtf8(folder + _T("\\ATLUAHELLO.lua"), ToUtf8(kExampleFile));   // first run only
@@ -467,6 +564,7 @@ void Init()
 
 void Uninit()
 {
+    LuaTools::setCommandHost(LuaTools::CommandHost());
     acedRegCmds->removeGroup(kGroup);
     g_cmds.clear();
     for (auto& s : g_slotName) s.Empty();
@@ -478,7 +576,8 @@ std::vector<CommandSummary> Commands()
     std::vector<CommandSummary> out;
     for (const auto& kv : g_cmds)
         out.push_back({ kv.second.name, kv.second.description, kv.second.file, kv.second.lastError,
-                        g_engine ? g_engine->commandParamsJson(ToUtf8(kv.first)) : std::string() });
+                        g_engine ? g_engine->commandParamsJson(ToUtf8(kv.first)) : std::string(),
+                        kv.second.promptsInBody });
     return out;
 }
 
@@ -539,8 +638,9 @@ void listCommand()
     for (const auto& kv : g_cmds)
     {
         const CmdInfo& c = kv.second;
-        acutPrintf(_T("%-20s %s  [%s]%s\n"), (LPCTSTR)c.name, (LPCTSTR)c.description,
-                   (LPCTSTR)FileNameOf(c.file), c.lastError.IsEmpty() ? _T("") : _T("  (last run failed)"));
+        acutPrintf(_T("%-20s %s  [%s]%s%s\n"), (LPCTSTR)c.name, (LPCTSTR)c.description,
+                   (LPCTSTR)FileNameOf(c.file), c.lastError.IsEmpty() ? _T("") : _T("  (last run failed)"),
+                   c.promptsInBody ? _T("  (prompts inside: not fully callable by AI)") : _T(""));
     }
     for (const auto& kv : g_failedFiles)
         acutPrintf(_T("%-20s NOT LOADED: %s\n"), (LPCTSTR)FileNameOf(kv.first), (LPCTSTR)kv.second);

@@ -29,6 +29,7 @@ namespace LuaCommands
         CString file;
         CString lastError;   // last failed run; empty when fine
         std::string paramsJson;   // declared parameters as JSON; empty when none
+        bool promptsInBody = false;   // its file calls at.get*: those inputs cannot be passed by name
     };
     std::vector<CommandSummary> Commands();
     std::vector<std::pair<CString, CString>> FailedFiles();   // file, load error

@@ -7,9 +7,9 @@ at.defineCommand("ATCOUNTBLOCKS", function(p)
     if p.scope == "Drawing" then
         counts = at.countBlocks()
     else
-        local ids = at.getSelection("Select objects")
-        if #ids == 0 then print("ATCOUNTBLOCKS: no objects selected."); return end
-        counts = at.countBlocks(ids)
+        -- p.objects is only asked (or needed from an agent) for Selection.
+        if not p.objects then print("ATCOUNTBLOCKS: no objects selected."); return end
+        counts = at.countBlocks(p.objects)
     end
 
     local names = {}
@@ -30,5 +30,7 @@ at.defineCommand("ATCOUNTBLOCKS", function(p)
 end, "Counts block instances per block name in a selection or the whole drawing", {
     { name = "scope", type = "keyword", prompt = "Count in [Selection/Drawing]",
       options = "Selection Drawing", default = "Selection",
-      description = "Selection asks for objects; Drawing counts all of model space" },
+      description = "Selection counts the objects given; Drawing counts all of model space" },
+    { name = "objects", type = "selection", optional = true, prompt = "Select objects",
+      description = "Objects to count in (scope Selection only)" },
 })

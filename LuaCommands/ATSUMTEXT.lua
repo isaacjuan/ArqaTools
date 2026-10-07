@@ -33,15 +33,17 @@ at.defineCommand("ATSUMTEXT", function(p)
     print("========================================")
 
     print("Specify point for sum text:")
-    local x, y, z = at.getPoint("Insertion point")
-    if not x then print("ATSUMTEXT: command cancelled. Sum calculated but not inserted."); return end
+    local pos = p.position
+    if not pos then print("ATSUMTEXT: command cancelled. Sum calculated but not inserted."); return end
 
     local sumText = string.format("%.2f", total)
-    local text = at.drawText(x, y, z, sumText)
+    local text = at.drawText(pos.x, pos.y, pos.z, sumText)
     if not text then print("ATSUMTEXT: could not add text to drawing."); return end
     print("Sum text created: " .. sumText)
 end, "Sums numeric values from selected text objects and places the total as text", {
     { name = "objects", type = "selection", filter = "TEXT,MTEXT", optional = true,
       prompt = "Select text objects containing numeric values",
       description = "TEXT/MTEXT with numbers; non-numeric texts are skipped" },
+    { name = "position", type = "point", optional = true, prompt = "Insertion point",
+      description = "Where the total is placed (asked after the total is printed)" },
 })

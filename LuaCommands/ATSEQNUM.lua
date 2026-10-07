@@ -1,4 +1,6 @@
--- ATSEQNUM: place sequential numbers at picked points (Enter finishes).
+-- ATSEQNUM: place sequential numbers at picked points (Enter finishes). Each
+-- number is placed as soon as its point is picked; agents pass the points as
+-- a list.
 -- With circles, each number gets a golden-ratio circle (radius = 1.618 x text
 -- height), the text is compressed to fit, and the two are grouped (SEQNUM_n);
 -- that part is at.seqNumber (SeqNumTools::CreateSeqNumber).
@@ -18,11 +20,8 @@ at.defineCommand("ATSEQNUM", function(p)
     local circles = p.circles == "Yes"
 
     local n, count = p.start, 0
-    while true do
-        local text = formatNumber(n, p.step)
-        local x, y, z = at.getPoint("Specify point for number " .. text .. " (or press ENTER to finish)")
-        if not x then break end
-        at.seqNumber(x, y, z, text, p.height, circles)
+    for _, pt in ipairs(p.points) do
+        at.seqNumber(pt.x, pt.y, pt.z, formatNumber(n, p.step), p.height, circles)
         n = n + p.step
         count = count + 1
     end
@@ -33,4 +32,10 @@ end, "Places sequential numbers at picked points, optionally in grouped circles"
     { name = "height",  type = "distance", prompt = "Specify text height",   default = 2.5,
       description = "Text height; circle radius is 1.618 x this" },
     { name = "circles", type = "keyword",  prompt = "Add circles around numbers", options = "Yes No", default = "No" },
+    { name = "points",  type = "points",
+      prompt = function(i, p)   -- names the number this pick gets
+          return "Specify point for number " .. formatNumber(p.start + (i - 1) * p.step, p.step)
+                 .. " (or press ENTER to finish)"
+      end,
+      description = "Where the numbers go, in order: start, start + step, ..." },
 })

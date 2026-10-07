@@ -2041,15 +2041,96 @@ int at_defineCommand(lua_State* L)
     return 0;
 }
 
+CommandHost g_host;
+
+// at.runCommand(NAME [, {param = value, ...}]) -> true, output | nil, err
+// Runs another installed command. With the table its declared parameters
+// come from it (missing required ones are an error, as for an agent call);
+// without it the user answers the prompts. A command held by this engine
+// (one command calling another) runs in place; otherwise CommandHost::run
+// runs it in the commands engine.
+int at_runCommand(lua_State* L)
+{
+    LuaCtx* c = ctx_from(L);
+    const char* name = luaL_checkstring(L, 1);
+    bool hasArgs = !lua_isnoneornil(L, 2);
+    if (hasArgs) luaL_checktype(L, 2, LUA_TTABLE);
+
+    char upper[32];
+    size_t len = strlen(name);
+    if (len < 1 || len > 31) return luaL_error(L, "invalid command name '%s'", name);
+    for (size_t i = 0; i < len; ++i) upper[i] = static_cast<char>(toupper(static_cast<unsigned char>(name[i])));
+    upper[len] = '\0';
+
+    luaL_getsubtable(L, LUA_REGISTRYINDEX, "arqa.commands");
+    if (lua_getfield(L, -1, upper) == LUA_TFUNCTION)
+    {
+        lua_remove(L, -2);                                  // fn
+        luaL_getsubtable(L, LUA_REGISTRYINDEX, "arqa.params");
+        lua_getfield(L, -1, upper);
+        lua_remove(L, -2);                                  // fn, params
+        if (lua_istable(L, -1))
+        {
+            lua_getfield(L, LUA_REGISTRYINDEX, "arqa.invoke");
+            lua_insert(L, -3);                              // invoke, fn, params
+            if (hasArgs) lua_pushvalue(L, 2); else lua_pushnil(L);
+            lua_call(L, 3, 0);
+        }
+        else
+        {
+            lua_pop(L, 1);
+            if (hasArgs)
+            {
+                lua_pushnil(L);
+                if (lua_next(L, 2)) return luaL_error(L, "%s declares no parameters", upper);
+            }
+            lua_call(L, 0, 0);
+        }
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+    lua_pop(L, 2);
+
+    if (!g_host.run) return PushNilError(L, "no command host (commands are not loaded)");
+    const char* literal = "";
+    if (hasArgs)
+    {
+        lua_getfield(L, LUA_REGISTRYINDEX, "arqa.serialize");
+        lua_pushvalue(L, 2);
+        lua_call(L, 1, 1);                                  // stays on the stack while used
+        literal = lua_tostring(L, -1);
+    }
+
+    int status;   // 0 ok, 1 error, 2 cancelled
+    {
+        std::string output, error;
+        bool cancelled = false;
+        bool ok = g_host.run(upper, literal ? literal : "", c->testRun, output, error, cancelled);
+        status = cancelled ? 2 : ok ? 0 : 1;
+        if (status == 0) lua_pushlstring(L, output.data(), output.size());
+        else if (status == 1) lua_pushlstring(L, error.data(), error.size());
+    }
+    if (status == 2) return RaiseCancelled(L);
+    if (status == 0) { lua_pushboolean(L, 1); lua_insert(L, -2); return 2; }
+    lua_pushnil(L);
+    lua_insert(L, -2);
+    return 2;
+}
+
 // Declared command parameters, in Lua so they are easy to read and change.
 // Returns the functions the C++ side keeps in the registry:
 //   check(params)         - validates a list given to at.defineCommand
-//   invoke(fn, params, given) - builds p (prompting, or from `given` when an
-//                           agent calls the command) and runs fn(p)
+//   invoke(fn, params, given) - runs fn(p). With `given` (an agent call) p is
+//                           built and validated up front; without it p asks
+//                           each parameter the first time fn reads it (and
+//                           every parameter declared before it first)
+//   serialize(v)          - a Lua value as a table-constructor literal
+//                           (at.runCommand hands arguments to another engine)
 //   json(params)          - the list as JSON, for the MCP tool schema
 // Locals are captured up front so command files cannot change them.
 const char* const kPrelude = R"LUA(
 local at, type, ipairs, pairs, error, tostring = at, type, ipairs, pairs, error, tostring
+local setmetatable, rawset, rawget, print, next = setmetatable, rawset, rawget, print, next
 local mtype, floor, fmt, concat = math.type, math.floor, string.format, table.concat
 local sfind, gsub, gmatch, lower, byte = string.find, string.gsub, string.gmatch, string.lower, string.byte
 local match = string.match
@@ -2057,7 +2138,7 @@ local match = string.match
 local EXPECT = {
   point = "a point [x, y, z]", integer = "an integer", number = "a number", distance = "a number",
   string = "a string", keyword = "one of the options", entity = "a handle string",
-  selection = "a list of handle strings",
+  selection = "a list of handle strings", points = "a list of points [[x, y, z], ...]",
 }
 
 local function check(params)
@@ -2074,11 +2155,24 @@ local function check(params)
     if seen[d.name] then error("at.defineCommand: duplicate parameter " .. d.name, 0) end
     seen[d.name] = true
     if not EXPECT[d.type] then
-      error(fmt("at.defineCommand: parameter %s has unknown type %s (point, integer, number, distance, "
-             .. "string, keyword, entity, selection)", d.name, tostring(d.type)), 0)
+      error(fmt("at.defineCommand: parameter %s has unknown type %s (point, points, integer, number, "
+             .. "distance, string, keyword, entity, selection)", d.name, tostring(d.type)), 0)
     end
     if d.type == "keyword" and type(d.options) ~= "string" then
       error("at.defineCommand: keyword parameter " .. d.name .. " needs options = \"Yes No\"", 0)
+    end
+  end
+  -- base = "<point parameter declared earlier>": rubber-band preview from it.
+  for i, d in ipairs(params) do
+    if d.base ~= nil then
+      local ok = false
+      for j = 1, i - 1 do
+        if params[j].name == d.base and params[j].type == "point" then ok = true end
+      end
+      if not ok or (d.type ~= "point" and d.type ~= "distance") then
+        error("at.defineCommand: parameter " .. d.name .. ": base must name a point parameter declared "
+              .. "before it, on a point or distance parameter", 0)
+      end
     end
   end
 end
@@ -2117,21 +2211,64 @@ local function convert(d, v)
       out[i] = h
     end
     return out
+  elseif t == "points" then
+    if type(v) ~= "table" or #v == 0 then return nil end
+    local out = {}
+    for i, q in ipairs(v) do
+      out[i] = toPoint(q)
+      if not out[i] then return nil end
+    end
+    return out
   end
   return nil
 end
 
--- Interactive: one prompt per parameter; Enter gives the default.
-local function ask(d)
+-- Ends the command quietly ({arqaStop}, see tracebackHandler).
+local function stop(msg)
+  print(msg)
+  error({ arqaStop = true }, 0)
+end
+
+-- Interactive: one prompt per parameter; Enter gives the default. `base` is
+-- the already-answered point a base = "..." parameter rubber-bands from.
+local function ask(d, base, answered)
   local p, t, def = d.prompt or d.name, d.type, d.default
   if t == "point" then
-    local x, y, z = at.getPoint(p)
+    local x, y, z
+    if base then x, y, z = at.getPoint(p, base.x, base.y, base.z) else x, y, z = at.getPoint(p) end
     if x then return { x = x, y = y, z = z } end
     return def ~= nil and toPoint(def) or nil
+  elseif t == "points" then
+    -- A live list: element i is picked when the command first reads it, so
+    -- `for _, pt in ipairs(p.points) do ... end` acts on each point as soon as
+    -- it is picked; Enter ends the list. Independent picks (no rubber band).
+    -- A function prompt gets the pick number and the parameters answered so
+    -- far. Enter on the first pick of a required list ends the command.
+    local picked, ended = {}, false
+    return setmetatable({}, {
+      __index = function(_, i)
+        if ended or mtype(i) ~= "integer" or i ~= #picked + 1 then return picked[i] end
+        local text = p
+        if type(p) == "function" then text = p(i, answered) end
+        local x, y, z = at.getPoint(text)
+        if not x then
+          ended = true
+          if i == 1 and not d.optional then
+            local label = type(d.prompt) == "string" and d.prompt or d.name
+            stop(fmt("Nothing drawn: '%s' is required (no default).", label))
+          end
+          return nil
+        end
+        picked[i] = { x = x, y = y, z = z }
+        return picked[i]
+      end,
+      __len = function() return #picked end,
+    })
   elseif t == "integer" then return at.getInt(p, def)
   elseif t == "number" then return at.getReal(p, def)
   elseif t == "distance" then
-    local v = at.getDistance(p)
+    local v
+    if base then v = at.getDistance(p, base.x, base.y, base.z) else v = at.getDistance(p) end
     if v == nil then return def end
     return v
   elseif t == "string" then return at.getString(p, def)
@@ -2150,7 +2287,41 @@ local function badArgs(msg)
   error({ arqaArgs = msg }, 0)
 end
 
+-- Interactive p: a parameter is asked the first time fn reads it, after every
+-- parameter declared before it (so prompts keep their declared order, and a
+-- command can check one input before asking the next). A conditional = true
+-- parameter is skipped in that "earlier ones first" pass: it is asked only
+-- when fn reads it (inputs that only some branches use). Enter on a required
+-- input ends the command quietly (stop).
+
+local function lazy(params)
+  local index, asked = {}, {}
+  for i, d in ipairs(params) do index[d.name] = i end
+  local p = {}
+  local function answer(i)
+    local d = params[i]
+    asked[d.name] = true
+    local base = d.base and p[d.base] or nil
+    local v = ask(d, base, p)
+    if v == nil and not d.optional then
+      local label = type(d.prompt) == "string" and d.prompt or d.name
+      stop(fmt("Nothing drawn: '%s' is required (no default).", label))
+    end
+    rawset(p, d.name, v)
+  end
+  return setmetatable(p, { __index = function(_, k)
+    local i = index[k]
+    if not i or asked[k] then return nil end
+    for j = 1, i - 1 do
+      if not asked[params[j].name] and not params[j].conditional then answer(j) end
+    end
+    answer(i)
+    return rawget(p, k)
+  end })
+end
+
 local function invoke(fn, params, given)
+  if not given then return fn(lazy(params)) end
   local p = {}
   if given then
     for k in pairs(given) do
@@ -2173,12 +2344,6 @@ local function invoke(fn, params, given)
         if v == nil then badArgs(fmt("parameter '%s' must be %s", d.name, EXPECT[d.type])) end
       elseif not d.optional then
         badArgs(fmt("missing required parameter '%s' (%s)", d.name, d.type))
-      end
-    else
-      v = ask(d)
-      if v == nil and not d.optional then   -- Enter on a required input without default
-        print(fmt("Nothing drawn: '%s' is required (no default).", d.prompt or d.name))
-        return
       end
     end
     p[d.name] = v
@@ -2223,6 +2388,7 @@ local function json(params)
       f[#f + 1] = '"options":[' .. concat(opts, ",") .. "]"
     end
     if type(d.filter) == "string" then f[#f + 1] = '"filter":' .. jstr(d.filter) end
+    if type(d.base) == "string" then f[#f + 1] = '"base":' .. jstr(d.base) end
     items[i] = "{" .. concat(f, ",") .. "}"
   end
   return "[" .. concat(items, ",") .. "]"
@@ -2247,17 +2413,57 @@ local function sample(params)
     local v
     if d.default ~= nil then v = convert(d, d.default)
     elseif d.type == "keyword" then v = match(d.options, "%S+")
+    elseif d.type == "points" then
+      parts[#parts + 1] = fmt("[%q]={{0,0,0},{10,0,0},{10,10,0}}", d.name)
     elseif d.type == "entity" or d.type == "selection" then
       if not d.optional then
         return nil, fmt("parameter '%s' needs existing objects (%s)", d.name, d.type)
       end
     else v = SAMPLE[d.type] end
-    if v ~= nil then parts[#parts + 1] = fmt("[%q]=%s", d.name, lit(v)) end
+    if v ~= nil and d.type ~= "points" then parts[#parts + 1] = fmt("[%q]=%s", d.name, lit(v)) end
   end
   return "{" .. concat(parts, ",") .. "}"
 end
 
-return { check = check, invoke = invoke, json = json, sample = sample }
+-- Any plain value (numbers, strings, booleans, nested tables) as a Lua
+-- table-constructor literal.
+local function serialize(v)
+  local t = type(v)
+  if t == "number" then
+    if mtype(v) == "integer" then return tostring(v) end
+    return fmt("%.17g", v)
+  elseif t == "string" then return fmt("%q", v)
+  elseif t == "boolean" then return tostring(v)
+  elseif t == "table" then
+    local parts, n = {}, #v
+    for i = 1, n do parts[#parts + 1] = serialize(v[i]) end
+    for k, x in pairs(v) do
+      if not (mtype(k) == "integer" and k >= 1 and k <= n) then
+        parts[#parts + 1] = "[" .. serialize(k) .. "]=" .. serialize(x)
+      end
+    end
+    return "{" .. concat(parts, ",") .. "}"
+  end
+  return "nil"
+end
+
+-- The parameter list in one line for AI prompts.
+local function brief(params)
+  local parts = {}
+  for i, d in ipairs(params) do
+    local s = d.name .. " (" .. d.type
+    if d.type == "keyword" then s = s .. ": " .. gsub(d.options, "%s+", "/") end
+    if d.default ~= nil then s = s .. ", default " .. serialize(d.default) end
+    if d.optional then s = s .. ", optional" end
+    s = s .. ")"
+    if type(d.description) == "string" then s = s .. " " .. d.description end
+    parts[i] = s
+  end
+  return concat(parts, "; ")
+end
+
+return { check = check, invoke = invoke, json = json, sample = sample, serialize = serialize,
+         brief = brief }
 )LUA";
 
 // Runs kPrelude and keeps its functions in the registry (arqa.checkParams,
@@ -2274,6 +2480,8 @@ void installPrelude(lua_State* L)
     lua_getfield(L, -1, "invoke"); lua_setfield(L, LUA_REGISTRYINDEX, "arqa.invoke");
     lua_getfield(L, -1, "json");   lua_setfield(L, LUA_REGISTRYINDEX, "arqa.paramsJson");
     lua_getfield(L, -1, "sample"); lua_setfield(L, LUA_REGISTRYINDEX, "arqa.sample");
+    lua_getfield(L, -1, "serialize"); lua_setfield(L, LUA_REGISTRYINDEX, "arqa.serialize");
+    lua_getfield(L, -1, "brief");  lua_setfield(L, LUA_REGISTRYINDEX, "arqa.paramsBrief");
     lua_pop(L, 1);
 }
 
@@ -2320,6 +2528,9 @@ const AtFn kFns[] = {
       "type point|integer|number|distance|string|keyword|entity|selection; the function then gets p.<name> "
       "(point = {x=,y=,z=}, entity = handle, selection = {handle,...}); typed in AutoCAD each is prompted, "
       "AI agents pass them by name" },
+    { "runCommand",   at_runCommand,   "(NAME [, {param = value, ...}]) -> true, output | nil, err",
+      "runs another installed command (see INSTALLED COMMANDS); with the table its declared parameters come "
+      "from it (required ones must be given), without it the user answers the prompts" },
     // User input - ESC aborts the script; Enter returns the default, else nil
     { "getPoint",     at_getPoint,     "([prompt [,bx,by,bz]]) -> x,y,z | nil", "pick a point (rubber-band from the optional base point)" },
     { "getDistance",  at_getDistance,  "([prompt [,bx,by,bz]]) -> number | nil", "type or pick a distance" },
@@ -2486,8 +2697,14 @@ void registerAtTable(lua_State* L, LuaCtx* ctx)
 int tracebackHandler(lua_State* L)
 {
     // Bad arguments from the parameter prelude ({arqaArgs = msg}): no traceback.
-    if (lua_istable(L, 1) && lua_getfield(L, 1, "arqaArgs") == LUA_TSTRING)
-        return 1;
+    // {arqaStop = true} (Enter on a required input) passes through unchanged.
+    if (lua_istable(L, 1))
+    {
+        if (lua_getfield(L, 1, "arqaArgs") == LUA_TSTRING) return 1;
+        lua_pop(L, 1);
+        if (lua_getfield(L, 1, "arqaStop") != LUA_TNIL) { lua_pop(L, 1); lua_pushvalue(L, 1); return 1; }
+        lua_pop(L, 1);
+    }
     const char* msg = lua_tostring(L, 1);
     luaL_traceback(L, L, msg ? msg : "(error object is not a string)", 1);
     return 1;
@@ -2600,8 +2817,16 @@ std::string describeApi()
         if (*e.doc) { s += "  -- "; s += e.doc; }
         s += "\n";
     }
+    std::string commands = commandCatalog();
+    if (!commands.empty())
+        s += "\nINSTALLED COMMANDS (AutoCAD commands; from Lua: at.runCommand(NAME, {param = value, ...})):\n"
+           + commands;
     return s;
 }
+
+void setCommandHost(const CommandHost& host) { g_host = host; }
+
+std::string commandCatalog() { return g_host.catalog ? g_host.catalog() : std::string(); }
 
 bool hasApiFunction(const std::string& name)
 {
@@ -2728,21 +2953,33 @@ std::string LuaEngine::sampleParams(const std::string& name, std::string& reason
     return literal;
 }
 
+// Runs a prelude function (registry key) on a command's declared parameter
+// list and returns its string result; empty when the command declares none.
+static std::string CallOnParams(lua_State* L, const std::string& name, const char* fnKey)
+{
+    if (!L) return std::string();
+    int top = lua_gettop(L);
+    std::string out;
+    luaL_getsubtable(L, LUA_REGISTRYINDEX, "arqa.params");
+    if (lua_getfield(L, -1, name.c_str()) == LUA_TTABLE)
+    {
+        lua_getfield(L, LUA_REGISTRYINDEX, fnKey);
+        lua_insert(L, -2);
+        if (lua_pcall(L, 1, 1, 0) == LUA_OK && lua_isstring(L, -1))
+            out = lua_tostring(L, -1);
+    }
+    lua_settop(L, top);
+    return out;
+}
+
 std::string LuaEngine::commandParamsJson(const std::string& name)
 {
-    if (!m_L) return std::string();
-    int top = lua_gettop(m_L);
-    std::string json;
-    luaL_getsubtable(m_L, LUA_REGISTRYINDEX, "arqa.params");
-    if (lua_getfield(m_L, -1, name.c_str()) == LUA_TTABLE)
-    {
-        lua_getfield(m_L, LUA_REGISTRYINDEX, "arqa.paramsJson");
-        lua_insert(m_L, -2);
-        if (lua_pcall(m_L, 1, 1, 0) == LUA_OK && lua_isstring(m_L, -1))
-            json = lua_tostring(m_L, -1);
-    }
-    lua_settop(m_L, top);
-    return json;
+    return CallOnParams(m_L, name, "arqa.paramsJson");
+}
+
+std::string LuaEngine::commandParamsBrief(const std::string& name)
+{
+    return CallOnParams(m_L, name, "arqa.paramsBrief");
 }
 
 LuaEngine::~LuaEngine()
@@ -2806,6 +3043,13 @@ void LuaEngine::finishRun(int status, LuaRunResult& result)
     result.inputs    = m_ctx->asked;
     result.cancelled = m_ctx->cancelled;
     result.ok        = (status == LUA_OK);
+    // The prelude's quiet stop (Enter on a required input): not an error.
+    if (!result.ok && lua_istable(m_L, -1))
+    {
+        result.ok = lua_getfield(m_L, -1, "arqaStop") != LUA_TNIL;
+        lua_pop(m_L, 1);
+        if (result.ok) return;
+    }
     if (!result.ok)
     {
         const char* msg = lua_tostring(m_L, -1);

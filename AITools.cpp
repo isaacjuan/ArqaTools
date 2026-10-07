@@ -1,6 +1,7 @@
 ﻿#include "StdAfx.h"
 #include "AITools.h"
 #include "AiConfig.h"
+#include "LuaTools.h"
 #include <winhttp.h>
 #include <sstream>
 #include <vector>
@@ -762,36 +763,17 @@ namespace AITools
         return commands;
     }
     
-    // Get knowledge base of custom commands
+    // Knowledge base of the plugin's commands for the AI prompts. The drawing
+    // and editing commands are Lua commands, listed live from what is
+    // installed (LuaTools::commandCatalog), so new commands appear without
+    // touching this file.
     CString GetCustomCommandsKnowledgeBase()
     {
         CString kb;
-        kb = _T("Available CUSTOM ArqaTools Plugin commands:\n");
-        kb += _T("- ATBOOLPOLY: Boolean operations on polylines (union/subtract/intersect)\n");
-        kb += _T("- ATUNIONPOLY: Union of two polylines\n");
-        kb += _T("- ATSUBPOLY: Subtract second polyline from first\n");
-        kb += _T("- ATINPOLY: Intersection of two polylines\n");
-        kb += _T("- ATALX/ATALY/ATALZ: Align objects by X/Y/Z coordinate\n");
-        kb += _T("- ATMX/ATMY/ATMZ: Move objects in X/Y/Z direction only (restricted movement)\n");
-        kb += _T("- ATCX/ATCY/ATCZ: Copy objects in X/Y/Z direction only (restricted copy)\n");
-        kb += _T("- ATDISTLINE: Distribute objects evenly along a line between two points\n");
-        kb += _T("- ATDISTBETWEEN: Distribute objects between two points (excludes endpoints)\n");
-        kb += _T("- ATDISTEQUAL: Distribute with equal spacing (half-space at ends)\n");
-        kb += _T("- ATSEQNUM: Add sequential numbers to selected objects\n");
-        kb += _T("- ATINSERTAREA: Insert auto-updating area text in closed polyline\n");
-        kb += _T("- ATSUMLENGTH: Insert auto-updating sum of lengths for multiple curves\n");
-        kb += _T("- ATCOPYTEXT: Copy text content from one text to others\n");
-        kb += _T("- ATCOPYSTYLE: Copy text style properties\n");
-        kb += _T("- ATCOPYDIMSTYLE: Copy dimension style\n\n");
-        kb += _T("IMPORTANT: When user asks for:\n");
-        kb += _T("- 'number objects' or 'sequential numbers' → use ATSEQNUM\n");
-        kb += _T("- 'distribute evenly' or 'space objects' → use ATDISTLINE or ATDISTEQUAL\n");
-        kb += _T("- 'align objects' → use ATALX/ATALY/ATALZ\n");
-        kb += _T("- 'move only in X/Y/Z' → use ATMX/ATMY/ATMZ\n");
-        kb += _T("- 'copy only in X/Y/Z' → use ATCX/ATCY/ATCZ\n");
-        kb += _T("- 'show area' or 'area label' → use ATINSERTAREA\n");
-        kb += _T("- 'sum of lengths' → use ATSUMLENGTH\n");
-        kb += _T("- 'combine polylines' or 'merge polylines' → use ATUNIONPOLY\n");
+        kb = _T("Available CUSTOM ArqaTools Plugin commands (type the name at the AutoCAD command line; ")
+             _T("each asks for its parameters in the order listed):\n");
+        kb += CString(CA2T(LuaTools::commandCatalog().c_str(), CP_UTF8));
+        kb += _T("\nPrefer one of these commands when it does what the user asks.\n");
         return kb;
     }
     

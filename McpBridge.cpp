@@ -138,7 +138,8 @@ std::string HandleListCommands()
         cmds += cmds.empty() ? "" : ",";
         cmds += "{\"name\":" + Json(c.name) + ",\"description\":" + Json(c.description)
               + ",\"file\":" + Json(c.file) + ",\"lastError\":" + Json(c.lastError)
-              + ",\"params\":" + (c.paramsJson.empty() ? std::string("null") : c.paramsJson) + "}";
+              + ",\"params\":" + (c.paramsJson.empty() ? std::string("null") : c.paramsJson)
+              + ",\"promptsInBody\":" + (c.promptsInBody ? "true" : "false") + "}";
     }
     for (const auto& f : LuaCommands::FailedFiles())
     {

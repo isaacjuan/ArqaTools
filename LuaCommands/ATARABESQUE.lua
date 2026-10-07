@@ -15,9 +15,8 @@ local function clamp(v, lo, hi)
     return v
 end
 
--- Asks for a factor; a value outside (lo, hi) keeps the default.
-local function askFactor(prompt, default, lo, hi)
-    local v = at.getReal(prompt, default)
+-- A factor outside (lo, hi) keeps the default.
+local function factor(v, default, lo, hi)
     if v and v > lo and v < hi then return v end
     return default
 end
@@ -32,28 +31,36 @@ at.defineCommand("ATARABESQUE", function(p)
         at.patternRosette(c.x, c.y, c.z, R, n)
         print(string.format("Rosette drawn: %d interlocking circles, radius %.2f.", n, R))
     elseif p.pattern == "Star" then
-        local f = askFactor("Inner radius factor (0.1-0.9)", 0.38, 0.05, 0.99)
+        local f = factor(p.starFactor, 0.38, 0.05, 0.99)
         at.patternStar(c.x, c.y, c.z, R, n, f)
         print(string.format("Star drawn: %d points, R=%.2f, r=%.2f.", n, R, R * f))
     elseif p.pattern == "Petals" then
         -- Bulge: 0.2679 = slender (60 deg arc), 0.4142 = round (90), 0.5774 = wide (120)
-        local b = askFactor("Petal fullness (0.1=slender - 0.8=wide)", 0.4142, 0.0, 1.5)
+        local b = factor(p.fullness, 0.4142, 0.0, 1.5)
         at.patternPetals(c.x, c.y, c.z, R, n, b)
         print(string.format("Flower drawn: %d petals, radius %.2f.", n, R))
     else -- Geometric
-        local f = askFactor("Inner radius factor (0.1-0.9)", 0.45, 0.05, 0.99)
+        local f = factor(p.geoFactor, 0.45, 0.05, 0.99)
         at.patternGeometric(c.x, c.y, c.z, R, n, f)
         print(string.format("Geometric pattern drawn: %d-pointed star + inner rosette.", n))
     end
 end, "Draws geometric arabesque patterns: Rosette (interlocking circles), Star (n-pointed star polygon), "
   .. "Petals (lens-shaped petal flower), Geometric (star + inner rosette)", {
     { name = "center",  type = "point",    prompt = "Center point" },
-    { name = "radius",  type = "distance", prompt = "Outer radius", description = "Outer radius (> 0)" },
+    { name = "radius",  type = "distance", prompt = "Outer radius", description = "Outer radius (> 0)",
+      base = "center" },
     { name = "pattern", type = "keyword",  prompt = "Pattern [Rosette/Star/Petals/Geometric]",
       options = "Rosette Star Petals Geometric", default = "Rosette",
-      description = "Star and Geometric then ask for the inner radius factor, Petals for the petal fullness" },
+      description = "Star and Geometric also use an inner radius factor, Petals a petal fullness" },
     { name = "units",   type = "integer",  prompt = "Number of units", default = 8,
       description = "Number of circles/points/petals, clamped to 3..64" },
+    -- Only the chosen pattern reads its factor (conditional: asked only then).
+    { name = "starFactor", type = "number", prompt = "Inner radius factor (0.1-0.9)", default = 0.38,
+      conditional = true, description = "Star only: inner / outer radius" },
+    { name = "fullness",   type = "number", prompt = "Petal fullness (0.1=slender - 0.8=wide)", default = 0.4142,
+      conditional = true, description = "Petals only: arc bulge (0.2679 slender, 0.4142 round, 0.5774 wide)" },
+    { name = "geoFactor",  type = "number", prompt = "Inner radius factor (0.1-0.9)", default = 0.45,
+      conditional = true, description = "Geometric only: inner / outer radius" },
 })
 
 -- ── ATHOJANAZARI ────────────────────────────────────────────────────────────
@@ -70,7 +77,7 @@ at.defineCommand("ATHOJANAZARI", function(p)
                         rings, p.leafSize, w))
 end, "Patron de hoja nazari hexagonal (La Alhambra): red hexagonal de centros de flor con hojas interconectadas", {
     { name = "center",   type = "point",    prompt = "Punto central" },
-    { name = "leafSize", type = "distance", prompt = "Tamano de hoja (punta a punta) <500>", default = 500,
+    { name = "leafSize", type = "distance", prompt = "Tamano de hoja (punta a punta) <500>", default = 500, base = "center",
       description = "Leaf length tip to tip (> 0)" },
     { name = "rings",    type = "integer",  prompt = "Numero de anillos", default = 3,
       description = "Hexagonal rings, clamped to 1..12" },
@@ -89,7 +96,7 @@ at.defineCommand("ATARABESCORL", function(p)
     print(string.format("Retícula %d×%d  A=%.1f  S=%.1f", cols, rows, p.A, S))
 end, "Retícula de arabesco andaluz 30/45 desde la esquina inferior izquierda; baldosa S = A*(3 + 2*sqrt(3)) ~= 6.464*A", {
     { name = "corner", type = "point",    prompt = "Esquina inferior izquierda" },
-    { name = "A",      type = "distance", prompt = "Longitud fundamental A <500>", default = 500,
+    { name = "A",      type = "distance", prompt = "Longitud fundamental A <500>", default = 500, base = "corner",
       description = "Fundamental length A (> 0)" },
     { name = "cols",   type = "integer",  prompt = "Columnas", default = 3, description = "Clamped to 1..30" },
     { name = "rows",   type = "integer",  prompt = "Filas",    default = 3, description = "Clamped to 1..30" },
@@ -104,7 +111,7 @@ at.defineCommand("ATARABESCOTOROSOL", function(p)
 end, "Arabesco nazari 3D solido sobre toro (3DFACE renderable): techo + paredes laterales; "
   .. "Rb = nT*S/(2*pi), Rs = mT*S/(2*pi)", {
     { name = "center",  type = "point",    prompt = "Centro del toro" },
-    { name = "A",       type = "distance", prompt = "Longitud fundamental A <100>", default = 100,
+    { name = "A",       type = "distance", prompt = "Longitud fundamental A <100>", default = 100, base = "center",
       description = "Fundamental length A (> 0)" },
     { name = "nT",      type = "integer",  prompt = "Baldosas circunferencia mayor", default = 6 },
     { name = "mT",      type = "integer",  prompt = "Baldosas circunferencia menor", default = 3 },
@@ -122,7 +129,7 @@ at.defineCommand("ATARABESCOHIPSOL", function(p)
 end, "Arabesco nazari 3D solido sobre paraboloide hiperbolico: z = amp*((x/Lx)^2 - (y/Ly)^2), "
   .. "Lx = nT*S/2, Ly = mT*S/2, amp = A*ampF", {
     { name = "center",  type = "point",    prompt = "Centro del sillon" },
-    { name = "A",       type = "distance", prompt = "Longitud fundamental A <100>", default = 100,
+    { name = "A",       type = "distance", prompt = "Longitud fundamental A <100>", default = 100, base = "center",
       description = "Fundamental length A (> 0)" },
     { name = "nT",      type = "integer",  prompt = "Baldosas en X", default = 4 },
     { name = "mT",      type = "integer",  prompt = "Baldosas en Y", default = 4 },

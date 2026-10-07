@@ -69,13 +69,9 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
 - **Label commands** (ATINSERTAREA, ATROOMTAG, ATPERIMETER, ATLINEARLENGTH,
   ATTAGALL, ATSUMLENGTH): labels stay linked to their curve(s) through
   reactors and update when they change.
-- **Prompts inside the command:** commands that validate a first pick before
-  asking for more (the text copy family, ATSCALETEXT, ATSUMTEXT, ATCOUNTBLOCKS,
-  ATSUMLENGTH) ask the later inputs with `at.getSelection`/`at.getPoint` inside
-  the function. MCP agents cannot pass those as named values; CommandTester
-  scripted answers still work.
-- **No rubber-band preview** on declared distance/point parameters (ARABESQUE
-  radius, ATGOLDENRECT second point): the parameter prompt has no base point.
+- **ATSEQNUM, ATGOLDENRECTIN/W** take their locations as a `points`
+  parameter. Interactively it is a live list: each number/rectangle is placed
+  as soon as its point is picked; agents pass the whole list.
 - **ATSUMLENGTH** sums `getProps(h).length` in Lua to print the total before
   asking for the text position (`at.getPoint`), as the C++ command did.
 
@@ -97,8 +93,15 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
    })
    ```
 
-   Parameter types include `entity`, `selection`, `point`, `distance`,
-   `number`, `integer`, `string` and `keyword` (with `options` and `default`).
+   Declare **every** input as a parameter and never call `at.get*` in the
+   body (see "AI access" below). Types: `point`, `points` (picked until
+   Enter), `distance`, `number`, `integer`, `string`, `keyword` (with
+   `options`), `entity`, `selection` (optional `filter`). Loop over a `points`
+   parameter with `ipairs`: interactively each element is picked when the
+   loop reaches it, so the command can draw as the user picks. Options: `prompt`,
+   `description`, `default`, `optional = true` (may be nil), `base = "<earlier
+   point parameter>"` (rubber-band preview on a point or distance),
+   `conditional = true` (asked only when the body reads it).
 3. Remove the C++ command: its `kCommands` entry and wrapper in
    `ArqaTools.cpp`, its declaration in `ArqaTools.h`, and the interactive code
    in the tool file. Keep the core.
@@ -106,6 +109,29 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
 5. Build, copy the Lua file to Documents, load the ARX, run `ATLUARELOAD` and
    test by hand. You can also test through the `arqatools` MCP server
    (`test_command`), which needs `ATMCPSTART` running in AutoCAD.
+
+## AI access
+
+Every command defined this way is usable by AI with no extra work:
+
+- **MCP clients** (Claude Code via the `arqatools` server): each command with
+  declared parameters is its own MCP tool, with a JSON schema built from the
+  parameters. The list follows AutoCAD live (`tools/list_changed`).
+- **AI-written Lua** (ATAILUA, ATAICMD): `at.runCommand(NAME, {param = value,
+  ...})` runs an installed command; without the table the user answers its
+  prompts. The prompt lists every installed command with its parameters
+  (`describeApi()` appends `LuaTools::commandCatalog()`).
+- **ATAIASK / ATAIDRAW / ATAIHELP**: their command knowledge base is the same
+  live catalog.
+
+How parameters are asked: interactively, `p.<name>` is asked the first time the
+body reads it, after every non-conditional parameter declared before it. So a
+command can validate its source before asking for destinations, while prompts
+keep their declared order. Enter on a required parameter ends the command
+quietly. Agent calls pass all parameters by name up front instead.
+
+`ATLUACMDS` and the MCP `list_commands` tool flag a file that still calls
+`at.get*` in a body ("prompts inside"): those inputs cannot be passed by name.
 
 ## Gotchas
 
@@ -137,5 +163,3 @@ to 162.
 - `getProps` has no dimension style name, so ATCOPYDIMSTYLE no longer prints it.
 - `at.setCurrentLayer` does not say whether it created the layer; ATNL checks
   `at.layers()` first.
-- Declared distance/point parameters cannot take a base point for the
-  rubber-band preview.

@@ -4,7 +4,7 @@
 --   ATGOLDENRECTIN   golden rectangles placed inside a rectangular container
 --   ATGOLDENRECTINW  the same with a custom proportion (inner / short side)
 -- The container commands span the container's short side and slide along its
--- long side to each picked point (Enter finishes); that part is at.rectFrame /
+-- long side to each picked point, drawn as it is picked (Enter finishes); that part is at.rectFrame /
 -- at.rectInFrame (GoldenRectTools::ReadRectFrame / DrawRectInFrame).
 -- Was C++; edit this file and run ATLUARELOAD, no rebuild needed. Holds three
 -- commands, so ATAICMD / ATLUACMDDEL leave it to be edited by hand.
@@ -20,16 +20,13 @@ at.defineCommand("ATGOLDENRECT", function(p)
     print(string.format("%d golden rectangles drawn, spiraling inward.", #ids))
 end, "Draws a golden-ratio rectangle spiral", {
     { name = "corner", type = "point", prompt = "Golden rectangle start corner" },
-    { name = "sidePt", type = "point", prompt = "Endpoint defining first side",
+    { name = "sidePt", type = "point", prompt = "Endpoint defining first side", base = "corner",
       description = "End of the first (long) side, from the start corner" },
 })
 
--- C++ _tstof: leading number, else 0 ("0.5abc" -> 0.5, "" -> 0).
-local function parseNumber(s)
-    return tonumber(s:match("^%s*([+-]?%d*%.?%d*)")) or 0
-end
-
-local function placeRects(name, container, golden)
+-- p.proportion and p.locations are only asked after the container is checked.
+local function placeRects(name, p, golden)
+    local container = p.container
     local frame, err = at.rectFrame(container)
     if not frame then print(name .. ": " .. err); return end
 
@@ -37,21 +34,16 @@ local function placeRects(name, container, golden)
     if golden then
         innerWidth = frame.shortLen / PHI
     else
-        local s = at.getString("Proportion (0-1, e.g. 1=square, 0.5=half height)")
-        if not s then print(name .. ": Cancelled."); return end
-        proportion = parseNumber(s)
+        proportion = p.proportion
         if proportion <= 0 or proportion > 1 then
             print(name .. ": Proportion must be between 0 and 1."); return
         end
         innerWidth = frame.shortLen * proportion
     end
 
-    local prompt = golden and "Pick location for golden rectangle" or "Pick location for inner rectangle"
     local count = 0
-    while true do
-        local x, y, z = at.getPoint(prompt)
-        if not x then break end
-        local h, drawErr = at.rectInFrame(container, innerWidth, x, y, z)
+    for _, pt in ipairs(p.locations) do
+        local h, drawErr = at.rectInFrame(container, innerWidth, pt.x, pt.y, pt.z)
         if not h then print(name .. ": " .. drawErr); break end
         count = count + 1
     end
@@ -65,17 +57,27 @@ local function placeRects(name, container, golden)
     end
 end
 
-local function containerParams()
-    return { { name = "container", type = "entity", prompt = "Select containing rectangle",
-               description = "Closed 4-vertex rectangular polyline" } }
+local function containerParams(golden)
+    local params = { { name = "container", type = "entity", prompt = "Select containing rectangle",
+                       description = "Closed 4-vertex rectangular polyline" } }
+    if not golden then
+        params[#params + 1] = { name = "proportion", type = "number",
+                                prompt = "Proportion (0-1, e.g. 1=square, 0.5=half height)",
+                                description = "Inner rectangle width / container short side, in (0, 1]" }
+    end
+    params[#params + 1] = { name = "locations", type = "points",
+                            prompt = golden and "Pick location for golden rectangle"
+                                             or "Pick location for inner rectangle",
+                            description = "One rectangle per point, slid along the long side to it" }
+    return params
 end
 
 -- ── ATGOLDENRECTIN ──────────────────────────────────────────────────────────
 at.defineCommand("ATGOLDENRECTIN", function(p)
-    placeRects("ATGOLDENRECTIN", p.container, true)
-end, "Places golden rectangles inside a container (picked points, Enter finishes)", containerParams())
+    placeRects("ATGOLDENRECTIN", p, true)
+end, "Places golden rectangles inside a container (picked points, Enter finishes)", containerParams(true))
 
 -- ── ATGOLDENRECTINW ─────────────────────────────────────────────────────────
 at.defineCommand("ATGOLDENRECTINW", function(p)
-    placeRects("ATGOLDENRECTINW", p.container, false)
-end, "Places custom-proportion rectangles inside a container (picked points, Enter finishes)", containerParams())
+    placeRects("ATGOLDENRECTINW", p, false)
+end, "Places custom-proportion rectangles inside a container (picked points, Enter finishes)", containerParams(false))
