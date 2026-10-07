@@ -467,21 +467,6 @@ AcDbObjectId AreaTools::InsertLengthLabel(AcDbObjectId curveId, const CString& l
     return textId;
 }
 
-void linearLengthCommand()
-{
-    acutPrintf(_T("\nLINEARLENGTH - Insert length text on a line or polyline"));
-
-    ads_name ent; ads_point pt;
-    if (acedEntSel(_T("\nSelect line or polyline: "), ent, pt) != RTNORM)
-    { acutPrintf(_T("\nCommand cancelled.")); return; }
-
-    AcDbObjectId curveId;
-    acdbGetObjectId(curveId, ent);
-
-    if (AreaTools::InsertLengthLabel(curveId).isNull())
-        acutPrintf(_T("\nError: Could not tag selected object."));
-}
-
 // ============================================================================
 // COUNTBLOCKS - Count block instances in selection or whole drawing
 // ============================================================================

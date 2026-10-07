@@ -30,6 +30,7 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
 | `ATSEQNUM` | `ATSEQNUM.lua` | `getPoint`, `seqNumber` | `SeqNumTools::CreateSeqNumber` |
 | `ATROOMTAG` | `ATROOMTAG.lua` | `roomTag` | `AreaTools::InsertRoomTag` + `RoomTagReactor` |
 | `ATPERIMETER` | `ATPERIMETER.lua` | `perimeterLabel`, `getText` | `AreaTools::InsertPerimeterLabel` + `PerimeterReactor` |
+| `ATLINEARLENGTH` | `ATLINEARLENGTH.lua` | `lengthLabel`, `getText` | `AreaTools::InsertLengthLabel` + `LinearLengthReactor` |
 
 `ATHELP` lists these with the suffix "(Lua command)".
 
@@ -47,7 +48,7 @@ there and copy it back before committing). `ATLUAFOLDER` opens that folder.
   `between` excludes the endpoints (min 1), and `equal` leaves half a gap at
   each end (min 1). `ATDISTTOLINE` uses the picked curve's start and end points
   (`getProps` returns `startPoint`/`endPoint` for any curve).
-- **ATROOMTAG / ATPERIMETER** labels stay linked to the polyline through
+- **ATROOMTAG / ATPERIMETER / ATLINEARLENGTH** labels stay linked to their curve through
   reactors and update when it changes.
 
 ## Adding or extracting a command
@@ -101,6 +102,5 @@ For example, `DistributeTools.cpp` went from 274 to 99 lines and
 
 ## Candidates
 
-Other label commands could follow the same pattern: `ATLINEARLENGTH`, sum
-length, and the area label (`at.lengthLabel`, `at.sumLengthLabel` and
-`at.areaLabel` already exist).
+Other label commands could follow the same pattern: sum length and the area
+label (`at.sumLengthLabel` and `at.areaLabel` already exist).
