@@ -29,6 +29,11 @@ extern "C" {
 #include "dbsymtb.h"
 #include "dbxutil.h"
 #include "acedCmdNF.h"
+#include "acedinpt.h"
+#include "acdocman.h"
+#include "rxmfcapi.h"
+#include <atomic>
+#include <thread>
 #include <algorithm>
 #include <array>
 #include <sstream>
@@ -2043,14 +2048,119 @@ int at_defineCommand(lua_State* L)
     return 0;
 }
 
-// at.command(NAME, ...) -> {newHandle,...}, lastPrompt | nil, err, lastPrompt
+// Active command names (CMDNAMES, e.g. "ATMCPRUN'-SPACEADD").
+CString ActiveCommandNames()
+{
+    CString names;
+    resbuf var;
+    if (acedGetVar(_T("CMDNAMES"), &var) == RTNORM && var.restype == RTSTR && var.resval.rstring)
+    {
+        names = var.resval.rstring;
+        acutDelString(var.resval.rstring);
+    }
+    return names;
+}
+
+// While at.command runs, watches the command's prompts (input context
+// reactor). A prompt answered from the inputs ends at once; one still open
+// after kPromptWaitMs is waiting for a person (the inputs ran out, e.g. an ACA
+// add command looping for another placement), so a watchdog thread posts ESC
+// to AutoCAD, which cancels the command and lets acedCmdS return. Jigs
+// (drag sequences) count as prompts too.
+const DWORD kPromptWaitMs = 1500;
+
+class PromptWatch : public AcEdInputContextReactor
+{
+public:
+    std::atomic<int>   depth{ 0 };
+    std::atomic<DWORD> since{ 0 };
+    std::atomic<bool>  fired{ false };
+    CString            prompt;   // last prompt text seen (main thread only)
+
+    void begin(const ACHAR* text = nullptr) { if (text && *text) prompt = text; since = GetTickCount(); ++depth; }
+    void end()   { if (depth > 0) --depth; since = GetTickCount(); }
+
+    void beginGetPoint(const AcGePoint3d*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetPoint(Acad::PromptStatus, const AcGePoint3d&, const ACHAR*&) override { end(); }
+    void beginGetAngle(const AcGePoint3d*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetAngle(Acad::PromptStatus, double&, const ACHAR*&) override { end(); }
+    void beginGetDistance(const AcGePoint3d*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetDistance(Acad::PromptStatus, double&, const ACHAR*&) override { end(); }
+    void beginGetOrientation(const AcGePoint3d*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetOrientation(Acad::PromptStatus, double&, const ACHAR*&) override { end(); }
+    void beginGetCorner(const AcGePoint3d*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetCorner(Acad::PromptStatus, AcGePoint3d&, const ACHAR*&) override { end(); }
+    void beginGetScaleFactor(const AcGePoint3d*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetScaleFactor(Acad::PromptStatus, double&, const ACHAR*&) override { end(); }
+    void beginGetString(const ACHAR* t, int) override { begin(t); }
+    void endGetString(Acad::PromptStatus, ACHAR*) override { end(); }
+    void beginGetKeyword(const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetKeyword(Acad::PromptStatus, const ACHAR*&) override { end(); }
+    void beginGetInteger(const int*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetInteger(Acad::PromptStatus, int&, const ACHAR*&) override { end(); }
+    void beginGetReal(const double*, const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endGetReal(Acad::PromptStatus, double&, const ACHAR*&) override { end(); }
+    void beginEntsel(const ACHAR* t, int, const ACHAR*) override { begin(t); }
+    void endEntsel(Acad::PromptStatus, AcDbObjectId&, AcGePoint3d&, const ACHAR*) override { end(); }
+    void beginNentsel(const ACHAR* t, Adesk::Boolean, int, const ACHAR*) override { begin(t); }
+    void endNentsel(Acad::PromptStatus, AcDbObjectId, const AcGePoint3d&, const AcGeMatrix3d&,
+                    const resbuf*, const ACHAR*) override { end(); }
+    void beginSSGet(const ACHAR* t, int, const ACHAR*, const ACHAR*, const AcArray<AcGePoint3d>&,
+                    const resbuf*) override { begin(t); }
+    void endSSGet(Acad::PromptStatus, const AcArray<AcDbObjectId>&) override { end(); }
+    void beginDragSequence(const ACHAR* t) override { begin(t); }
+    void endDragSequence(Acad::PromptStatus, AcGePoint3d&, AcGeVector3d&) override { end(); }
+};
+
+// Runs acedCmdS(head) with the watchdog; true in `cancelledWaiting` when it
+// had to cancel a prompt that was waiting for a person.
+int RunCommandWatched(const resbuf* head, bool& cancelledWaiting, CString& waitingPrompt)
+{
+    cancelledWaiting = false;
+    PromptWatch watch;
+    AcApDocument* doc = acDocManager->curDocument();
+    AcEdInputPointManager* ipm = doc ? doc->inputPointManager() : nullptr;
+    if (ipm) ipm->addInputContextReactor(&watch);
+
+    HWND frame = acedGetAcadFrame() ? acedGetAcadFrame()->GetSafeHwnd() : nullptr;
+    std::atomic<bool> done{ false };
+    std::thread watchdog([&]() {
+        int posts = 0;
+        while (!done)
+        {
+            Sleep(100);
+            if (done || !frame || posts >= 3) continue;
+            if (watch.depth > 0 && GetTickCount() - watch.since > kPromptWaitMs)
+            {
+                watch.fired = true;
+                ++posts;
+                ::PostMessage(frame, WM_CHAR, VK_ESCAPE, 0);
+                watch.since = GetTickCount();   // give the ESC time before trying again
+            }
+        }
+    });
+
+    int rc = acedCmdS(head);
+
+    done = true;
+    watchdog.join();
+    if (ipm) ipm->removeInputContextReactor(&watch);
+    cancelledWaiting = watch.fired;
+    waitingPrompt    = watch.prompt;
+    return rc;
+}
+
+// at.command(NAME, ...) -> {newHandle,...}, lastPrompt, stillWaiting | nil, err, lastPrompt
 // Runs any AutoCAD command (core, AutoCAD Architecture, other ARX) with its
 // command-line inputs, like a script line: a string is typed as is ("" or
 // nil = Enter), a number is a value, {x, y [,z]} is a point in WCS,
 // {handle = "2A"} picks that entity ("Select object:") and {handles = {...}}
 // is a selection set ("Select objects:"). The command must finish with the inputs
-// given (AutoCAD cancels it otherwise). Returns the entities it created and
-// the last command-line prompt (LASTPROMPT), which shows where it stopped.
+// given. A command still waiting for input afterwards (e.g. an ACA "add"
+// command looping for another placement) is cancelled, as with ESC, and
+// stillWaiting is true; what it created is kept. Returns the entities it
+// created and the last command-line prompt (LASTPROMPT), which shows where it
+// stopped.
 struct CmdArg { int kind; double x, y, z; const char* s; int index; };   // POD: safe across luaL_error
 enum { kArgStr, kArgInt, kArgReal, kArgPoint, kArgEntity, kArgSelection };
 const int kMaxCmdArgs = 256;
@@ -2125,6 +2235,7 @@ int at_command(lua_State* L)
 
     int  rc = RTERROR;
     int  badEntity = 0;
+    bool stillWaiting = false;
     std::string lastPrompt, err;
     std::vector<AcDbObjectId> created;
     struct SelSet { ads_name n; };
@@ -2186,7 +2297,34 @@ int at_command(lua_State* L)
         {
             ads_name last;
             bool hadLast = acdbEntLast(last) == RTNORM;
-            rc = acedCmdS(head);
+            CString before = ActiveCommandNames();
+            bool cancelledWaiting = false;
+            CString waitingPrompt;
+            rc = RunCommandWatched(head, cancelledWaiting, waitingPrompt);
+            if (cancelledWaiting)
+            {
+                stillWaiting = true;
+                lastPrompt = ToUtf8(waitingPrompt);   // LASTPROMPT would only say *Cancel*
+            }
+
+            // Still prompting (inputs ran out on a looping prompt)? Read the
+            // prompt first, then cancel like ESC so AutoCAD is left idle and
+            // the next request is not typed into it. (command) with no
+            // arguments is AutoCAD's cancel.
+            for (int k = 0; k < 3 && ActiveCommandNames().GetLength() > before.GetLength(); ++k)
+            {
+                if (!stillWaiting)
+                {
+                    resbuf var;
+                    if (acedGetVar(_T("LASTPROMPT"), &var) == RTNORM && var.restype == RTSTR && var.resval.rstring)
+                    {
+                        lastPrompt = ToUtf8(CString(var.resval.rstring));
+                        acutDelString(var.resval.rstring);
+                    }
+                }
+                stillWaiting = true;
+                acedCommandS(RTNONE);
+            }
 
             ads_name e, next;
             int more = hadLast ? acdbEntNext(last, e) : acdbEntNext(nullptr, e);
@@ -2199,12 +2337,15 @@ int at_command(lua_State* L)
             }
 
             resbuf var;
-            if (acedGetVar(_T("LASTPROMPT"), &var) == RTNORM && var.restype == RTSTR && var.resval.rstring)
+            if (!stillWaiting && acedGetVar(_T("LASTPROMPT"), &var) == RTNORM && var.restype == RTSTR
+                && var.resval.rstring)
             {
                 lastPrompt = ToUtf8(CString(var.resval.rstring));
                 acutDelString(var.resval.rstring);
             }
-            if (rc == RTCAN)
+            if (stillWaiting)
+                ctx_from(L)->cancelled = false;
+            else if (rc == RTCAN)
             {
                 ctx_from(L)->cancelled = false;   // a cancelled command is a result here, not an ESC abort
                 err = "the command was cancelled: it did not finish with the inputs given, or ESC was pressed";
@@ -2227,7 +2368,8 @@ int at_command(lua_State* L)
     }
     PushIdList(L, created);
     lua_pushlstring(L, lastPrompt.data(), lastPrompt.size());
-    return 2;
+    lua_pushboolean(L, stillWaiting ? 1 : 0);
+    return 3;
 }
 
 // at.getVar(NAME) -> value | nil  -- an AutoCAD system variable: a number, a
@@ -2759,12 +2901,13 @@ const AtFn kFns[] = {
     { "runCommand",   at_runCommand,   "(NAME [, {param = value, ...}]) -> true, output | nil, err",
       "runs another installed command (see INSTALLED COMMANDS); with the table its declared parameters come "
       "from it (required ones must be given), without it the user answers the prompts" },
-    { "command",      at_command,      "(NAME, input, ...) -> {newHandle,...}, lastPrompt | nil, err, lastPrompt",
+    { "command",      at_command,      "(NAME, input, ...) -> {newHandle,...}, lastPrompt, stillWaiting | nil, err, lastPrompt",
       "runs any AutoCAD / AutoCAD Architecture command as typed at the command line: \"\" = Enter, "
       "{x,y[,z]} = point (WCS), {handle=\"2A\"} = one entity (Select object:), {handles={...}} = a selection "
       "set (Select objects:), numbers and keywords as values; results a command only prints can be read with "
       "at.getVar; use the English "
-      "_NAME form; the command must finish with the inputs given" },
+      "_NAME form; a command still waiting for input at the end is cancelled (stillWaiting = true, "
+      "what it created is kept)" },
     { "getVar",       at_getVar,       "(NAME) -> number | string | {x,y,z} | nil",
       "an AutoCAD system variable, e.g. AREA / PERIMETER after the AREA command, DISTANCE after DIST, CLAYER" },
     // User input - ESC aborts the script; Enter returns the default, else nil

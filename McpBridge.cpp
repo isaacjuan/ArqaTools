@@ -98,6 +98,24 @@ std::string Error(const std::string& msg)
 }
 
 // ── Request handlers (main thread) ─────────────────────────────────────────
+// Last-write time of the loaded ARX file ("2026-10-07 14:51:03"), so a
+// client can tell which build is loaded (the version string only changes when
+// ArqaTools.cpp is recompiled).
+CString ArxFileTime()
+{
+    TCHAR path[MAX_PATH];
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    FILETIME local;
+    SYSTEMTIME st;
+    if (!GetModuleFileName(reinterpret_cast<HMODULE>(&__ImageBase), path, MAX_PATH)
+        || !GetFileAttributesEx(path, GetFileExInfoStandard, &data)
+        || !FileTimeToLocalFileTime(&data.ftLastWriteTime, &local) || !FileTimeToSystemTime(&local, &st))
+        return CString();
+    CString s;
+    s.Format(_T("%04d-%02d-%02d %02d:%02d:%02d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    return s;
+}
+
 std::string HandlePing()
 {
     CString drawing, acadVer;
@@ -110,6 +128,7 @@ std::string HandlePing()
         acutDelString(rb.resval.rstring);
     }
     return "{\"ok\":true,\"plugin\":" + Json(CString(GetVersionString()))
+         + ",\"arxBuilt\":" + Json(ArxFileTime())
          + ",\"acadver\":" + Json(acadVer)
          + ",\"drawing\":" + Json(drawing)
          + ",\"pid\":" + std::to_string(GetCurrentProcessId()) + "}";
@@ -252,7 +271,9 @@ std::string HandleAcadCommand(const std::string& body)
         "  local p = at.getProps(h)\n"
         "  print('  ' .. h .. '  ' .. (p and p.class or '?') .. (p and p.layer and ('  layer ' .. p.layer) or ''))\n"
         "end\n"
-        "if r[2] and r[2] ~= '' then print('Last prompt: ' .. r[2]) end\n";
+        "if r[2] and r[2] ~= '' then print('Last prompt: ' .. r[2]) end\n"
+        "if r[3] then print('The command was still waiting for input at that prompt, so it was cancelled "
+        "(as with ESC); what it created is kept.') end\n";
 
     acutPrintf(_T("\n[MCP] running AutoCAD command %s\n"), static_cast<LPCTSTR>(CA2T(name.c_str(), CP_UTF8)));
     LuaTools::LuaRunOptions opts;

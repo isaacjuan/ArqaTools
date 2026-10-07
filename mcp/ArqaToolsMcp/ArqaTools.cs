@@ -126,9 +126,10 @@ public class ArqaTools(BridgeClient bridge)
                  "{\"handles\": [\"2A\", \"2B\"]} is a selection set (\"Select objects:\"; follow it with \"\" to end the " +
                  "selection). Results a command only prints (AREA, DIST, LIST...) are not returned: read them " +
                  "afterwards with run_lua, e.g. print(at.getVar(\"AREA\"), at.getVar(\"PERIMETER\")). Use the English _NAME " +
-                 "form and the command-line version of commands that open dialogs (e.g. _-LAYER, _-INSERT). The " +
-                 "command must finish with the inputs given (end with \"\" where it waits for more), otherwise " +
-                 "AutoCAD cancels it; the result lists the entities created (handle, class, layer) and the last " +
+                 "form and the command-line version of commands that open dialogs (e.g. _-LAYER, _-INSERT). If the " +
+                 "command is still waiting for input when the inputs run out (e.g. an ACA add command looping for " +
+                 "another placement), it is cancelled like ESC and the result says so; what it created is kept, so " +
+                 "no Escape input is needed. The result lists the entities created (handle, class, layer) and the last " +
                  "prompt, which shows where it stopped. A command that loops on a prompt (e.g. \"Select objects:\") " +
                  "shows that prompt last even when it finished; check the drawing or at.getVar to be sure. One UNDO step. Use list_acad_commands to discover commands. " +
                  "Prefer an ArqaTools command tool when one does the job.")]
