@@ -2,44 +2,64 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**`AGENTS.md` is the authoritative guide** (build, architecture, module pattern, ObjectARX/MFC
-quirks, adding a command). Read it first. This file only adds what is specific to this fork and
-the AI/MCP work. `README.md` and `ARCHITECTURE.md` are stale (pre-rename `HelloWorld` naming).
-
-## This fork
-
-`D:\dev_jp\Sync\ArqaToolsMcp`, branch `feature/mcp` (base: `feature/consolidation`). It adds the
-MCP bridge and the AI harness on top of ArqaTools.
+**`AGENTS.md` is the authoritative guide** for architecture, module pattern, ObjectARX/MFC quirks,
+and adding commands. Read it first. This file adds what is specific to this fork (branch
+`feature/mcp`, base `feature/consolidation`) and the AI/MCP work. `README.md` and `ARCHITECTURE.md`
+are stale (pre-rename `HelloWorld` naming).
 
 ## Build
 
+```powershell
+# Plugin (ObjectARX 2026 SDK, config names still say "2025")
+msbuild ArqaTools.sln /p:Configuration="Debug 2025" /p:Platform=x64 /v:m
+
+# MCP server (C# .NET 8)
+dotnet build mcp\ArqaToolsMcp -c Release
 ```
-msbuild ArqaTools.sln /p:Configuration="Debug 2025" /p:Platform=x64 /v:m   # plugin
-dotnet build mcp\ArqaToolsMcp -c Release                                  # MCP server
+
+**Do not run `Build.bat`** in this fork: it deploys over the original plugin. Load the fork
+directly in AutoCAD 2026:
+
+```lisp
+(arxload "D:/dev_jp/Sync/ArqaToolsMcp/x64/Debug 2025/ArqaTools.arx")
 ```
 
-- **Do not run `Build.bat` in this fork**: it copies the ARX over `Documents\ArqaTools.arx`,
-  which is the original (non-fork) plugin. Load the fork's build directly in AutoCAD 2026:
-  `(arxload "D:/dev_jp/Sync/ArqaToolsMcp/x64/Debug 2025/ArqaTools.arx")`, then `ATMCPSTART`.
-- Config names still say `2025`, but the target is the `OARX2026` SDK / AutoCAD 2026.
-- The ARX is locked while loaded in AutoCAD; unload it before rebuilding.
-- New `.cpp`/`.h` files must be added to `ArqaTools.vcxproj` (both `ClCompile` and `ClInclude`).
+Then `ATMCPSTART` to open the MCP pipe.
 
-## Testing
+- The ARX is file-locked while loaded; unload before rebuilding.
+- New `.cpp`/`.h` files need entries in `ArqaTools.vcxproj` (`ClCompile` + `ClInclude`).
 
-No unit tests, no CI. Verification happens inside a running AutoCAD:
+## LuaCommands: two folders
 
-- Lua scripts: `ATLUA @path\to\file.lua` (`test.lua`, `test_foundations.lua`, `test_tier1.lua`,
-  `test_tier2.lua`).
-- Lua commands: `CommandTester` (`Run` for a command, `RunScript` for a script) executes in a
-  scratch drawing with auto-answered prompts and produces a geometry report and plan-view PNG.
-- From Claude Code, via the `arqatools` MCP server (`.mcp.json`, requires `ATMCPSTART` in
-  AutoCAD): `ping`, `get_api`, `list_commands`, `get_command_source`, `run_lua` (always
-  read-only), `run_command` (positional `answers`), `test_command`.
-- Lua command files live in `Documents\ArqaTools\LuaCommands`; after editing one, the user must
-  run `ATLUARELOAD` in AutoCAD (it cannot be triggered over MCP).
+| Folder | Role |
+|--------|------|
+| `LuaCommands\` (this repo) | **Source of truth**, versioned |
+| `Documents\ArqaTools\LuaCommands\` | What the plugin actually loads |
 
-## AI / MCP architecture (cross-file)
+After editing a file in the repo, copy it to Documents. Then run `ATLUARELOAD` in AutoCAD (or
+`run_acad_command "_ATLUARELOAD"` via MCP) to pick up changes. No C++ rebuild needed for Lua
+command changes.
+
+## MCP workflow (Claude Code)
+
+`.mcp.json` registers the `arqatools` server. Before using it:
+
+1. Build the MCP server: `dotnet build mcp\ArqaToolsMcp -c Release`
+2. In AutoCAD: load the ARX and run `ATMCPSTART`
+3. Reconnect the MCP client if needed (`/mcp` in Claude Code)
+
+Key tools:
+- `ping` - verify connection, get AutoCAD version and drawing name
+- `get_api` - the `at.*` function catalog (also a resource)
+- `list_commands` / `get_command_source` - Lua command inventory
+- `run_lua` - execute read-only Lua (query functions only)
+- `run_command` - execute a Lua command with positional `answers`
+- `run_acad_command` / `list_acad_commands` - drive any AutoCAD/ACA command
+- `test_command` - run a command in a scratch drawing, get geometry report and PNG
+
+Commands with declared parameters are published as their own MCP tools with typed schemas.
+
+## AI / MCP architecture
 
 ```
 Claude Code --stdio/MCP--> mcp\ArqaToolsMcp (C# .NET 8)
@@ -48,25 +68,32 @@ McpBridge (pipe thread -> message-only window on main thread)
    --> LuaTools::LuaEngine / LuaCommands / CommandTester
 ```
 
-- Requests are plain text (`method\nbody`); the plugin only writes JSON, never parses it.
-  Structured args are converted to Lua table literals on the C# side (`LuaLiteral.cs`).
-- The pipe thread never calls ObjectARX. Lua runs are dispatched via
-  `sendStringToExecute("_ATMCPRUN ")` only when the document is quiescent.
+- The plugin only writes JSON, never parses it. Structured args become Lua table literals on
+  the C# side (`LuaLiteral.cs`).
+- The pipe thread never calls ObjectARX; Lua runs go through `sendStringToExecute("_ATMCPRUN ")`
+  only when the document is quiescent.
 - `LuaTools.cpp`'s `kFns` table is the single source of truth for the `at` API: it registers
-  bindings, generates `describeApi()` (the AI prompt and MCP `get_api`), and flags read-only
-  functions (`isReadOnlyFunction`).
-- `AiHarness` is the shared loop for AI-written Lua (`ATAICMD`, `ATAILUA`): model call, cleanup,
-  validation, `CommandTester` run, AI review with image, correction rounds, human approval. New
-  AI features supply an `AiHarness::Task` rather than their own loop. Providers/models/harness
-  settings come from `Documents\ArqaTools\ai_config.lua` (`AiConfig`).
+  bindings, generates `describeApi()`, and flags read-only functions (`isReadOnlyFunction`).
+- `AiHarness` wraps AI-written Lua (`ATAICMD`, `ATAILUA`): model call, cleanup, validation,
+  test run, AI review with image, correction rounds, human approval. New AI features supply an
+  `AiHarness::Task` rather than their own loop.
 
-Design and rationale: `MCP_DESIGN.md` (phases, pipe protocol, read-only mode),
-`HARNESS.md` and `HARNESS_RESPONSIBILITIES.md` (harness roles and guarantees), `AI_SETUP.md`,
-`LUA_COMMANDS.md` (commands moved from C++ to Lua, and how to move more).
+Design docs: `MCP_DESIGN.md`, `HARNESS.md`, `HARNESS_RESPONSIBILITIES.md`, `AI_SETUP.md`,
+`LUA_COMMANDS.md`.
+
+## Testing
+
+No unit tests or CI. Verification happens in a running AutoCAD:
+
+- **Lua scripts**: `ATLUA @path\to\file.lua` (repo-root `test*.lua` files)
+- **Lua commands**: `test_command` (MCP) or `CommandTester::Run` (C++) runs in a scratch drawing
+  with auto-answered prompts, returns geometry report and plan-view PNG
+- **MCP tools**: use `ping`, `run_lua`, `run_command`, `test_command` from Claude Code
+
+After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
 
 ## Other notes
 
-- ACML (`Acml*.cpp`, `*.acml`, commands `ATACML*`) is a separate DSL interpreter, fully
-  decoupled from Lua.
-- Workspace rule (from `D:\dev_jp\CLAUDE.md`): run git commands from inside this project
-  directory.
+- ACML (`Acml*.cpp`, `*.acml`, `ATACML*`) is a separate DSL, decoupled from Lua.
+- Workspace rule: run git commands from inside this project directory (the parent `D:\dev_jp`
+  has no `.git`).
