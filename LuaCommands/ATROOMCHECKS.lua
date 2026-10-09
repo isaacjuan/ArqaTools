@@ -1937,6 +1937,30 @@ at.defineCommand("ATFURNITURECHECK", function(p)
 
                 print(string.format("ATFURNITURECHECK: %s: %d piece(s), %d entr%s", roomLabel(room), #furniture,
                     #entries, #entries == 1 and "y" or "ies"))
+
+                -- furnishing programme of bedrooms (DESIGN_PRINCIPLES.md §6): only a
+                -- student bedroom has a desk, and its bed is a single (narrow) one
+                if BEDROOM_TYPES[roomType(room)] then
+                    local student = at.getData(room, "student") == true
+                    local desks, doubles, beds = {}, {}, 0
+                    for _, f in ipairs(furniture) do
+                        if f.type == "Desk" then desks[#desks + 1] = f.h end
+                        if f.type == "Bed" then doubles[#doubles + 1] = f.h end
+                        if f.type == "Bed" or f.type == "BedSingle" then beds = beds + 1 end
+                    end
+                    if student then
+                        if #doubles > 0 then
+                            problems = problems + 1
+                            print("  PROBLEM: a student bedroom has a single (narrow) bed, not a double bed (" .. table.concat(doubles, ", ") .. ").")
+                        end
+                        if #desks == 0 then print("  check: a student bedroom has a desk; none found.") end
+                    elseif #desks > 0 then
+                        problems = problems + 1
+                        print("  PROBLEM: only a student bedroom has a desk; remove " .. table.concat(desks, ", ")
+                            .. " (or tag the room student with ATROOMTYPE).")
+                    end
+                    if beds == 0 then print("  check: no bed found in this bedroom.") end
+                end
                 for _, f in ipairs(furniture) do
                     pieces = pieces + 1
                     local spec = FURNITURE[f.type]
@@ -1969,9 +1993,21 @@ at.defineCommand("ATFURNITURECHECK", function(p)
                     end
 
                     -- evaluate each side
+                    -- the sides this piece is used from (beds depend on how they stand)
+                    local sides, need, one = spec.sides, spec.need, spec.one
+                    local bedProblem
+                    if spec.head and against and (umax - umin) > (nmax - nmin) + 1 then
+                        -- the bed stands with its long side against the wall
+                        if f.type == "BedSingle" then
+                            sides, need, one = { front = spec.sides.left }, { "front" }, nil
+                        else
+                            bedProblem = "a double bed needs both long sides free; it stands with a long side against the wall"
+                            sides, need, one = { front = spec.sides.left }, { "front" }, nil
+                        end
+                    end
                     local status, targets, order = {}, {}, {}
                     for _, side in ipairs({ "front", "left", "right", "back" }) do
-                        local d = spec.sides[side]
+                        local d = sides[side]
                         local skip = (side == "back" and against)   -- the back stands against the wall
                         if d and not skip then
                             local zone, mid, dir = zoneOfSide(side, d)
@@ -2025,17 +2061,17 @@ at.defineCommand("ATFURNITURECHECK", function(p)
 
                     -- verdict
                     local parts, required, failed = {}, {}, {}
-                    for _, s in ipairs(spec.need or {}) do required[s] = true end
+                    for _, s in ipairs(need or {}) do required[s] = true end
                     for _, side in ipairs({ "front", "left", "right", "back" }) do
                         if status[side] then parts[#parts + 1] = side .. " " .. status[side] end
                     end
                     for s in pairs(required) do
                         if status[s] and status[s] ~= "ok" then failed[#failed + 1] = s end
                     end
-                    if spec.one then
+                    if one then
                         local anyOk = false
-                        for _, s in ipairs(spec.one) do if status[s] == "ok" then anyOk = true end end
-                        if not anyOk then failed[#failed + 1] = "one of " .. table.concat(spec.one, "/") end
+                        for _, s in ipairs(one) do if status[s] == "ok" then anyOk = true end end
+                        if not anyOk then failed[#failed + 1] = "one of " .. table.concat(one, "/") end
                     end
                     if spec.freeSides then
                         local anyOk = false
@@ -2046,6 +2082,10 @@ at.defineCommand("ATFURNITURECHECK", function(p)
                     end
                     print(string.format("  %s %s (%sx%s): %s", spec.label, f.h, fmt(umax - umin), fmt(nmax - nmin),
                         table.concat(parts, "; ")))
+                    if bedProblem then
+                        problems = problems + 1
+                        print("    PROBLEM: " .. bedProblem .. ".")
+                    end
                     if #failed > 0 then
                         problems = problems + 1
                         print(string.format("    PROBLEM: %s cannot be used from its %s side(s).", spec.label, table.concat(failed, ", ")))
@@ -2169,11 +2209,12 @@ at.defineCommand("ATFIXTURETYPE", function(p)
     end
     print(string.format("ATFIXTURETYPE: %d object(s) %s.", n,
         p.fixtureType == "Default" and "back to their name-based type" or ("tagged " .. p.fixtureType)))
-end, "Tags fixtures (blocks, ACA multi-view blocks, rectangles) as WC, Basin, Shower, Bathtub, Bidet, Worktop, Sink, Cooker, Fridge or Shelving", {
+end, "Tags fixtures and furniture (blocks, ACA multi-view blocks, rectangles): WC, Basin, Shower, Bathtub, Bidet, Worktop, Sink, Cooker, Fridge, Shelving, Bed, BedSingle, Wardrobe, Chest, Desk, Chair, Table, Sofa, Nightstand", {
     { name = "objects",     type = "selection", prompt = "Select fixtures",
       filter = "INSERT,AEC_MVBLOCK_REF,LWPOLYLINE" },
     { name = "fixtureType", type = "keyword", prompt = "Fixture type",
-      options = "WC Basin Shower Bathtub Bidet Worktop Sink Cooker Fridge Shelving Default", default = "Worktop",
+      options = "WC Basin Shower Bathtub Bidet Worktop Sink Cooker Fridge Shelving Bed BedSingle Wardrobe Chest Desk Chair Table Sofa Nightstand Default",
+      default = "Worktop",
       description = "Default removes the tag" },
 })
 

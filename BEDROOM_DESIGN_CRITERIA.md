@@ -130,7 +130,9 @@ single-occupancy logic as the bathroom session), not a defect.
 but **it cannot be reached**: the desk (east edge x = 1495) and the bed (west edge x = 1576)
 leave an 81 mm gap, so the strip north of the bed, and the north nightstand, are cut off from
 the door. The bed can be made from the south side only. Moving or narrowing the desk (or
-turning it) opens the strip; with the desk removed the check passes.
+turning it) opens the strip; with the desk removed the check passes. And by the furnishing
+programme (`DESIGN_PRINCIPLES.md` §6) the desk does not belong here at all: only a student
+bedroom, with a single bed, has a desk; this is the main bedroom with a double bed.
 
 Final clash scan (`ATCLEARANCECHECK`, bedroom-relevant results only — the
 rest is leftover bathroom-session geometry still in this drawing, already

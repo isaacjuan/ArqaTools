@@ -156,7 +156,7 @@ three sides, a wardrobe from its doors, a desk from where the chair goes.
 | Piece | Access sides | Depth |
 |---|---|---|
 | Double bed | both long sides (required), foot (recommended) | 600 mm |
-| Single bed | one long side (required), foot (recommended) | 600 mm |
+| Single bed | one long side (required), foot (recommended); standing with its long side against the wall: only the open long side | 600 mm |
 | Wardrobe, chest of drawers, shelving | front | 600 mm |
 | Desk | front (its chair belongs there) | 700 mm |
 | Dining table | every free side (chairs belong there) | 700 mm |
@@ -165,6 +165,14 @@ three sides, a wardrobe from its doors, a desk from where the chair goes.
 
 Depths are starting figures from the ergonomic notes (`BEDROOM_DESIGN_CRITERIA.md`); adjust the
 `FURNITURE` table in `ATROOMCHECKS.lua`.
+
+**Furnishing programme of bedrooms:** only a **student bedroom** has a desk, and its bed is a
+single (narrow) one. **Other bedrooms have no desk.** Tag a student bedroom with
+`ATROOMTYPE ... student=Yes`; a desk in any other bedroom, or a double bed in a student
+bedroom, is a PROBLEM (a student bedroom without a desk is a check). A student's single bed can
+stand with its long side against the wall, so it needs free floor on one long side only: the
+room stays compact. A double bed always needs both long sides free; standing with a long side
+against the wall is a PROBLEM.
 
 In the drawing (`ATFURNITURECHECK`, also inside `ATDWELLINGCHECK`):
 

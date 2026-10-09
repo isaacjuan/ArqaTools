@@ -227,6 +227,9 @@ element sizes, not space dimensions, and are not checked.
     5B0B (north wall) with sink 5B0D and cooker 5B0E, fridge 5B0F, shelving 5B10 (1500 aisle);
     road line 5B08 along the south
     (y = -2000) and access point 5B09, marked with `ATSITEMARK`.
+  - X = 60000, dwelling `TEST-05`: a 2700 × 3000 student bedroom (`student=Yes`) with tagged
+    rectangles: single bed 5B16 long side against the north wall, desk 5B17 with chair 5B18
+    against the south wall, freestanding door 5B19; passes `ATFURNITURECHECK`.
 
 ## 10. Applied to the session layouts
 

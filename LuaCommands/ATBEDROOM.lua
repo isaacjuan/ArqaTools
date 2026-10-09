@@ -337,6 +337,8 @@ at.defineCommand("ATROOMTYPE", function(p)
     if not ok then print("ATROOMTYPE: " .. tostring(err)); return end
     if p.dwelling and p.dwelling ~= "" then at.setData(p.room, "dwelling", p.dwelling) end
     if p.bedrooms then at.setData(p.room, "bedrooms", p.bedrooms) end
+    if p.student == "Yes" then at.setData(p.room, "student", true)
+    elseif p.student == "No" then at.setData(p.room, "student", nil) end
     if p.zone and p.zone ~= "" then
         if p.zone == "Default" then at.setData(p.room, "zone", nil)
         else at.setData(p.room, "zone", p.zone:lower()) end
@@ -344,7 +346,7 @@ at.defineCommand("ATROOMTYPE", function(p)
 
     local tags = at.getData(p.room) or {}
     local parts = {}
-    for _, k in ipairs({ "roomType", "dwelling", "bedrooms", "zone" }) do
+    for _, k in ipairs({ "roomType", "dwelling", "bedrooms", "zone", "student" }) do
         if tags[k] ~= nil then parts[#parts + 1] = k .. "=" .. tostring(tags[k]) end
     end
     print("ATROOMTYPE: room " .. p.room .. " tagged " .. table.concat(parts, ", ") .. ".")
@@ -359,4 +361,7 @@ end, "Tags a room boundary or ACA space with its room type, dwelling and the dwe
     { name = "zone",     type = "keyword", prompt = "Zone (blank = keep)", optional = true,
       options = "Public Private Service Circulation Default",
       description = "Overrides the zone that follows from the room type (e.g. a guest toilet = Public); Default removes the override" },
+    { name = "student",  type = "keyword", prompt = "Student bedroom (blank = keep)", optional = true,
+      options = "Yes No",
+      description = "Bedrooms only: a student bedroom has a desk and a single bed; other bedrooms have no desk" },
 })

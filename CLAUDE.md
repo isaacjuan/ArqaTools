@@ -112,6 +112,7 @@ changing a dwelling:
    long side, near its middle (`ATECONOMYCHECK`). **Furniture** follows the same logic: each
    piece has access sides (bed three, wardrobe its doors, desk its chair side) whose free floor
    must be reachable from the room's entrance (`ATFURNITURECHECK`, `DESIGN_PRINCIPLES.md` §6).
+   Only a student bedroom (`student=Yes`) has a desk, with a single bed; other bedrooms no desk.
 4. **Size on the 300 mm module**, code minimums rounded up (`QUITO_SPACE_STANDARDS.md`).
 
 Tag rooms with `ATROOMTYPE` (and the entrance with `ATDOORTYPE`), then `ATDWELLINGCHECK <id>`
