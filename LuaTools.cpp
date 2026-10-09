@@ -1437,6 +1437,95 @@ int at_roomUsable(lua_State* L)
     return 3;
 }
 
+// Reads {x=,y=} or {x,y} at idx; false when malformed. Non-raising.
+bool ReadXY(lua_State* L, int idx, double& x, double& y)
+{
+    if (!lua_istable(L, idx)) return false;
+    int t = lua_absindex(L, idx);
+    lua_getfield(L, t, "x"); lua_getfield(L, t, "y");
+    if (lua_isnil(L, -2)) { lua_pop(L, 2); lua_rawgeti(L, t, 1); lua_rawgeti(L, t, 2); }
+    int okX = 0, okY = 0;
+    x = lua_tonumberx(L, -2, &okX);
+    y = lua_tonumberx(L, -1, &okY);
+    lua_pop(L, 2);
+    return okX && okY;
+}
+
+// at.roomReach(room, {obstacle,...}, passWidth, from, {target,...}) -> {bool,...}, fraction, parts | nil,err
+int at_roomReach(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    double pass = luaL_checknumber(L, 3);
+    luaL_checktype(L, 4, LUA_TTABLE);
+    luaL_checktype(L, 5, LUA_TTABLE);
+    luaL_argcheck(L, pass > 0.0, 3, "passWidth must be > 0");
+    double slack = luaL_optnumber(L, 6, 0.0);
+    double fx = 0.0, fy = 0.0;
+    if (!ReadXY(L, 4, fx, fy)) return luaL_argerror(L, 4, "from must be {x=,y=}");
+    lua_Integer nt = static_cast<lua_Integer>(lua_rawlen(L, 5));
+    for (lua_Integer i = 1; i <= nt; ++i)
+    {
+        lua_rawgeti(L, 5, i);
+        double x, y;
+        bool ok = ReadXY(L, -1, x, y);
+        lua_pop(L, 1);
+        if (!ok) return luaL_error(L, "target %d must be {x=,y=}", static_cast<int>(i));
+    }
+
+    bool ok = false;
+    std::vector<bool> reach;
+    GeomTools::Usability u;
+    std::string err;
+    {
+        std::vector<AcGePoint2d> targets;
+        for (lua_Integer i = 1; i <= nt; ++i)
+        {
+            lua_rawgeti(L, 5, i);
+            double x = 0.0, y = 0.0;
+            ReadXY(L, -1, x, y);
+            lua_pop(L, 1);
+            targets.emplace_back(x, y);
+        }
+        std::vector<std::string> obs;
+        lua_Integer no = static_cast<lua_Integer>(lua_rawlen(L, 2));
+        for (lua_Integer i = 1; i <= no; ++i)
+        {
+            lua_rawgeti(L, 2, i);
+            if (const char* s = lua_tostring(L, -1)) obs.emplace_back(s);
+            lua_pop(L, 1);
+        }
+        GeomTools::Outline room;
+        CString e;
+        ok = GeomTools::GetBoundary(ResolveHandle(handle), room, e);
+        if (ok)
+        {
+            std::vector<GeomTools::Outline> outlines;
+            for (const std::string& h : obs)
+            {
+                GeomTools::Outline o;
+                bool closed = false;
+                CString e2;
+                if (GeomTools::GetOutline(ResolveHandle(h), o, closed, e2) && o.size() >= 3)
+                    outlines.push_back(o);
+            }
+            ok = GeomTools::Reach(room, outlines, pass, 0.0, AcGePoint2d(fx, fy), targets, reach, u, slack);
+            if (!ok) e = _T("no interior found");
+        }
+        if (!ok) err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+    lua_createtable(L, static_cast<int>(reach.size()), 0);
+    for (size_t i = 0; i < reach.size(); ++i)
+    {
+        lua_pushboolean(L, reach[i] ? 1 : 0);
+        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    lua_pushnumber(L, u.fraction);
+    lua_pushinteger(L, u.parts);
+    return 3;
+}
+
 void PushDataValue(lua_State* L, const EntityData::Value& v)
 {
     switch (v.kind)
@@ -3274,6 +3363,11 @@ const AtFn kFns[] = {
       "accessibility for a person passWidth wide: share of the floor where a disc that wide fits, the area lost "
       "(slivers, narrow niches; units squared) and how many separate parts the usable floor splits into (more than "
       "one = part of the room reached only through a gap narrower than passWidth); grid 0 = automatic" },
+    { "roomReach",    at_roomReach,    "(room, {obstacle,...}, passWidth, from, {target,...} [,fromSlack]) -> {bool,...}, fraction, parts | nil,err",
+      "reachability on the free floor (the room minus the obstacles' outlines) for a person passWidth wide: "
+      "whether each target point {x=,y=} can be stood at on the floor connected to `from` (e.g. where a door "
+      "opens; fromSlack widens it, e.g. half the door width); also the usable share of the free floor and its "
+      "number of parts" },
     { "getData",      at_getData,      "(handle [,key]) -> value | {key = value,...} | nil,err",
       "tags set with setData: with key its value (nil if absent), without key all of them (empty table if none)" },
     { "setData",      at_setData,      "(handle, key, value) -> true | false,err",
@@ -3610,7 +3704,7 @@ bool isReadOnlyFunction(const char* name)
         "print", "listEntities", "entities", "getProps", "getText", "sumText",
         "countBlocks", "layers", "getCurrentLayer", "refPoint", "formatArea", "formatLength",
         "getVar", "getAecProps", "pointInPolygon", "entitiesInside", "getData", "findByData",
-        "outline", "distance", "roomWidth", "roomUsable",
+        "outline", "distance", "roomWidth", "roomUsable", "roomReach",
     };
     for (const char* n : kReadOnly)
         if (strcmp(name, n) == 0) return true;

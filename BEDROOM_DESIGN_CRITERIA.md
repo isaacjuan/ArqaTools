@@ -126,6 +126,12 @@ open long sides now face into the room's open floor (744mm to the north wall,
 door, which is an acceptable transient-zone-on-transient-zone overlap (same
 single-occupancy logic as the bathroom session), not a defect.
 
+*Update 2026-10-09 (`ATFURNITURECHECK`):* the bed's north side does have 744 mm to the wall,
+but **it cannot be reached**: the desk (east edge x = 1495) and the bed (west edge x = 1576)
+leave an 81 mm gap, so the strip north of the bed, and the north nightstand, are cut off from
+the door. The bed can be made from the south side only. Moving or narrowing the desk (or
+turning it) opens the strip; with the desk removed the check passes.
+
 Final clash scan (`ATCLEARANCECHECK`, bedroom-relevant results only — the
 rest is leftover bathroom-session geometry still in this drawing, already
 documented in `BATHROOM_DESIGN_CRITERIA.md`): **zero bedroom clashes** except

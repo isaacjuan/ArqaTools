@@ -5,6 +5,7 @@
 #include "gearc3d.h"
 #include "gelnsg3d.h"
 #include "geintrvl.h"
+#include <algorithm>
 #include <cmath>
 
 namespace GeomTools
@@ -456,6 +457,119 @@ bool Usable(const Outline& poly, double passWidth, double grid, Usability& out)
     out.fraction = static_cast<double>(usable) / inside;
     out.lostArea = static_cast<double>(inside - usable) * grid * grid;
     out.parts = parts;
+    return true;
+}
+
+bool Reach(const Outline& room, const std::vector<Outline>& obstacles, double passWidth,
+           double grid, const AcGePoint2d& from, const std::vector<AcGePoint2d>& targets,
+           std::vector<bool>& reachable, Usability& out, double fromSlack)
+{
+    out = Usability();
+    reachable.assign(targets.size(), false);
+    if (room.size() < 3 || passWidth <= 0.0) return false;
+    double x0, y0, x1, y1;
+    Bounds(room, x0, y0, x1, y1);
+    double w = x1 - x0, h = y1 - y0;
+    if (w <= 0.0 || h <= 0.0) return false;
+    if (grid <= 0.0) grid = 50.0;
+    double minGrid = std::sqrt(w * h / 40000.0);
+    if (grid < minGrid) grid = minGrid;
+    out.grid = grid;
+
+    int nx = static_cast<int>(std::ceil(w / grid)), ny = static_cast<int>(std::ceil(h / grid));
+    // -1 = outside or under an obstacle, 0 = free, 1 = core (a person fits centred here)
+    std::vector<signed char> cell(static_cast<size_t>(nx) * ny, -1);
+    double r = passWidth / 2.0;
+    int inside = 0;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+        {
+            AcGePoint2d p(x0 + (i + 0.5) * grid, y0 + (j + 0.5) * grid);
+            double d = InsideDistance(room, p);
+            if (d < 0.0) continue;
+            bool blocked = false;
+            for (const Outline& o : obstacles)
+            {
+                if (o.size() < 3) continue;
+                double od = 0.0;
+                if (Contains(o, p, 0.0, &od)) { blocked = true; break; }
+                if (od < d) d = od;
+            }
+            if (blocked) continue;
+            ++inside;
+            cell[static_cast<size_t>(i) * ny + j] = d + 1e-6 >= r ? 1 : 0;
+        }
+    if (inside == 0) return true;   // nothing free: nothing reachable
+
+    // parts of the core (8-neighbourhood)
+    std::vector<int> label(cell.size(), 0);
+    int parts = 0;
+    std::vector<std::pair<int, int>> stack;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+        {
+            size_t k = static_cast<size_t>(i) * ny + j;
+            if (cell[k] != 1 || label[k]) continue;
+            ++parts;
+            label[k] = parts;
+            stack.assign(1, { i, j });
+            while (!stack.empty())
+            {
+                auto [ci, cj] = stack.back();
+                stack.pop_back();
+                for (int a = ci - 1; a <= ci + 1; ++a)
+                    for (int b = cj - 1; b <= cj + 1; ++b)
+                    {
+                        if (a < 0 || b < 0 || a >= nx || b >= ny) continue;
+                        size_t kk = static_cast<size_t>(a) * ny + b;
+                        if (cell[kk] == 1 && !label[kk]) { label[kk] = parts; stack.push_back({ a, b }); }
+                    }
+            }
+        }
+    out.parts = parts;
+
+    // parts a point can stand in: core cells within r (+ half a cell) of it
+    int reachCells = static_cast<int>(std::ceil(r / grid)) + 1;
+    auto partsNear = [&](const AcGePoint2d& p, std::vector<int>& found, double slack) {
+        found.clear();
+        int ci = static_cast<int>(std::floor((p.x - x0) / grid));
+        int cj = static_cast<int>(std::floor((p.y - y0) / grid));
+        int rc = reachCells + static_cast<int>(std::ceil(slack / grid));
+        double lim = (r + grid + slack) * (r + grid + slack);
+        for (int a = ci - rc; a <= ci + rc; ++a)
+            for (int b = cj - rc; b <= cj + rc; ++b)
+            {
+                if (a < 0 || b < 0 || a >= nx || b >= ny) continue;
+                size_t kk = static_cast<size_t>(a) * ny + b;
+                if (cell[kk] != 1) continue;
+                double dx = x0 + (a + 0.5) * grid - p.x, dy = y0 + (b + 0.5) * grid - p.y;
+                if (dx * dx + dy * dy <= lim
+                    && std::find(found.begin(), found.end(), label[kk]) == found.end())
+                    found.push_back(label[kk]);
+            }
+    };
+
+    // usable share of the free floor
+    int usable = 0;
+    std::vector<int> tmp;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+            if (cell[static_cast<size_t>(i) * ny + j] >= 0)
+            {
+                partsNear(AcGePoint2d(x0 + (i + 0.5) * grid, y0 + (j + 0.5) * grid), tmp, 0.0);
+                if (!tmp.empty()) ++usable;
+            }
+    out.fraction = static_cast<double>(usable) / inside;
+    out.lostArea = static_cast<double>(inside - usable) * grid * grid;
+
+    std::vector<int> start;
+    partsNear(from, start, fromSlack);
+    for (size_t t = 0; t < targets.size(); ++t)
+    {
+        partsNear(targets[t], tmp, 0.0);
+        for (int lbl : tmp)
+            if (std::find(start.begin(), start.end(), lbl) != start.end()) { reachable[t] = true; break; }
+    }
     return true;
 }
 

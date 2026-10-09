@@ -52,6 +52,18 @@ namespace GeomTools
     };
     bool Usable(const Outline& poly, double passWidth, double grid, Usability& out);
 
+    // Reachability on the free floor: the room minus the obstacles (furniture),
+    // for a person passWidth wide. targets[i] is reachable when it can be
+    // stood at (within passWidth/2 of a spot where the person fits) on the
+    // same connected free floor as `from` (a point on the room's edge, e.g.
+    // where a door opens). `out` also gets the usable share and parts of the
+    // free floor.
+    // `fromSlack` widens the entry: anywhere within that distance of `from`
+    // counts (half the door's width: you step in wherever the opening allows).
+    bool Reach(const Outline& room, const std::vector<Outline>& obstacles, double passWidth,
+               double grid, const AcGePoint2d& from, const std::vector<AcGePoint2d>& targets,
+               std::vector<bool>& reachable, Usability& out, double fromSlack = 0.0);
+
     // The candidates whose geometric-extents centre is inside the boundary
     // (within tol). The boundary itself is skipped.
     std::vector<AcDbObjectId> FilterInside(AcDbObjectId boundary, const Outline& poly,

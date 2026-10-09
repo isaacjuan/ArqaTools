@@ -10,8 +10,9 @@ The project's own design method for dwellings, on top of the building code (code
    private zone goes, how the service zone is supplied.
 2. **Define the spaces** (§3): choose, for each boundary, how strongly it separates.
 3. **Connect them** through transition spaces (§4), with as little circulation as
-   possible and each room entered where it is used best (§5), keeping doors clear (§6).
-4. **Size them**: code minimums (Quito) on the 300 mm module (§7).
+   possible and each room entered where it is used best (§5), furnished so every piece is
+   usable (§6), keeping doors clear (§7).
+4. **Size them**: code minimums (Quito) on the 300 mm module (§8).
 
 Decide in this order: a later step never overrules an earlier one without going back to it.
 
@@ -145,20 +146,52 @@ narrower than that is a PROBLEM (part of it is not accessible); more than 5 % of
 narrow to use (`maxLost`) is a check. Even a perfect rectangle loses its four corners to a
 600 mm disc (about 0.08 m²), which is within the margin. Furniture is not subtracted yet.
 
-## 6. Doors are never obstructed
+## 6. Furniture
+
+**Furniture is what defines and serves the use of a space.** Each piece follows the same space
+logic as a room, with its own nature: it has the sides it is used from, each needs free floor
+in front of it, and that floor must be reachable from the room's entrance. A bed is used from
+three sides, a wardrobe from its doors, a desk from where the chair goes.
+
+| Piece | Access sides | Depth |
+|---|---|---|
+| Double bed | both long sides (required), foot (recommended) | 600 mm |
+| Single bed | one long side (required), foot (recommended) | 600 mm |
+| Wardrobe, chest of drawers, shelving | front | 600 mm |
+| Desk | front (its chair belongs there) | 700 mm |
+| Dining table | every free side (chairs belong there) | 700 mm |
+| Sofa | front | 450 mm |
+| Nightstand, chair | used from the bed / moved with use: no zone of their own | |
+
+Depths are starting figures from the ergonomic notes (`BEDROOM_DESIGN_CRITERIA.md`); adjust the
+`FURNITURE` table in `ATROOMCHECKS.lua`.
+
+In the drawing (`ATFURNITURECHECK`, also inside `ATDWELLINGCHECK`):
+
+- a piece's back is the wall it stands against (within 100 mm), a bed's back the wall at its
+  headboard (its short side); adjacent modules of a wardrobe, shelving or desk form one run;
+- each access zone must not be cut by a wall or by another piece. A chair in its desk or table
+  zone and a nightstand (or a small chest) by the head of a bed belong there;
+- each zone must be reachable from the room's entrance on the free floor (the room minus the
+  furniture) by a person 600 mm wide, entering anywhere through the door's opening
+  (`at.roomReach`). This finds pieces that cut a room in two;
+- a required side failing is a PROBLEM, a recommended one a check. Pieces are typed from their
+  block / style name (English or Spanish) or tagged with `ATFIXTURETYPE`.
+
+## 7. Doors are never obstructed
 
 Nothing stands in front of a door: on both sides of the wall, a zone as wide as the opening
 and 900 mm deep (approach space, and the swing of a 900 leaf) stays free of furniture and
 fixtures.
 
-## 7. 300 mm planning module
+## 8. 300 mm planning module
 
 Every space dimension is a multiple of 300 mm, so sizes are easy to choose and coordinate.
 Applied to the room boundary as drawn (clear interior dimensions), tolerance 1 mm. Code
 minimum sides round up to the next multiple (table in `QUITO_SPACE_STANDARDS.md` §8). Door
 openings are element sizes, not space dimensions.
 
-## 8. What the tools check
+## 9. What the tools check
 
 | Principle | Tool | Status |
 |---|---|---|
@@ -168,8 +201,9 @@ openings are element sizes, not space dimensions.
 | §4 transition, entrance, en-suite | `ATPASSAGECHECK` | done |
 | §5 space economy | `ATECONOMYCHECK` | done (guidance) |
 | §5 all space usable | `ATROOMSHAPECHECK`, `at.roomWidth`, `at.roomUsable` | done |
-| §6 door clearance | `ATDOORCLEARCHECK` | done |
-| §7 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
+| §6 furniture access | `ATFURNITURECHECK`, `at.roomReach` | done |
+| §7 door clearance | `ATDOORCLEARCHECK` | done |
+| §8 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
 | everything for one dwelling | `ATDWELLINGCHECK <id>` | done |
 
 Rooms are tagged with `ATROOMTYPE` (room type, dwelling, bedrooms, zone) first; doors with

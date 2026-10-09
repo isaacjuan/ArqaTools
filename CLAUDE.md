@@ -109,7 +109,9 @@ changing a dwelling:
    their en-suite. The shared bathroom is public, discreet, entered from a hall only. The
    entrance opens into the public zone. **Doors are never obstructed** (900 mm zone both sides).
    **Space economy:** as little circulation as possible; enter rectangular rooms through a
-   long side, near its middle (`ATECONOMYCHECK`).
+   long side, near its middle (`ATECONOMYCHECK`). **Furniture** follows the same logic: each
+   piece has access sides (bed three, wardrobe its doors, desk its chair side) whose free floor
+   must be reachable from the room's entrance (`ATFURNITURECHECK`, `DESIGN_PRINCIPLES.md` §6).
 4. **Size on the 300 mm module**, code minimums rounded up (`QUITO_SPACE_STANDARDS.md`).
 
 Tag rooms with `ATROOMTYPE` (and the entrance with `ATDOORTYPE`), then `ATDWELLINGCHECK <id>`

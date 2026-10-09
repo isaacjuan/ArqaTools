@@ -1388,10 +1388,28 @@ local function reachAlong(pts, cx, cy, dx, dy)
     return m
 end
 
+-- Merges consecutive collinear edges of an outline (an ACA space's outline is
+-- split where walls meet), so "the wall a piece stands against" is the whole
+-- wall, not a piece of it.
+local function simplifyOutline(pts)
+    local out = {}
+    local n = #pts
+    for i = 1, n do
+        local a, b, c = pts[(i - 2) % n + 1], pts[i], pts[i % n + 1]
+        local abx, aby, bcx, bcy = b.x - a.x, b.y - a.y, c.x - b.x, c.y - b.y
+        local l1, l2 = math.sqrt(abx * abx + aby * aby), math.sqrt(bcx * bcx + bcy * bcy)
+        local collinear = l1 > 0 and l2 > 0 and math.abs(abx * bcy - aby * bcx) / (l1 * l2) < 1e-4
+            and (abx * bcx + aby * bcy) > 0
+        if not collinear and l1 > 0.5 then out[#out + 1] = b end
+    end
+    return #out >= 3 and out or pts
+end
+
 -- A fixture's back: of the room edges it touches (within 10mm), the one it
 -- runs along the longest (a worktop filling a wall touches the side walls
 -- too); when it touches none, the nearest edge. Returns the edge index.
-local function backEdge(roomPts, fpts)
+local function backEdge(roomPts, fpts, tol)
+    tol = tol or 10
     local best, bestScore
     for i = 1, #roomPts do
         local a, b = roomPts[i], roomPts[i % #roomPts + 1]
@@ -1400,7 +1418,7 @@ local function backEdge(roomPts, fpts)
         if l > 0 then
             local d = segOutline(a, b, fpts)
             local score
-            if d <= 10 then
+            if d <= tol then
                 local ux, uy = ex / l, ey / l
                 local lo, hi = math.huge, -math.huge
                 for _, v in ipairs(fpts) do
@@ -1419,6 +1437,7 @@ end
 
 local function checkBathroom(room, report)
     local roomPts = at.outline(room)
+    if roomPts then roomPts = simplifyOutline(roomPts) end
     if not roomPts or #roomPts < 3 then
         print("ATSANITARYCHECK: " .. room .. " skipped: no outline.")
         return
@@ -1734,6 +1753,321 @@ end, "Space economy guidance: circulation share of the dwelling, and whether eac
       description = "Circulation area / total area above which a check is reported (0.15 = 15%)" },
 })
 
+-- ── ATFURNITURECHECK ────────────────────────────────────────────────────────
+-- Furniture defines and serves the use of a space (DESIGN_PRINCIPLES.md §6):
+-- each piece follows the same space logic with its own nature: it has sides
+-- it is used from, each needing free floor in front of it, and that floor
+-- must be reachable from the room's entrance.
+--
+-- Access sides per type (depths in mm are starting figures from the
+-- ergonomic notes, adjust here). Sides are named from the piece's back (the
+-- wall it stands against): front, left, right, back. `need` sides are
+-- required (PROBLEM), `one` = at least one of them, other listed sides are
+-- recommended (check). `partners` may stand in the zones (a chair belongs in
+-- its desk's zone, nightstands beside the bed). Beds take the wall touching
+-- their short side (the headboard) as back; a freestanding table uses all
+-- four sides.
+local FURNITURE = {
+    Bed       = { sides = { left = 600, right = 600, front = 600 }, need = { "left", "right" },
+                  partners = { Nightstand = true }, head = true, label = "double bed" },
+    BedSingle = { sides = { left = 600, right = 600, front = 600 }, one = { "left", "right" },
+                  partners = { Nightstand = true }, head = true, label = "single bed" },
+    Wardrobe  = { sides = { front = 600 }, need = { "front" }, label = "wardrobe" },
+    Chest     = { sides = { front = 600 }, need = { "front" }, label = "chest of drawers" },
+    Desk      = { sides = { front = 700 }, need = { "front" }, partners = { Chair = true }, label = "desk" },
+    Table     = { sides = { front = 700, left = 700, right = 700, back = 700 }, freeSides = true,
+                  partners = { Chair = true }, label = "table" },
+    Sofa      = { sides = { front = 450 }, need = { "front" }, label = "sofa" },
+    Shelving  = { sides = { front = 600 }, need = { "front" }, label = "shelving" },
+}
+-- Name keys, most specific first (ACA bedroom blocks all contain "_BED_").
+local FURNITURE_KEYS = {
+    { "Nightstand", { "nightstand", "bedside", "mesa de noche", "velador" } },
+    { "Wardrobe",   { "wardrobe", "closet", "armario", "ropero" } },
+    { "Desk",       { "desk", "escritorio" } },
+    { "Chair",      { "chair", "silla" } },
+    { "Sofa",       { "sofa", "couch", "sillon", "sillón" } },
+    { "Table",      { "dining table", "table", "comedor", "mesa" } },
+    { "Chest",      { "chest", "drawer", "comoda", "cómoda", "cajonera" } },
+    { "Shelving",   { "shelf", "shelving", "estant", "librero" } },
+    { "BedSingle",  { "single bed", "twin bed", "cama individual", "cama simple" } },
+    { "Bed",        { "double bed", "queen", "king", "bed", "cama" } },
+}
+-- A wall this close counts as the piece's back (furniture rarely touches it).
+local FURN_TOUCH = 100
+-- Adjacent pieces of these types form one run (wardrobe modules, shelving).
+local FURN_MERGE = { Wardrobe = true, Shelving = true, Desk = true }
+local FURNITURE_TYPES = { Nightstand = true, Chair = true }
+for k in pairs(FURNITURE) do FURNITURE_TYPES[k] = true end
+
+local function furnitureType(h)
+    local t = at.getData(h, "fixtureType")
+    if t then return FURNITURE_TYPES[t] and t or nil end
+    local name
+    local a = at.getAecProps(h, { "StyleName" })
+    if a and a.StyleName then name = a.StyleName end
+    if not name then
+        local pr = at.getProps(h)
+        name = pr and pr.name
+    end
+    if not name then return nil end
+    name = name:lower()
+    for _, k in ipairs(FURNITURE_KEYS) do
+        for _, w in ipairs(k[2]) do
+            if name:find(w, 1, true) then return k[1] end
+        end
+    end
+    return nil
+end
+
+-- Every object standing in the room (blocks, ACA blocks, tagged rectangles).
+local function roomObjects(room)
+    local out = {}
+    for _, t in ipairs({ "AEC_MVBLOCK_REF", "INSERT", "LWPOLYLINE" }) do
+        for _, h in ipairs(at.entitiesInside(room, t) or {}) do
+            if t ~= "LWPOLYLINE" or at.getData(h, "fixtureType") then
+                local pts = at.outline(h)
+                if pts and #pts >= 3 then
+                    out[#out + 1] = { h = h, pts = pts, type = furnitureType(h) or at.getData(h, "fixtureType") }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- A bed's back is the wall along its short side (the headboard).
+local function headEdge(roomPts, fpts)
+    local best, bestLen
+    for i = 1, #roomPts do
+        local a, b = roomPts[i], roomPts[i % #roomPts + 1]
+        local ex, ey = b.x - a.x, b.y - a.y
+        local l = math.sqrt(ex * ex + ey * ey)
+        if l > 0 and segOutline(a, b, fpts) <= FURN_TOUCH then
+            local ux, uy = ex / l, ey / l
+            local lo, hi = math.huge, -math.huge
+            for _, v in ipairs(fpts) do
+                local s = (v.x - a.x) * ux + (v.y - a.y) * uy
+                lo, hi = math.min(lo, s), math.max(hi, s)
+            end
+            local contact = math.min(l, hi) - math.max(0, lo)
+            if contact > 100 and (not bestLen or contact < bestLen) then best, bestLen = i, contact end
+        end
+    end
+    return best or backEdge(roomPts, fpts, FURN_TOUCH)
+end
+
+at.defineCommand("ATFURNITURECHECK", function(p)
+    local pass = p.passWidth or 600
+    local rooms = p.rooms
+    if not rooms or #rooms == 0 then rooms = dwellingRooms(p.dwelling) end
+    local g = buildGraph(rooms, WALL_TOL)
+    local doors = at.entities("AEC_DOOR")
+    local problems, pieces = 0, 0
+
+    for _, room in ipairs(rooms) do
+        local roomPts, closed = at.outline(room)
+        if roomPts then roomPts = simplifyOutline(roomPts) end
+        if roomPts and closed and #roomPts >= 3 and not CIRCULATION[roomType(room)] then
+            local objects = roomObjects(room)
+            local furniture = {}
+            for _, o in ipairs(objects) do
+                if o.type and FURNITURE[o.type] then furniture[#furniture + 1] = o end
+            end
+            -- adjacent pieces of a run type merge into one piece (its outline
+            -- is their joint extents; members do not block each other)
+            local merged, used = {}, {}
+            for i, f in ipairs(furniture) do
+                if not used[i] then
+                    used[i] = true
+                    local run = { f }
+                    if FURN_MERGE[f.type] then
+                        local k = 1
+                        while k <= #run do
+                            for j, o in ipairs(furniture) do
+                                if not used[j] and o.type == f.type then
+                                    local d = at.distance(run[k].h, o.h)
+                                    if d and d <= 20 then used[j] = true; run[#run + 1] = o end
+                                end
+                            end
+                            k = k + 1
+                        end
+                    end
+                    if #run == 1 then
+                        f.members = { [f.h] = true }
+                        merged[#merged + 1] = f
+                    else
+                        local minx, miny, maxx, maxy = math.huge, math.huge, -math.huge, -math.huge
+                        local names, members = {}, {}
+                        for _, o in ipairs(run) do
+                            names[#names + 1] = o.h
+                            members[o.h] = true
+                            for _, v in ipairs(o.pts) do
+                                minx, maxx = math.min(minx, v.x), math.max(maxx, v.x)
+                                miny, maxy = math.min(miny, v.y), math.max(maxy, v.y)
+                            end
+                        end
+                        merged[#merged + 1] = { h = table.concat(names, "+"), type = f.type, members = members,
+                            pts = { { x = minx, y = miny }, { x = maxx, y = miny }, { x = maxx, y = maxy }, { x = minx, y = maxy } } }
+                    end
+                end
+            end
+            furniture = merged
+            if #furniture > 0 then
+                -- entries: where doors and walkable light boundaries open into the room
+                local entries = {}
+                for _, h in ipairs(doors) do
+                    local d = at.getAecProps(h)
+                    if d and d.center and doorTouches(room, d, WALL_TOL) then
+                        local e = doorEntry(d, roomPts)
+                        e.slack = (d.width or 0) / 2      -- step in anywhere through the opening
+                        entries[#entries + 1] = e
+                    end
+                end
+                for _, lb in ipairs(g.boundaries) do
+                    if lb.walkable and (lb.r1 == room or lb.r2 == room) then
+                        entries[#entries + 1] = { x = (lb.a.x + lb.b.x) / 2, y = (lb.a.y + lb.b.y) / 2, slack = lb.length / 2 }
+                    end
+                end
+                -- obstacles for walking: everything except chairs (they move)
+                local obstacleHandles = {}
+                for _, o in ipairs(objects) do
+                    if o.type ~= "Chair" then obstacleHandles[#obstacleHandles + 1] = o.h end
+                end
+
+                print(string.format("ATFURNITURECHECK: %s: %d piece(s), %d entr%s", roomLabel(room), #furniture,
+                    #entries, #entries == 1 and "y" or "ies"))
+                for _, f in ipairs(furniture) do
+                    pieces = pieces + 1
+                    local spec = FURNITURE[f.type]
+                    local bi = spec.head and headEdge(roomPts, f.pts) or backEdge(roomPts, f.pts, FURN_TOUCH)
+                    local a, b = roomPts[bi], roomPts[bi % #roomPts + 1]
+                    local ux, uy = b.x - a.x, b.y - a.y
+                    local l = math.sqrt(ux * ux + uy * uy)
+                    ux, uy = ux / l, uy / l
+                    local cx, cy = centroid(f.pts)
+                    local nx, ny = -uy, ux
+                    if (cx - a.x) * nx + (cy - a.y) * ny < 0 then nx, ny = -nx, -ny end
+                    local against = segOutline(a, b, f.pts) <= FURN_TOUCH
+                    local umin, umax, nmin, nmax = math.huge, -math.huge, math.huge, -math.huge
+                    for _, v in ipairs(f.pts) do
+                        local su = (v.x - cx) * ux + (v.y - cy) * uy
+                        local sn = (v.x - cx) * nx + (v.y - cy) * ny
+                        umin, umax = math.min(umin, su), math.max(umax, su)
+                        nmin, nmax = math.min(nmin, sn), math.max(nmax, sn)
+                    end
+                    local function W(su, sn) return { x = cx + ux * su + nx * sn, y = cy + uy * su + ny * sn } end
+                    local function zoneOfSide(side, d)
+                        if side == "front" then return { W(umin, nmax), W(umax, nmax), W(umax, nmax + d), W(umin, nmax + d) },
+                            W((umin + umax) / 2, nmax), { x = nx, y = ny } end
+                        if side == "back" then return { W(umin, nmin - d), W(umax, nmin - d), W(umax, nmin), W(umin, nmin) },
+                            W((umin + umax) / 2, nmin), { x = -nx, y = -ny } end
+                        if side == "left" then return { W(umin - d, nmin), W(umin, nmin), W(umin, nmax), W(umin - d, nmax) },
+                            W(umin, (nmin + nmax) / 2), { x = -ux, y = -uy } end
+                        return { W(umax, nmin), W(umax + d, nmin), W(umax + d, nmax), W(umax, nmax) },
+                            W(umax, (nmin + nmax) / 2), { x = ux, y = uy }
+                    end
+
+                    -- evaluate each side
+                    local status, targets, order = {}, {}, {}
+                    for _, side in ipairs({ "front", "left", "right", "back" }) do
+                        local d = spec.sides[side]
+                        local skip = (side == "back" and against)   -- the back stands against the wall
+                        if d and not skip then
+                            local zone, mid, dir = zoneOfSide(side, d)
+                            local avail = rayHit(mid.x + dir.x, mid.y + dir.y, dir.x, dir.y, roomPts)
+                            local st
+                            if avail and avail + 1 < d then
+                                st = string.format("wall at %s", fmt(avail + 1))
+                            else
+                                for _, o in ipairs(objects) do
+                                    local partner = spec.partners and spec.partners[o.type]
+                                    if spec.head and (side == "left" or side == "right") and o.type == "Chest" then
+                                        -- a small chest by the head of a bed acts as its nightstand
+                                        local ox, oy = centroid(o.pts)
+                                        local along = (ox - cx) * nx + (oy - cy) * ny - nmin
+                                        local omin, omax = math.huge, -math.huge
+                                        for _, v in ipairs(o.pts) do
+                                            local su = (v.x - cx) * ux + (v.y - cy) * uy
+                                            omin, omax = math.min(omin, su), math.max(omax, su)
+                                        end
+                                        if along < 800 and omax - omin <= 650 then partner = true end
+                                    end
+                                    if not f.members[o.h] and not partner and overlaps(zone, o.pts) then
+                                        st = "blocked by " .. (o.type and (o.type:lower() .. " ") or "") .. o.h
+                                        break
+                                    end
+                                end
+                            end
+                            status[side] = st or "ok"
+                            if not st then
+                                local zx, zy = centroid(zone)
+                                targets[#targets + 1] = { x = zx, y = zy }
+                                order[#targets] = side
+                            end
+                        end
+                    end
+                    -- reachable from an entrance?
+                    if #targets > 0 then
+                        if #entries == 0 then
+                            for _, s in pairs(order) do status[s] = "no entrance to reach it from" end
+                        else
+                            local reached = {}
+                            for _, e in ipairs(entries) do
+                                local r = at.roomReach(room, obstacleHandles, pass, e, targets, e.slack or 0)
+                                if r then for i, ok in ipairs(r) do if ok then reached[i] = true end end end
+                            end
+                            for i, s in pairs(order) do
+                                if not reached[i] then status[s] = "not reachable from the entrance" end
+                            end
+                        end
+                    end
+
+                    -- verdict
+                    local parts, required, failed = {}, {}, {}
+                    for _, s in ipairs(spec.need or {}) do required[s] = true end
+                    for _, side in ipairs({ "front", "left", "right", "back" }) do
+                        if status[side] then parts[#parts + 1] = side .. " " .. status[side] end
+                    end
+                    for s in pairs(required) do
+                        if status[s] and status[s] ~= "ok" then failed[#failed + 1] = s end
+                    end
+                    if spec.one then
+                        local anyOk = false
+                        for _, s in ipairs(spec.one) do if status[s] == "ok" then anyOk = true end end
+                        if not anyOk then failed[#failed + 1] = "one of " .. table.concat(spec.one, "/") end
+                    end
+                    if spec.freeSides then
+                        local anyOk = false
+                        for _, side in ipairs({ "front", "left", "right", "back" }) do
+                            if status[side] == "ok" then anyOk = true end
+                        end
+                        if not anyOk then failed[#failed + 1] = "every side" end
+                    end
+                    print(string.format("  %s %s (%sx%s): %s", spec.label, f.h, fmt(umax - umin), fmt(nmax - nmin),
+                        table.concat(parts, "; ")))
+                    if #failed > 0 then
+                        problems = problems + 1
+                        print(string.format("    PROBLEM: %s cannot be used from its %s side(s).", spec.label, table.concat(failed, ", ")))
+                    else
+                        for _, side in ipairs({ "front", "left", "right", "back" }) do
+                            if status[side] and status[side] ~= "ok" and not required[side] then
+                                print(string.format("    check: %s side: %s.", side, status[side]))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    print(string.format("ATFURNITURECHECK: %d piece(s), %d problem(s) (furniture access, house principle).", pieces, problems))
+end, "Checks that each piece of furniture can be used: free floor on its access sides (bed 3 sides, wardrobe and desk front, ...) not cut by walls or other furniture, and reachable from the room's entrance (house principle)", {
+    { name = "rooms",     type = "selection", prompt = "Select rooms <dwelling or all>",
+      filter = "AEC_SPACE,LWPOLYLINE", optional = true },
+    { name = "dwelling",  type = "string", prompt = "Dwelling id <all>", optional = true },
+    { name = "passWidth", type = "distance", prompt = "Width of a person passing", default = 600 },
+})
+
 -- ── ATROOMSHAPECHECK ────────────────────────────────────────────────────────
 -- All of a space should be usable (DESIGN_PRINCIPLES.md §5). For each room:
 --   clear width (at.roomWidth: the largest circle inside it);
@@ -1888,6 +2222,7 @@ end
 
 local function checkKitchen(room, report)
     local roomPts = at.outline(room)
+    if roomPts then roomPts = simplifyOutline(roomPts) end
     if not roomPts or #roomPts < 3 then
         print("ATKITCHENCHECK: " .. room .. " skipped: no outline.")
         return
@@ -2087,6 +2422,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
     -- 2b. room shape: all of the space usable
     print("-- room shape (all space accessible, house principle)")
     section("room shape", runCounted("ATROOMSHAPECHECK", { dwelling = p.dwelling }))
+
+    -- 2c. furniture access
+    print("-- furniture (house principle)")
+    section("furniture", runCounted("ATFURNITURECHECK", { dwelling = p.dwelling }))
 
     -- 3. daylight and depth
     print("-- daylight (Art. 69)")

@@ -188,7 +188,7 @@ element sizes, not space dimensions, and are not checked.
     parallel facing edges of its outline (each arm of an L); an obstacle inside it (blocks, ACA
     multi-view blocks) leaves the wider of its two gaps to the facing edges. Door leaves are
     transient and not counted. Also part of `ATDWELLINGCHECK`.
-  - `ATDOORCLEARCHECK`: the door zone of `DESIGN_PRINCIPLES.md` §6 (opening width × `depth`, default 900 mm, both
+  - `ATDOORCLEARCHECK`: the door zone of `DESIGN_PRINCIPLES.md` §7 (opening width × `depth`, default 900 mm, both
     sides of the host wall, following the wall's direction) must not overlap any obstacle
     (blocks, ACA multi-view blocks). Touching the zone's edge is fine.
 - Geometry functions: `at.outline(h)` (footprint in plan; ACA objects other than spaces use
