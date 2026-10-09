@@ -1392,6 +1392,51 @@ int at_distance(lua_State* L)
     return 3;
 }
 
+// at.roomWidth(boundary) -> width, centre | nil,err
+int at_roomWidth(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    bool ok = false;
+    AcGePoint2d c;
+    double r = 0.0;
+    std::string err;
+    {
+        GeomTools::Outline poly;
+        CString e;
+        ok = GeomTools::GetBoundary(ResolveHandle(handle), poly, e);
+        if (ok && !GeomTools::InscribedCircle(poly, c, r)) { ok = false; e = _T("no interior found"); }
+        if (!ok) err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+    lua_pushnumber(L, 2.0 * r);
+    PushPointTable(L, AcGePoint3d(c.x, c.y, 0.0));
+    return 2;
+}
+
+// at.roomUsable(boundary [, passWidth=600 [, grid=0]]) -> fraction, parts, lostArea | nil,err
+int at_roomUsable(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    double pass = luaL_optnumber(L, 2, 600.0);
+    double grid = luaL_optnumber(L, 3, 0.0);
+    luaL_argcheck(L, pass > 0.0, 2, "passWidth must be > 0");
+    bool ok = false;
+    GeomTools::Usability u;
+    std::string err;
+    {
+        GeomTools::Outline poly;
+        CString e;
+        ok = GeomTools::GetBoundary(ResolveHandle(handle), poly, e);
+        if (ok && !GeomTools::Usable(poly, pass, grid, u)) { ok = false; e = _T("no interior found"); }
+        if (!ok) err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+    lua_pushnumber(L, u.fraction);
+    lua_pushinteger(L, u.parts);
+    lua_pushnumber(L, u.lostArea);
+    return 3;
+}
+
 void PushDataValue(lua_State* L, const EntityData::Value& v)
 {
     switch (v.kind)
@@ -3222,6 +3267,13 @@ const AtFn kFns[] = {
     { "distance",     at_distance,     "(h1, h2) -> distance, p1, p2 | nil,err",
       "clear distance in plan between two objects' outlines (0 when they touch, cross or one is inside the other), "
       "with the closest points {x=,y=,z=0}" },
+    { "roomWidth",    at_roomWidth,    "(boundary) -> width, centre | nil,err",
+      "clear width of a room (closed curve or ACA space): the diameter of the largest circle inside it, i.e. the "
+      "short side of a rectangle at any angle, the main body's width of an irregular room; centre {x=,y=,z=0}" },
+    { "roomUsable",   at_roomUsable,   "(boundary [,passWidth=600 [,grid]]) -> fraction, parts, lostArea | nil,err",
+      "accessibility for a person passWidth wide: share of the floor where a disc that wide fits, the area lost "
+      "(slivers, narrow niches; units squared) and how many separate parts the usable floor splits into (more than "
+      "one = part of the room reached only through a gap narrower than passWidth); grid 0 = automatic" },
     { "getData",      at_getData,      "(handle [,key]) -> value | {key = value,...} | nil,err",
       "tags set with setData: with key its value (nil if absent), without key all of them (empty table if none)" },
     { "setData",      at_setData,      "(handle, key, value) -> true | false,err",
@@ -3558,7 +3610,7 @@ bool isReadOnlyFunction(const char* name)
         "print", "listEntities", "entities", "getProps", "getText", "sumText",
         "countBlocks", "layers", "getCurrentLayer", "refPoint", "formatArea", "formatLength",
         "getVar", "getAecProps", "pointInPolygon", "entitiesInside", "getData", "findByData",
-        "outline", "distance",
+        "outline", "distance", "roomWidth", "roomUsable",
     };
     for (const char* n : kReadOnly)
         if (strcmp(name, n) == 0) return true;

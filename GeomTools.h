@@ -32,6 +32,26 @@ namespace GeomTools
     double Distance(const Outline& a, bool aClosed, const Outline& b, bool bClosed,
                     AcGePoint2d* pa = nullptr, AcGePoint2d* pb = nullptr);
 
+    // Largest circle inside a closed outline (its diameter is the room's clear
+    // width: the short side of a rectangle at any angle, the main body's width
+    // of an irregular room). Grid search refined by hill climbing to ~0.5 unit.
+    bool InscribedCircle(const Outline& poly, AcGePoint2d& centre, double& radius);
+
+    // Accessibility of a room for a person `passWidth` wide, sampled on a grid
+    // (`grid` units; 0 = automatic, at most ~40000 samples). A point is usable
+    // when a disc of that width covering it fits inside the room. Returns the
+    // usable share of the floor, the area lost, and how many separate parts
+    // the usable floor splits into (more than one: part of the room is reached
+    // only through a gap narrower than passWidth).
+    struct Usability
+    {
+        double fraction = 0.0;
+        double lostArea = 0.0;   // drawing units squared
+        int    parts    = 0;
+        double grid     = 0.0;
+    };
+    bool Usable(const Outline& poly, double passWidth, double grid, Usability& out);
+
     // The candidates whose geometric-extents centre is inside the boundary
     // (within tol). The boundary itself is skipped.
     std::vector<AcDbObjectId> FilterInside(AcDbObjectId boundary, const Outline& poly,

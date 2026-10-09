@@ -258,12 +258,17 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
                 beds, rule.label))
             return
         end
-        -- Shorter side from the bounding box: exact for a rectangle aligned
-        -- with the axes, only an approximation for other shapes.
-        local shortM
-        if roomProps.min and roomProps.max then
+        -- Shorter side = clear width: the diameter of the largest circle in
+        -- the room (exact short side of a rectangle at any angle; the main
+        -- body's width of an irregular room). Bounding box only as a fallback.
+        local shortM, widthHow
+        local w = at.roomWidth(p.room)
+        if w then
+            shortM, widthHow = w / 1000, "clear width"
+        elseif roomProps.min and roomProps.max then
             shortM = math.min(roomProps.max.x - roomProps.min.x,
                               roomProps.max.y - roomProps.min.y) / 1000
+            widthHow = "bounding box (approximate)"
         end
         -- With the 300mm module, the legal minimum side rounds up to the next
         -- multiple (e.g. 2.50m -> 2.70m).
@@ -278,8 +283,8 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
             shortM and string.format("%.2fm", shortM) or "unknown", rule.side,
             shortM and (sideOk and "ok" or "BELOW") or "not checked",
             (areaOk and sideOk) and "meets" or "DOES NOT MEET", QUITO_SOURCE))
-        if shortM then
-            print("  (shorter side read from the bounding box: exact only for an axis-aligned rectangle)")
+        if widthHow then
+            print("  (shorter side = " .. widthHow .. ")")
         end
         print(string.format("  300mm module: %s -> %s; modular minimum side %.2fm%s.",
             modText or "not checked", modOk == nil and "not checked" or (modOk and "on module" or "OFF MODULE"),

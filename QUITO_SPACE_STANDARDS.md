@@ -154,8 +154,10 @@ element sizes, not space dimensions, and are not checked.
   MainBedroom, Bedroom2, Bedroom3, Bathroom, Laundry, ServiceBedroom), a `dwelling` id and the
   dwelling's `bedrooms` count (`at.setData`, stored in the DWG).
 - `ATROOMSIZECHECK` with `jurisdiction = Quito` checks both the area and the shorter side. It
-  takes `roomType` and `bedrooms` as given, else from the room's tags. The shorter side comes from the bounding
-  box, so it is exact only for an axis-aligned rectangle. An `ATRECT` boundary or an
+  takes `roomType` and `bedrooms` as given, else from the room's tags. The shorter side is the
+  room's clear width (`at.roomWidth`: the diameter of the largest circle inside it), exact for
+  a rectangle at any angle and the main body's width for an irregular room; the bounding box
+  is only a fallback. An `ATRECT` boundary or an
   `AEC_SPACE` both work (space areas now cross-check with `at.getAecProps`, see
   `BEDROOM_DESIGN_CRITERIA.md` §5).
 - `ATROOMCHECKS.lua`, reading real ACA doors and windows per room:

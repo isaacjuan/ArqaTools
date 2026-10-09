@@ -320,6 +320,145 @@ bool Contains(const Outline& poly, const AcGePoint2d& p, double tol, double* dis
     return inside || (tol > 0.0 && best >= 0.0 && best <= tol);
 }
 
+namespace
+{
+    // Distance from p to the outline's edges, or -1 when p is outside.
+    double InsideDistance(const Outline& poly, const AcGePoint2d& p)
+    {
+        double d = 0.0;
+        if (!Contains(poly, p, 0.0, &d)) return -1.0;
+        return d;
+    }
+
+    void Bounds(const Outline& poly, double& x0, double& y0, double& x1, double& y1)
+    {
+        x0 = y0 = 1e300; x1 = y1 = -1e300;
+        for (const auto& v : poly)
+        {
+            x0 = (std::min)(x0, v.x); x1 = (std::max)(x1, v.x);
+            y0 = (std::min)(y0, v.y); y1 = (std::max)(y1, v.y);
+        }
+    }
+}
+
+bool InscribedCircle(const Outline& poly, AcGePoint2d& centre, double& radius)
+{
+    if (poly.size() < 3) return false;
+    double x0, y0, x1, y1;
+    Bounds(poly, x0, y0, x1, y1);
+    double step = (std::max)(x1 - x0, y1 - y0) / 60.0;
+    if (step <= 0.0) return false;
+
+    double best = -1.0;
+    AcGePoint2d bp;
+    for (double x = x0 + step / 2; x < x1; x += step)
+        for (double y = y0 + step / 2; y < y1; y += step)
+        {
+            AcGePoint2d p(x, y);
+            double d = InsideDistance(poly, p);
+            if (d > best) { best = d; bp = p; }
+        }
+    if (best < 0.0) return false;
+
+    // hill climbing with a shrinking step
+    static const double kDir[8][2] = { {1,0},{-1,0},{0,1},{0,-1},{0.7071,0.7071},{-0.7071,0.7071},{0.7071,-0.7071},{-0.7071,-0.7071} };
+    double s = step;
+    while (s > 0.25)
+    {
+        bool moved = false;
+        for (const auto& dir : kDir)
+        {
+            AcGePoint2d q(bp.x + dir[0] * s, bp.y + dir[1] * s);
+            double d = InsideDistance(poly, q);
+            if (d > best + 1e-9) { best = d; bp = q; moved = true; }
+        }
+        if (!moved) s /= 2.0;
+    }
+    centre = bp;
+    radius = best;
+    return true;
+}
+
+bool Usable(const Outline& poly, double passWidth, double grid, Usability& out)
+{
+    out = Usability();
+    if (poly.size() < 3 || passWidth <= 0.0) return false;
+    double x0, y0, x1, y1;
+    Bounds(poly, x0, y0, x1, y1);
+    double w = x1 - x0, h = y1 - y0;
+    if (w <= 0.0 || h <= 0.0) return false;
+    if (grid <= 0.0) grid = 50.0;
+    double minGrid = std::sqrt(w * h / 40000.0);
+    if (grid < minGrid) grid = minGrid;
+    out.grid = grid;
+
+    int nx = static_cast<int>(std::ceil(w / grid)), ny = static_cast<int>(std::ceil(h / grid));
+    // per cell: -1 outside, else 0 = inside, 1 = core (a disc fits centred here)
+    std::vector<signed char> cell(static_cast<size_t>(nx) * ny, -1);
+    double r = passWidth / 2.0;
+    int inside = 0;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+        {
+            AcGePoint2d p(x0 + (i + 0.5) * grid, y0 + (j + 0.5) * grid);
+            double d = InsideDistance(poly, p);
+            if (d < 0.0) continue;
+            ++inside;
+            cell[static_cast<size_t>(i) * ny + j] = d + 1e-6 >= r ? 1 : 0;
+        }
+    if (inside == 0) return false;
+
+    // usable: within r of a core cell
+    int reach = static_cast<int>(std::ceil(r / grid));
+    double r2 = (r + grid * 0.5) * (r + grid * 0.5);
+    int usable = 0;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+        {
+            if (cell[static_cast<size_t>(i) * ny + j] < 0) continue;
+            bool ok = false;
+            for (int a = (std::max)(0, i - reach); a <= (std::min)(nx - 1, i + reach) && !ok; ++a)
+                for (int b = (std::max)(0, j - reach); b <= (std::min)(ny - 1, j + reach) && !ok; ++b)
+                    if (cell[static_cast<size_t>(a) * ny + b] == 1)
+                    {
+                        double dx = (a - i) * grid, dy = (b - j) * grid;
+                        if (dx * dx + dy * dy <= r2) ok = true;
+                    }
+            if (ok) ++usable;
+        }
+
+    // parts: connected groups of core cells (8-neighbourhood)
+    std::vector<int> label(cell.size(), 0);
+    int parts = 0;
+    std::vector<std::pair<int, int>> stack;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+        {
+            size_t k = static_cast<size_t>(i) * ny + j;
+            if (cell[k] != 1 || label[k]) continue;
+            ++parts;
+            label[k] = parts;
+            stack.assign(1, { i, j });
+            while (!stack.empty())
+            {
+                auto [ci, cj] = stack.back();
+                stack.pop_back();
+                for (int a = ci - 1; a <= ci + 1; ++a)
+                    for (int b = cj - 1; b <= cj + 1; ++b)
+                    {
+                        if (a < 0 || b < 0 || a >= nx || b >= ny) continue;
+                        size_t kk = static_cast<size_t>(a) * ny + b;
+                        if (cell[kk] == 1 && !label[kk]) { label[kk] = parts; stack.push_back({ a, b }); }
+                    }
+            }
+        }
+
+    out.fraction = static_cast<double>(usable) / inside;
+    out.lostArea = static_cast<double>(inside - usable) * grid * grid;
+    out.parts = parts;
+    return true;
+}
+
 std::vector<AcDbObjectId> FilterInside(AcDbObjectId boundary, const Outline& poly,
                                        const std::vector<AcDbObjectId>& candidates, double tol)
 {

@@ -1734,6 +1734,55 @@ end, "Space economy guidance: circulation share of the dwelling, and whether eac
       description = "Circulation area / total area above which a check is reported (0.15 = 15%)" },
 })
 
+-- ── ATROOMSHAPECHECK ────────────────────────────────────────────────────────
+-- All of a space should be usable (DESIGN_PRINCIPLES.md §5). For each room:
+--   clear width (at.roomWidth: the largest circle inside it);
+--   usable floor for a person `passWidth` wide (default 600mm): where a disc
+--   that wide fits; slivers and narrow niches are lost floor;
+--   parts: when the usable floor splits in two or more, part of the room is
+--   reached only through a gap narrower than a person.
+-- Lost floor above `maxLost` (default 5%) is a check; a split room is a
+-- PROBLEM (part of it is not accessible). Circulation rooms are skipped
+-- (ATCIRCULATIONCHECK covers their width).
+at.defineCommand("ATROOMSHAPECHECK", function(p)
+    local pass = p.passWidth or 600
+    local maxLost = p.maxLost or 0.05
+    local rooms = p.rooms
+    if not rooms or #rooms == 0 then rooms = dwellingRooms(p.dwelling) end
+    local problems, checked = 0, 0
+    for _, r in ipairs(rooms) do
+        if not CIRCULATION[roomType(r)] then
+            local w = at.roomWidth(r)
+            local frac, parts, lost = at.roomUsable(r, pass)
+            if not w or not frac then
+                print("ATROOMSHAPECHECK: " .. r .. " skipped: not a closed room outline.")
+            else
+                checked = checked + 1
+                print(string.format("ATROOMSHAPECHECK: %s: clear width %s; usable %.0f%% for a %s passage, %.2fm2 lost, %d part(s)",
+                    roomLabel(r), fmt(w), frac * 100, fmt(pass), lost / 1000000, parts))
+                if parts > 1 then
+                    problems = problems + 1
+                    print(string.format("  PROBLEM: the room splits into %d parts joined by gaps narrower than %s; part of it is not accessible.",
+                        parts, fmt(pass)))
+                elseif parts == 0 then
+                    problems = problems + 1
+                    print(string.format("  PROBLEM: no part of the room is %s wide.", fmt(pass)))
+                elseif 1 - frac > maxLost then
+                    print(string.format("  check: %.0f%% of the floor is too narrow to use (slivers, niches); square up the room.",
+                        (1 - frac) * 100))
+                end
+            end
+        end
+    end
+    print(string.format("ATROOMSHAPECHECK: %d room(s), %d problem(s) (all space accessible, house principle).", checked, problems))
+end, "Checks that all of a room is usable: clear width, floor lost to slivers and niches narrower than a person, rooms split by narrow gaps (house principle)", {
+    { name = "rooms",     type = "selection", prompt = "Select rooms <dwelling or all>",
+      filter = "AEC_SPACE,LWPOLYLINE", optional = true },
+    { name = "dwelling",  type = "string", prompt = "Dwelling id <all>", optional = true },
+    { name = "passWidth", type = "distance", prompt = "Width of a person passing", default = 600 },
+    { name = "maxLost",   type = "number", prompt = "Lost floor share that is worth a check", default = 0.05 },
+})
+
 -- ── ATBOUNDARYTYPE / ATBOUNDARYLIST ─────────────────────────────────────────
 -- Marks lines / polylines drawn along the edge between two rooms as a light
 -- boundary of a given type (DESIGN_PRINCIPLES.md §3), on layer A-BOUNDARY.
@@ -2034,6 +2083,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
         fails = fails + runCounted("ATROOMSIZECHECK", { room = r, jurisdiction = "Quito" })
     end
     section("room sizes / module", fails)
+
+    -- 2b. room shape: all of the space usable
+    print("-- room shape (all space accessible, house principle)")
+    section("room shape", runCounted("ATROOMSHAPECHECK", { dwelling = p.dwelling }))
 
     -- 3. daylight and depth
     print("-- daylight (Art. 69)")

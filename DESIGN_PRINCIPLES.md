@@ -137,6 +137,14 @@ In the drawing (`ATECONOMYCHECK`, guidance: it reports "check" lines, not proble
   middle of the longest side. A room at least 1.25 times as long as wide entered from a short
   side, or more than 15 % extra walking, is a check.
 
+**All of a space should be usable.** Slivers, narrow niches and parts reached only through a
+gap narrower than a person are floor paid for and not used. In the drawing
+(`ATROOMSHAPECHECK`): the room's clear width (the largest circle inside it), and the floor
+where a person 600 mm wide (`passWidth`) fits. A room that splits into parts joined by gaps
+narrower than that is a PROBLEM (part of it is not accessible); more than 5 % of the floor too
+narrow to use (`maxLost`) is a check. Even a perfect rectangle loses its four corners to a
+600 mm disc (about 0.08 m²), which is within the margin. Furniture is not subtracted yet.
+
 ## 6. Doors are never obstructed
 
 Nothing stands in front of a door: on both sides of the wall, a zone as wide as the opening
@@ -159,6 +167,7 @@ openings are element sizes, not space dimensions.
 | §3 light boundaries as connections | `ATBOUNDARYTYPE`, `ATBOUNDARYLIST`, room graph | done |
 | §4 transition, entrance, en-suite | `ATPASSAGECHECK` | done |
 | §5 space economy | `ATECONOMYCHECK` | done (guidance) |
+| §5 all space usable | `ATROOMSHAPECHECK`, `at.roomWidth`, `at.roomUsable` | done |
 | §6 door clearance | `ATDOORCLEARCHECK` | done |
 | §7 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
 | everything for one dwelling | `ATDWELLINGCHECK <id>` | done |
