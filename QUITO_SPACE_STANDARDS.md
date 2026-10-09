@@ -152,8 +152,18 @@ element sizes, not space dimensions, and are not checked.
   box, so it is exact only for an axis-aligned rectangle. An `ATRECT` boundary or an
   `AEC_SPACE` both work (space areas now cross-check with `at.getAecProps`, see
   `BEDROOM_DESIGN_CRITERIA.md` §5).
-- Not automated yet: window area (20 %), room depth (1:5), door widths, corridor widths,
-  the "no bedroom as a passage" rule.
+- `ATROOMCHECKS.lua`, reading real ACA doors and windows per room:
+  - `ATDAYLIGHTCHECK`: window width × height ≥ 20 % of the floor area (Art. 69). Bathrooms
+    exempt. The 30 % opening part is not checked (ACA does not say how much of a window opens).
+  - `ATROOMDEPTHCHECK`: depth from the window's wall ≤ 5 × the window's smaller dimension
+    (Art. 151); with several windows, one passing window is enough (assumption).
+  - `ATDOORCHECK`: door width and height against Art. 153. Type from the `ATDOORTYPE` tag,
+    else a door opening to a bathroom is a bathroom door, else interior. Sizes are ACA's
+    width/height as the door style measures them; the code means the rough opening.
+  - A room's type comes from its `ATROOMTYPE` tag, else an ACA space named like a room type
+    ("Bathroom"). A door or window belongs to a room when its centre is within 300 mm of it
+    (the wall); a door also when a corner of its extents is inside (outward-swinging doors).
+- Not automated yet: corridor widths, the "no bedroom as a passage" rule.
 
 ## 10. Applied to the session layouts
 
