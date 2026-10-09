@@ -96,6 +96,12 @@ After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
 
 - **Every space dimension is a multiple of 300 mm** (house rule, checked by `ATMODULECHECK`).
   Legal minimum sides round up to the next multiple.
+- **Important changes of space go through transition spaces** (people need time to perceive a
+  new environment): useful spaces connect only through circulation (`Hall` / `Corridor` /
+  `Portal`) or from outside, never through another useful space; the entrance opens into a
+  hall or portal. Exception: an en-suite bathroom reached only from its own bedroom.
+  Checked by `ATPASSAGECHECK`; see `QUITO_SPACE_STANDARDS.md` §8.1.
+- `ATDWELLINGCHECK <id>` runs every check on one dwelling.
 - Regional rules: `QUITO_SPACE_STANDARDS.md` (binding code), `BEDROOM_DESIGN_CRITERIA.md`,
   `BATHROOM_DESIGN_CRITERIA.md` (Belgian, mostly secondary-sourced). Tag rooms with
   `ATROOMTYPE` before running checks.

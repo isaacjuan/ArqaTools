@@ -118,7 +118,31 @@ narrowing to 0.90 m), doors 0.90 × 2.05 m clear, exits 1.20 m (0.60 m per perso
 
 Hollow block or brick 0.15 m; solid or filled 0.12 m; reinforced concrete 0.10 m.
 
-## 8. House rule: 300 mm planning module
+## 8. House rules
+
+### 8.1 Transition and circulation
+
+**Principle:** people do not adapt instantly to a different space; it takes time to perceive
+the new environment. **Important changes of space therefore go through transition spaces:
+halls, corridors, portals.** Project decisions (2026-10-09) that follow from it, stricter than
+Art. 147:
+
+- **Circulation:** useful spaces (living, kitchen, bedrooms, bathrooms, laundry, ...) are
+  connected only through circulation spaces (`Hall`, `Corridor`, `Portal`, whose only purpose
+  is to connect) or from outside. A useful space is never reached through another useful space.
+  A direct door between two useful spaces is allowed only as an extra connection, when both
+  are also reached from circulation (reported as a note).
+- **Entrance:** the dwelling's entrance (doors tagged `Entrance` with `ATDOORTYPE`) opens into
+  a hall or portal, never straight into a useful space.
+- **En-suite bathroom (interpretation of Art. 147):** a bathroom whose only door leads into one
+  bedroom is that bedroom's private bathroom and is allowed. It does not count as the shared
+  bathroom: with several bedrooms there must still be a bathroom reached from circulation
+  (Art. 147 rule 2). A bathroom between two bedrooms is not private.
+
+Checked by `ATPASSAGECHECK` (also inside `ATDWELLINGCHECK`). Circulation spaces need no
+daylight of their own (Art. 69).
+
+### 8.2 300 mm planning module
 
 Project decision (2026-10-09), on top of the code: **every space dimension is a multiple of
 300 mm (0.30 m)**, so sizes are easy to choose and coordinate. Applied to the room boundary as
@@ -168,7 +192,13 @@ element sizes, not space dimensions, and are not checked.
     bedrooms opens onto a non-bedroom (Art. 147). A door touching one room leads "outside";
     model every room, or an unmodelled space counts as outside. Open connections without a
     door or ACA opening are not seen.
-- Room type `Corridor` (hall, corridor): size check uses the Art. 160 width (0.90 m), no area.
+    Also the circulation house rule (§8.1).
+  - `ATDWELLINGCHECK <id>`: everything for one dwelling: composition (living, kitchen,
+    bathroom, bedrooms as tagged, laundry), the Art. 147 useful-area subtotal
+    (28.5 / 38 / 49 m²), sizes + module, daylight, depth, the dwelling's doors, access. Ends
+    with a per-section problem count.
+- Room types `Corridor`, `Hall` and `Portal` (circulation / transition): size check uses the
+  Art. 160 width (0.90 m), no area; exempt from daylight and depth.
 - Not automated yet: corridor clear width between walls (needs distance measuring).
 - Test fixture in `Drawing1.dwg` at X = 20000: dwelling `TEST-02` (hall, bathroom, two
   bedrooms; bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation).
