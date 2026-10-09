@@ -310,15 +310,162 @@ local function dwellingRooms(id)
     return rooms
 end
 
+-- Zones (DESIGN_PRINCIPLES.md §2), used by ATZONECHECK and the access rules.
+local ZONE_OF = {
+    Hall = "public", Portal = "public", Living = "public", Dining = "public",
+    MainBedroom = "private", Bedroom2 = "private", Bedroom3 = "private", Bathroom = "private",
+    Kitchen = "service", Laundry = "service", Garage = "service", Storage = "service",
+    ServiceBedroom = "service",
+    Corridor = "circulation",
+}
+
+local function zoneOf(room)
+    local z = at.getData(room, "zone")
+    if type(z) == "string" and z ~= "" then return z:lower() end
+    return ZONE_OF[roomType(room) or ""]
+end
+
+-- ── Light boundaries (DESIGN_PRINCIPLES.md §3) ──────────────────────────────
+-- A space can be defined by a line, a change of floor or level, a curtain, a
+-- glass wall or a heavy wall. Two rooms whose outlines share an edge (gap
+-- <= BOUNDARY_GAP, shared length >= BOUNDARY_MIN) with no ACA wall along it
+-- are divided by a light boundary. Its type comes from a line / polyline drawn
+-- along it and tagged by ATBOUNDARYTYPE; untagged it is "open".
+-- Walkable types connect the rooms for access and zoning; glass and wall do
+-- not (glass still joins them visually).
+local BOUNDARY_GAP, BOUNDARY_MIN = 25, 600
+local WALKABLE = { open = true, line = true, floor = true, level = true, curtain = true }
+
+local function pointInPts(px, py, pts)
+    local inside, j = false, #pts
+    for i = 1, #pts do
+        local a, b = pts[i], pts[j]
+        if (a.y > py) ~= (b.y > py) and px < (b.x - a.x) * (py - a.y) / (b.y - a.y) + a.x then
+            inside = not inside
+        end
+        j = i
+    end
+    return inside
+end
+
+-- Distance from a point to an open or closed chain of points.
+local function chainDist(px, py, pts, closed)
+    local best = math.huge
+    local n = closed and #pts or #pts - 1
+    for i = 1, n do
+        local d = distToSegment(px, py, pts[i], pts[i % #pts + 1])
+        if d < best then best = d end
+    end
+    return best
+end
+
+-- The longest stretch where two closed outlines run along each other within
+-- BOUNDARY_GAP: { a = {x,y}, b = {x,y}, length } or nil.
+local function sharedEdge(pa, pb)
+    local best
+    for i = 1, #pa do
+        local a1, a2 = pa[i], pa[i % #pa + 1]
+        local ux, uy = a2.x - a1.x, a2.y - a1.y
+        local la = math.sqrt(ux * ux + uy * uy)
+        if la > 1 then
+            ux, uy = ux / la, uy / la
+            for j = 1, #pb do
+                local b1, b2 = pb[j], pb[j % #pb + 1]
+                local vx, vy = b2.x - b1.x, b2.y - b1.y
+                local lb = math.sqrt(vx * vx + vy * vy)
+                if lb > 1 and math.abs(ux * vy - uy * vx) / lb < 1e-3 then
+                    local gap = math.abs((b1.x - a1.x) * uy - (b1.y - a1.y) * ux)
+                    if gap <= BOUNDARY_GAP then
+                        local t1 = (b1.x - a1.x) * ux + (b1.y - a1.y) * uy
+                        local t2 = (b2.x - a1.x) * ux + (b2.y - a1.y) * uy
+                        if t1 > t2 then t1, t2 = t2, t1 end
+                        local lo, hi = math.max(0, t1), math.min(la, t2)
+                        if hi - lo >= BOUNDARY_MIN and (not best or hi - lo > best.length) then
+                            best = { a = { x = a1.x + ux * lo, y = a1.y + uy * lo },
+                                     b = { x = a1.x + ux * hi, y = a1.y + uy * hi }, length = hi - lo }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- Every light boundary between the given rooms:
+-- { r1, r2, a, b, length, type, marker, walkable }.
+local function lightBoundaries(rooms)
+    local outlines = {}
+    for _, r in ipairs(rooms) do
+        local pts, closed = at.outline(r)
+        if pts and closed and #pts >= 3 then outlines[r] = pts end
+    end
+    -- walls (and curtain walls) that could stand on a shared edge
+    local walls = {}
+    for _, t in ipairs({ "AEC_WALL", "AecDbCurtainWall" }) do
+        for _, h in ipairs(at.entities(t)) do
+            local pts = at.outline(h)
+            if pts and #pts >= 3 then walls[#walls + 1] = { h = h, pts = pts, glass = t ~= "AEC_WALL" } end
+        end
+    end
+    -- boundary markers tagged by ATBOUNDARYTYPE
+    local markers = {}
+    for _, h in ipairs(at.findByData("boundary")) do
+        local pts, closed = at.outline(h)
+        if pts and #pts >= 2 then
+            markers[#markers + 1] = { h = h, pts = pts, closed = closed, type = tostring(at.getData(h, "boundary")):lower() }
+        end
+    end
+
+    local out = {}
+    for i = 1, #rooms do
+        for j = i + 1, #rooms do
+            local r1, r2 = rooms[i], rooms[j]
+            if outlines[r1] and outlines[r2] then
+                local e = sharedEdge(outlines[r1], outlines[r2])
+                if e then
+                    local mx, my = (e.a.x + e.b.x) / 2, (e.a.y + e.b.y) / 2
+                    local kind, marker = "open", nil
+                    for _, w in ipairs(walls) do
+                        if pointInPts(mx, my, w.pts) or chainDist(mx, my, w.pts, true) <= BOUNDARY_GAP then
+                            kind, marker = w.glass and "glass" or "wall", w.h
+                            break
+                        end
+                    end
+                    if kind == "open" then
+                        for _, m in ipairs(markers) do
+                            if chainDist(mx, my, m.pts, m.closed) <= BOUNDARY_GAP then
+                                kind, marker = m.type, m.h
+                                break
+                            end
+                        end
+                    end
+                    -- a real ACA wall between rooms drawn to its centre line is not a light boundary
+                    if not (kind == "wall" and marker and not at.getData(marker, "boundary")) then
+                        out[#out + 1] = { r1 = r1, r2 = r2, a = e.a, b = e.b, length = e.length,
+                                          type = kind, marker = marker, walkable = WALKABLE[kind] == true }
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
 -- Connection graph of rooms through ACA doors and openings: adj[a][b] = true,
 -- via["a>b"] = door. A door touching one room, or tagged Entrance, links to
 -- OUTSIDE. Also returns the entrance doors and the one-room (exterior) doors.
+-- Walkable light boundaries link rooms too (via = "open <type> boundary").
 local function buildGraph(rooms, tol)
-    local g = { adj = {}, via = {}, entrances = {}, exterior = {}, used = 0 }
+    local g = { adj = {}, via = {}, entrances = {}, exterior = {}, used = 0, boundaries = {} }
     local function link(a, b, door)
         g.adj[a] = g.adj[a] or {}; g.adj[b] = g.adj[b] or {}
         g.adj[a][b] = true; g.adj[b][a] = true
         g.via[a .. ">" .. b] = door; g.via[b .. ">" .. a] = door
+    end
+    for _, lb in ipairs(lightBoundaries(rooms)) do
+        g.boundaries[#g.boundaries + 1] = lb
+        if lb.walkable then link(lb.r1, lb.r2, lb.type .. " boundary") end
     end
     local doors = at.entities("AEC_DOOR")
     for _, h in ipairs(at.entities("AecDbOpening")) do doors[#doors + 1] = h end
@@ -447,19 +594,44 @@ at.defineCommand("ATPASSAGECHECK", function(p)
             if not circ[m] and CIRCULATION[roomType(m)] then circ[m] = true; queue[#queue + 1] = m end
         end
     end
+    -- Rooms of one zone joined by a walkable light boundary (a line, a floor or
+    -- level change, a curtain) are one space articulated lightly, not two
+    -- spaces reached through each other (DESIGN_PRINCIPLES.md §3).
+    local parent = {}
+    local function find(x)
+        while parent[x] do x = parent[x] end
+        return x
+    end
+    local lightPair = {}
+    for _, lb in ipairs(g.boundaries) do
+        local z1, z2 = zoneOf(lb.r1), zoneOf(lb.r2)
+        if lb.walkable and z1 and z1 == z2 then
+            local a, b = find(lb.r1), find(lb.r2)
+            if a ~= b then parent[a] = b end
+            lightPair[lb.r1 .. "|" .. lb.r2] = true; lightPair[lb.r2 .. "|" .. lb.r1] = true
+        end
+    end
+    local spaceOk = {}
+    for _, r in ipairs(rooms) do
+        for m in pairs(adj[r] or {}) do
+            if circ[m] then spaceOk[find(r)] = true end
+        end
+    end
+
     local noted = {}
     for _, r in ipairs(rooms) do
         if not CIRCULATION[roomType(r)] and not ensuite[r] then
-            local ok, through = false, {}
+            local ok, through = spaceOk[find(r)] == true, {}
             for m in pairs(adj[r] or {}) do
                 if circ[m] then ok = true
                 elseif ensuite[m] ~= r then through[#through + 1] = name(m) end   -- not its own en-suite
                 -- a direct door between two useful spaces: fine only as an extra
-                if m ~= OUTSIDE and not CIRCULATION[roomType(m)] and not ensuite[m] then
+                if m ~= OUTSIDE and not CIRCULATION[roomType(m)] and not ensuite[m]
+                        and not lightPair[r .. "|" .. m] then
                     local key = r < m and (r .. "|" .. m) or (m .. "|" .. r)
                     if not noted[key] then
                         noted[key] = true
-                        print(string.format("  note: direct door %s between useful spaces %s and %s.",
+                        print(string.format("  note: direct connection (%s) between useful spaces %s and %s.",
                             via[r .. ">" .. m], roomLabel(r), roomLabel(m)))
                     end
                 end
@@ -817,20 +989,6 @@ end, "Checks that no obstacle stands in front of a door: a zone as wide as the o
 --   2. public and service rooms may connect directly (kitchen - dining);
 --   3. each zone should hang together through its own rooms and corridors
 --      (a split zone is reported as "check", not counted as a problem).
-local ZONE_OF = {
-    Hall = "public", Portal = "public", Living = "public", Dining = "public",
-    MainBedroom = "private", Bedroom2 = "private", Bedroom3 = "private", Bathroom = "private",
-    Kitchen = "service", Laundry = "service", Garage = "service", Storage = "service",
-    ServiceBedroom = "service",
-    Corridor = "circulation",
-}
-
-local function zoneOf(room)
-    local z = at.getData(room, "zone")
-    if type(z) == "string" and z ~= "" then return z:lower() end
-    return ZONE_OF[roomType(room) or ""]
-end
-
 at.defineCommand("ATZONECHECK", function(p)
     local rooms = dwellingRooms(p.dwelling)
     if #rooms == 0 then
@@ -1135,6 +1293,43 @@ end, "Checks bathroom fixtures (Quito Art. 68, 150): shower size, 100 mm between
       filter = "AEC_SPACE,LWPOLYLINE", optional = true },
     { name = "dwelling", type = "string", prompt = "Dwelling id <all>", optional = true,
       description = "When no rooms are selected: this dwelling's bathrooms, plus the complete-bathroom rule" },
+})
+
+-- ── ATBOUNDARYTYPE / ATBOUNDARYLIST ─────────────────────────────────────────
+-- Marks lines / polylines drawn along the edge between two rooms as a light
+-- boundary of a given type (DESIGN_PRINCIPLES.md §3), on layer A-BOUNDARY.
+at.defineCommand("ATBOUNDARYTYPE", function(p)
+    at.ensureLayer("A-BOUNDARY", { color = "magenta", linetype = "Continuous" })
+    local n = 0
+    for _, h in ipairs(p.markers) do
+        if at.setData(h, "boundary", p.boundaryType:lower()) then
+            at.setLayer(h, "A-BOUNDARY")
+            n = n + 1
+        end
+    end
+    print(string.format("ATBOUNDARYTYPE: %d marker(s) tagged %s (%s).", n, p.boundaryType,
+        WALKABLE[p.boundaryType:lower()] and "walkable: connects the rooms" or "not walkable: separates the rooms"))
+end, "Marks lines drawn along the edge between two rooms as a light boundary: Line, Floor, Level, Curtain (walkable) or Glass, Wall (not walkable)", {
+    { name = "markers",      type = "selection", prompt = "Select boundary lines / polylines",
+      filter = "LINE,LWPOLYLINE" },
+    { name = "boundaryType", type = "keyword", prompt = "Boundary type",
+      options = "Line Floor Level Curtain Glass Wall", default = "Floor" },
+})
+
+-- Lists the light boundaries between a dwelling's rooms (or all rooms).
+at.defineCommand("ATBOUNDARYLIST", function(p)
+    local rooms = dwellingRooms(p.dwelling)
+    local list = lightBoundaries(rooms)
+    for _, lb in ipairs(list) do
+        print(string.format("ATBOUNDARYLIST: %s | %s: %s boundary, %s long%s -> %s",
+            roomLabel(lb.r1), roomLabel(lb.r2), lb.type, fmt(lb.length),
+            lb.marker and (" (" .. lb.marker .. ")") or " (not marked)",
+            lb.walkable and "connected" or "separated"))
+    end
+    print(string.format("ATBOUNDARYLIST: %d light boundary(ies) between %d room(s); rooms divided by ACA walls are not listed.",
+        #list, #rooms))
+end, "Lists the light boundaries (no wall between two rooms that touch) and whether they connect the rooms", {
+    { name = "dwelling", type = "string", prompt = "Dwelling id <all rooms>", optional = true },
 })
 
 -- ── ATDWELLINGCHECK ─────────────────────────────────────────────────────────

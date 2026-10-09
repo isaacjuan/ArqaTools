@@ -203,10 +203,14 @@ element sizes, not space dimensions, and are not checked.
 - Room types `Dining` (counts with living, Art. 147), `Garage` (Art. 162 parking rules) and
   `Storage`: no room minimum.
 - Not automated yet: kitchen aisle widths (0.90 / 1.10 m, Art. 149).
-- Test fixture in `Drawing1.dwg` at X = 20000: dwelling `TEST-02` (hall, bathroom, two
-  bedrooms; bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation).
-  Entrance door 5AD5 is tagged `Entrance`; fixture 5AFA (900 × 900) stands in the hall's
-  south-east corner, clear of every door zone, and leaves exactly the 900 mm passage minimum.
+- Test fixtures in `Drawing1.dwg`:
+  - X = 20000, dwelling `TEST-02`: hall, bathroom, two bedrooms with ACA walls and doors;
+    bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation. Entrance door
+    5AD5 is tagged `Entrance`; fixture 5AFA (900 × 900) stands in the hall's south-east
+    corner, clear of every door zone, and leaves exactly the 900 mm passage minimum.
+  - X = 40000, dwelling `TEST-03`: hall, living, dining and a bedroom drawn without walls,
+    freestanding entrance door 5B03; light boundaries: hall/living open, living/dining floor
+    (marker 5B00), living/bedroom wall (marker 5B02, so the bedroom is unreachable).
 
 ## 10. Applied to the session layouts
 

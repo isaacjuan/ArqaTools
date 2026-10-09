@@ -65,6 +65,22 @@ by habit. A space does not need four walls to be a space.
 Consequence for the checks: two spaces divided only by a light boundary (line, floor, level,
 curtain) are **connected** for access and zoning even though no door joins them.
 
+**In the drawing:**
+
+- Two rooms whose outlines share an edge (no gap, at least 600 mm long) with no ACA wall along
+  it have a light boundary. Rooms divided by a real wall always have a gap (the wall's
+  thickness) and are not light boundaries.
+- Its type: draw a line or polyline along the edge and tag it with `ATBOUNDARYTYPE` (Line,
+  Floor, Level, Curtain, Glass, Wall; layer `A-BOUNDARY`). Untagged it counts as "open".
+  Line, Floor, Level, Curtain and open are walkable and connect the rooms; Glass and Wall
+  separate them (glass only for movement, not for view). An ACA curtain wall counts as glass.
+- Rooms **of the same zone** joined by a walkable light boundary are one space lightly
+  articulated (a living room with a dining area one step up): the circulation rule treats them
+  as one. Across zones the boundary is a direct connection, so a bedroom behind a curtain off
+  the living room breaks both the zone and the circulation rules.
+- `ATBOUNDARYLIST` lists what was detected; `ATPASSAGECHECK`, `ATZONECHECK` and
+  `ATDWELLINGCHECK` use it.
+
 ## 4. Transition and circulation
 
 **Principle:** people do not adapt instantly to a different space; it takes time to perceive
@@ -101,7 +117,7 @@ openings are element sizes, not space dimensions.
 |---|---|---|
 | §2 rules between zones | `ATZONECHECK` | done |
 | §2 siting against road and access | (none yet) | needs the road / access marked in the drawing |
-| §3 light boundaries as connections | (none yet) | the room graph sees only doors and ACA openings |
+| §3 light boundaries as connections | `ATBOUNDARYTYPE`, `ATBOUNDARYLIST`, room graph | done |
 | §4 transition, entrance, en-suite | `ATPASSAGECHECK` | done |
 | §5 door clearance | `ATDOORCLEARCHECK` | done |
 | §6 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
