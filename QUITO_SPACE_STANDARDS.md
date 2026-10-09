@@ -142,7 +142,15 @@ Art. 147:
 Checked by `ATPASSAGECHECK` (also inside `ATDWELLINGCHECK`). Circulation spaces need no
 daylight of their own (Art. 69).
 
-### 8.2 300 mm planning module
+### 8.2 Doors are never obstructed
+
+Project decision (2026-10-09): **nothing stands in front of a door.** On both sides of the
+wall, a zone as wide as the opening and 900 mm deep (the approach space, and the swing of a
+900 leaf) stays free of furniture and fixtures. Checked by `ATDOORCLEARCHECK` (also inside
+`ATDWELLINGCHECK`). A fixture placed against a wall must also keep clear of the doors in that
+wall and of the doors facing it.
+
+### 8.3 300 mm planning module
 
 Project decision (2026-10-09), on top of the code: **every space dimension is a multiple of
 300 mm (0.30 m)**, so sizes are easy to choose and coordinate. Applied to the room boundary as
@@ -199,9 +207,23 @@ element sizes, not space dimensions, and are not checked.
     with a per-section problem count.
 - Room types `Corridor`, `Hall` and `Portal` (circulation / transition): size check uses the
   Art. 160 width (0.90 m), no area; exempt from daylight and depth.
-- Not automated yet: corridor clear width between walls (needs distance measuring).
+  - `ATCIRCULATIONCHECK`: clear width of every circulation room (Art. 160: 900 mm inside a
+    dwelling, `minWidth = 1200` for shared corridors). Room width = the closest pair of
+    parallel facing edges of its outline (each arm of an L); an obstacle inside it (blocks, ACA
+    multi-view blocks) leaves the wider of its two gaps to the facing edges. Door leaves are
+    transient and not counted. Also part of `ATDWELLINGCHECK`.
+  - `ATDOORCLEARCHECK`: the §8.2 door zone (opening width × `depth`, default 900 mm, both
+    sides of the host wall, following the wall's direction) must not overlap any obstacle
+    (blocks, ACA multi-view blocks). Touching the zone's edge is fine.
+- Geometry functions: `at.outline(h)` (footprint in plan; ACA objects other than spaces use
+  their extents rectangle, exact for axis-aligned walls and fixtures) and `at.distance(h1, h2)`
+  (clear distance with closest points).
+- Not automated yet: kitchen aisle widths (0.90 / 1.10 m, Art. 149), bathroom fixture gaps
+  (Art. 68).
 - Test fixture in `Drawing1.dwg` at X = 20000: dwelling `TEST-02` (hall, bathroom, two
   bedrooms; bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation).
+  Entrance door 5AD5 is tagged `Entrance`; fixture 5AFA (900 × 900) stands in the hall's
+  south-east corner, clear of every door zone, and leaves exactly the 900 mm passage minimum.
 
 ## 10. Applied to the session layouts
 

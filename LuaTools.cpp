@@ -1333,6 +1333,65 @@ int at_entitiesInside(lua_State* L)
     return 1;
 }
 
+// Pushes {x=,y=,z=} as a new value.
+void PushPointTable(lua_State* L, const AcGePoint3d& p)
+{
+    lua_createtable(L, 0, 3);
+    lua_pushnumber(L, p.x); lua_setfield(L, -2, "x");
+    lua_pushnumber(L, p.y); lua_setfield(L, -2, "y");
+    lua_pushnumber(L, p.z); lua_setfield(L, -2, "z");
+}
+
+// at.outline(handle) -> {{x=,y=},...}, closed | nil,err
+int at_outline(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    GeomTools::Outline pts;
+    bool closed = false, ok = false;
+    std::string err;
+    {
+        CString e;
+        ok = GeomTools::GetOutline(ResolveHandle(handle), pts, closed, e);
+        if (!ok) err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+    lua_createtable(L, static_cast<int>(pts.size()), 0);
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        lua_createtable(L, 0, 2);
+        SetNumberField(L, "x", pts[i].x);
+        SetNumberField(L, "y", pts[i].y);
+        lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    lua_pushboolean(L, closed ? 1 : 0);
+    return 2;
+}
+
+// at.distance(h1, h2) -> distance, p1, p2 | nil,err
+int at_distance(lua_State* L)
+{
+    const char* h1 = luaL_checkstring(L, 1);
+    const char* h2 = luaL_checkstring(L, 2);
+    bool ok = false;
+    double dist = 0.0;
+    AcGePoint2d pa, pb;
+    std::string err;
+    {
+        GeomTools::Outline a, b;
+        bool ca = false, cb = false;
+        CString e;
+        ok = GeomTools::GetOutline(ResolveHandle(h1), a, ca, e)
+          && GeomTools::GetOutline(ResolveHandle(h2), b, cb, e);
+        if (ok) dist = GeomTools::Distance(a, ca, b, cb, &pa, &pb);
+        else    err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+    lua_pushnumber(L, dist);
+    PushPointTable(L, AcGePoint3d(pa.x, pa.y, 0.0));
+    PushPointTable(L, AcGePoint3d(pb.x, pb.y, 0.0));
+    return 3;
+}
+
 void PushDataValue(lua_State* L, const EntityData::Value& v)
 {
     switch (v.kind)
@@ -3157,6 +3216,12 @@ const AtFn kFns[] = {
     { "entitiesInside", at_entitiesInside, "(boundary [,typeFilter [,tol]]) -> {handle,...} | nil,err",
       "model-space entities whose extents centre is inside a closed curve or ACA space, optionally of one type "
       "(\"AEC_DOOR\", \"AEC_WINDOW\", \"INSERT\", ...); tol as in pointInPolygon; the boundary itself is skipped" },
+    { "outline",      at_outline,      "(handle) -> {{x=,y=},...}, closed | nil,err",
+      "the object's footprint in plan (WCS XY): curves as their outline (arcs tessellated, open or closed), ACA "
+      "objects other than spaces and everything else as their extents rectangle (exact for axis-aligned walls)" },
+    { "distance",     at_distance,     "(h1, h2) -> distance, p1, p2 | nil,err",
+      "clear distance in plan between two objects' outlines (0 when they touch, cross or one is inside the other), "
+      "with the closest points {x=,y=,z=0}" },
     { "getData",      at_getData,      "(handle [,key]) -> value | {key = value,...} | nil,err",
       "tags set with setData: with key its value (nil if absent), without key all of them (empty table if none)" },
     { "setData",      at_setData,      "(handle, key, value) -> true | false,err",
@@ -3493,6 +3558,7 @@ bool isReadOnlyFunction(const char* name)
         "print", "listEntities", "entities", "getProps", "getText", "sumText",
         "countBlocks", "layers", "getCurrentLayer", "refPoint", "formatArea", "formatLength",
         "getVar", "getAecProps", "pointInPolygon", "entitiesInside", "getData", "findByData",
+        "outline", "distance",
     };
     for (const char* n : kReadOnly)
         if (strcmp(name, n) == 0) return true;

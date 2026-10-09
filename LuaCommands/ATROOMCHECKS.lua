@@ -493,6 +493,304 @@ end, "Checks room access: no bedroom or bathroom is the only way into another ro
       default = WALL_TOL },
 })
 
+-- ── ATCIRCULATIONCHECK ──────────────────────────────────────────────────────
+-- Art. 160: corridors inside a dwelling at least 0.90m clear; shared
+-- (communal) corridors in multi-family buildings 1.20m (pass minWidth=1200).
+-- Applies to every circulation room (Corridor, Hall, Portal).
+--
+-- Clear width = the narrowest of: the room's own width (the closest pair of
+-- parallel facing edges of its outline, so an L-shaped corridor gives each
+-- arm), and the passage beside each obstacle inside it (blocks / ACA
+-- multi-view blocks by default): the wider of its two gaps to the facing
+-- edges, since people pass on the free side. Door leaves swinging into the
+-- corridor are transient and not counted.
+
+local function segPointDist(px, py, a, b)
+    return distToSegment(px, py, a, b)
+end
+
+local function cross(o, a, b) return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x) end
+
+-- Distance between segments a1-a2 and b1-b2 (0 when they cross).
+local function segSeg(a1, a2, b1, b2)
+    local d1, d2 = cross(a1, a2, b1), cross(a1, a2, b2)
+    local d3, d4 = cross(b1, b2, a1), cross(b1, b2, a2)
+    if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)) then
+        return 0
+    end
+    return math.min(segPointDist(a1.x, a1.y, b1, b2), segPointDist(a2.x, a2.y, b1, b2),
+                    segPointDist(b1.x, b1.y, a1, a2), segPointDist(b2.x, b2.y, a1, a2))
+end
+
+-- Distance from segment a-b to a closed outline's edges.
+local function segOutline(a, b, pts)
+    local best = math.huge
+    for i = 1, #pts do
+        local d = segSeg(a, b, pts[i], pts[i % #pts + 1])
+        if d < best then best = d end
+    end
+    return best
+end
+
+-- Pairs of parallel edges of a closed outline that face each other (their
+-- projections overlap): {i, j, gap, ux, uy (unit direction of edge i)}.
+local function facingPairs(pts)
+    local n, pairs_ = #pts, {}
+    for i = 1, n do
+        local a, b = pts[i], pts[i % n + 1]
+        local ux, uy = b.x - a.x, b.y - a.y
+        local li = math.sqrt(ux * ux + uy * uy)
+        if li > 1 then
+            ux, uy = ux / li, uy / li
+            for j = i + 1, n do
+                local c, d = pts[j], pts[j % n + 1]
+                local vx, vy = d.x - c.x, d.y - c.y
+                local lj = math.sqrt(vx * vx + vy * vy)
+                local adjacent = (j == i + 1) or (i == 1 and j == n)
+                if lj > 1 and not adjacent and math.abs(ux * vy - uy * vx) / lj < 1e-3 then
+                    -- overlap of the two edges along edge i's direction
+                    local s0, s1 = 0, li
+                    local t0 = (c.x - a.x) * ux + (c.y - a.y) * uy
+                    local t1 = (d.x - a.x) * ux + (d.y - a.y) * uy
+                    if t0 > t1 then t0, t1 = t1, t0 end
+                    local lo, hi = math.max(s0, t0), math.min(s1, t1)
+                    if hi - lo > 1 then
+                        local gap = math.abs((c.x - a.x) * uy - (c.y - a.y) * ux)
+                        pairs_[#pairs_ + 1] = { i = i, j = j, gap = gap, ux = ux, uy = uy,
+                                                lo = lo, hi = hi, ax = a.x, ay = a.y }
+                    end
+                end
+            end
+        end
+    end
+    return pairs_
+end
+
+local function splitTypes(s)
+    local out = {}
+    for t in tostring(s or ""):gmatch("[^,%s]+") do out[#out + 1] = t end
+    return out
+end
+
+at.defineCommand("ATCIRCULATIONCHECK", function(p)
+    local minW = p.minWidth or 900
+    local rooms = p.rooms
+    if not rooms or #rooms == 0 then
+        rooms = {}
+        for _, r in ipairs(allRooms()) do
+            if CIRCULATION[roomType(r)] and (not p.dwelling or p.dwelling == ""
+                    or at.getData(r, "dwelling") == p.dwelling) then
+                rooms[#rooms + 1] = r
+            end
+        end
+    end
+    if #rooms == 0 then
+        print("ATCIRCULATIONCHECK: no circulation rooms found (tag them Corridor, Hall or Portal with ATROOMTYPE).")
+        return
+    end
+    local types = splitTypes(p.obstacles or "INSERT,AEC_MVBLOCK_REF")
+
+    local pass, fail = 0, 0
+    for _, r in ipairs(rooms) do
+        local pts, closed = at.outline(r)
+        if not pts or not closed or #pts < 3 then
+            print("ATCIRCULATIONCHECK: " .. r .. " skipped: not a closed room outline.")
+        else
+            local fp = facingPairs(pts)
+            local width = math.huge
+            for _, f in ipairs(fp) do if f.gap < width then width = f.gap end end
+            local clear, limiting = width, "room width"
+            local notes = {}
+            for _, t in ipairs(types) do
+                for _, o in ipairs(at.entitiesInside(r, t) or {}) do
+                    local op = at.outline(o)
+                    if op and #op >= 2 then
+                        -- the facing pair the obstacle stands between
+                        local cx, cy = 0, 0
+                        for _, v in ipairs(op) do cx = cx + v.x; cy = cy + v.y end
+                        cx, cy = cx / #op, cy / #op
+                        local best
+                        for _, f in ipairs(fp) do
+                            local s = (cx - f.ax) * f.ux + (cy - f.ay) * f.uy
+                            if s >= f.lo and s <= f.hi and (not best or f.gap < best.gap) then best = f end
+                        end
+                        if best then
+                            local g1 = segOutline(pts[best.i], pts[best.i % #pts + 1], op)
+                            local g2 = segOutline(pts[best.j], pts[best.j % #pts + 1], op)
+                            local passage = math.max(g1, g2)
+                            notes[#notes + 1] = string.format("%s leaves %s", o, fmt(passage))
+                            if passage < clear then clear, limiting = passage, "beside " .. o end
+                        end
+                    end
+                end
+            end
+            local ok = clear + 0.5 >= minW
+            if ok then pass = pass + 1 else fail = fail + 1 end
+            print(string.format("ATCIRCULATIONCHECK: %s: room width %s%s; clear %s (%s) vs min %s -> %s",
+                roomLabel(r), width == math.huge and "?" or fmt(width),
+                #notes > 0 and (", obstacles: " .. table.concat(notes, ", ")) or "",
+                clear == math.huge and "?" or fmt(clear), limiting, fmt(minW), ok and "ok" or "BELOW"))
+        end
+    end
+    print(string.format("ATCIRCULATIONCHECK: %d ok, %d below (min %s mm; shared corridors 1200, Art. 160). %s",
+        pass, fail, fmt(minW), SOURCE))
+end, "Checks the clear width of circulation rooms (Corridor, Hall, Portal) including obstacles inside them (Quito Art. 160: 900 mm, shared 1200 mm)", {
+    { name = "rooms",     type = "selection", prompt = "Select circulation rooms <all tagged>",
+      filter = "AEC_SPACE,LWPOLYLINE", optional = true },
+    { name = "dwelling",  type = "string", prompt = "Dwelling id <all>", optional = true,
+      description = "When no rooms are selected: only this dwelling's circulation rooms" },
+    { name = "minWidth",  type = "distance", prompt = "Minimum clear width", default = 900,
+      description = "900 inside a dwelling, 1200 for shared corridors in multi-family buildings" },
+    { name = "obstacles", type = "string", prompt = "Obstacle types", default = "INSERT,AEC_MVBLOCK_REF",
+      description = "Comma-separated entity types counted as obstacles inside the room" },
+})
+
+-- ── ATDOORCLEARCHECK ────────────────────────────────────────────────────────
+-- House rule: a door is never obstructed. In front of every door, on both
+-- sides of its wall, a clear zone as wide as the opening and `depth` deep
+-- (default 900mm: the approach space, and the swing of a 900 leaf) must be
+-- free of obstacles (blocks / ACA multi-view blocks by default).
+--
+-- The opening is centred on the door's extents centre projected onto its
+-- host wall (the wall whose baseline is nearest); the zone runs along that
+-- wall's direction, so it is right for walls in any direction.
+
+local function inPoly(px, py, pts)
+    local inside, n = false, #pts
+    local j = n
+    for i = 1, n do
+        local a, b = pts[i], pts[j]
+        if (a.y > py) ~= (b.y > py) and px < (b.x - a.x) * (py - a.y) / (b.y - a.y) + a.x then
+            inside = not inside
+        end
+        j = i
+    end
+    return inside
+end
+
+local function properCross(a1, a2, b1, b2)
+    local d1, d2 = cross(a1, a2, b1), cross(a1, a2, b2)
+    local d3, d4 = cross(b1, b2, a1), cross(b1, b2, a2)
+    return ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0))
+end
+
+-- Do two closed outlines share interior? (Touching edges do not count.)
+local function overlaps(pa, pb)
+    for i = 1, #pa do
+        for j = 1, #pb do
+            if properCross(pa[i], pa[i % #pa + 1], pb[j], pb[j % #pb + 1]) then return true end
+        end
+    end
+    local function anyInside(p, q)
+        for _, v in ipairs(p) do
+            if inPoly(v.x, v.y, q) and segOutline(v, v, q) > 1 then return true end
+        end
+        -- also the centre (one fully inside the other with no vertex strictly inside is rare)
+        local cx, cy = 0, 0
+        for _, v in ipairs(p) do cx = cx + v.x; cy = cy + v.y end
+        cx, cy = cx / #p, cy / #p
+        return inPoly(cx, cy, q) and segOutline({ x = cx, y = cy }, { x = cx, y = cy }, q) > 1
+    end
+    return anyInside(pa, pb) or anyInside(pb, pa)
+end
+
+-- The door's host wall: the ACA wall whose baseline is nearest its centre.
+local function hostWall(door)
+    local best, bestD
+    for _, h in ipairs(at.entities("AEC_WALL")) do
+        local w = at.getAecProps(h)
+        if w and w.startPoint and w.endPoint then
+            local d = distToSegment(door.center.x, door.center.y, w.startPoint, w.endPoint)
+            if not bestD or d < bestD then best, bestD = w, d end
+        end
+    end
+    if best and bestD <= (best.width or 0) + door.width then return best end
+    return nil
+end
+
+-- Clear zone in front of a door, both sides of the wall, as a closed outline.
+local function doorZone(door, depth)
+    local w = hostWall(door)
+    if not w then return nil, "no host wall found" end
+    local a, b = w.startPoint, w.endPoint
+    local ux, uy = b.x - a.x, b.y - a.y
+    local len = math.sqrt(ux * ux + uy * uy)
+    if len < 1 then return nil, "host wall has no length" end
+    ux, uy = ux / len, uy / len
+    local nx, ny = -uy, ux
+    local t = (door.center.x - a.x) * ux + (door.center.y - a.y) * uy
+    local ox, oy = a.x + ux * t, a.y + uy * t
+    local half = door.width / 2 - 2                -- 2mm in: an obstacle beside the opening only touches
+    local reach = (w.justify == "Center" and (w.width or 0) / 2 or (w.width or 0)) + depth
+    return {
+        { x = ox - ux * half - nx * reach, y = oy - uy * half - ny * reach },
+        { x = ox + ux * half - nx * reach, y = oy + uy * half - ny * reach },
+        { x = ox + ux * half + nx * reach, y = oy + uy * half + ny * reach },
+        { x = ox - ux * half + nx * reach, y = oy - uy * half + ny * reach },
+    }, w
+end
+
+at.defineCommand("ATDOORCLEARCHECK", function(p)
+    local depth = p.depth or 900
+    local doors = p.doors
+    if not doors or #doors == 0 then
+        doors = {}
+        local rooms
+        if p.dwelling and p.dwelling ~= "" then rooms = at.findByData("dwelling", p.dwelling) end
+        for _, h in ipairs(at.entities("AEC_DOOR")) do
+            local keep = not rooms
+            if rooms then
+                local d = at.getAecProps(h)
+                for _, r in ipairs(rooms) do
+                    if d and d.center and doorTouches(r, d, WALL_TOL) then keep = true; break end
+                end
+            end
+            if keep then doors[#doors + 1] = h end
+        end
+    end
+    local obstacles = {}
+    for _, t in ipairs(splitTypes(p.obstacles or "INSERT,AEC_MVBLOCK_REF")) do
+        for _, h in ipairs(at.entities(t)) do
+            local pts, closed = at.outline(h)
+            if pts and #pts >= 3 then obstacles[#obstacles + 1] = { h = h, pts = pts } end
+        end
+    end
+
+    local pass, fail = 0, 0
+    for _, h in ipairs(doors) do
+        local d = at.getAecProps(h)
+        if not d or d.kind ~= "door" or not d.width then
+            print("ATDOORCLEARCHECK: " .. h .. " skipped: not an ACA door.")
+        else
+            local zone, w = doorZone(d, depth)
+            if not zone then
+                print("ATDOORCLEARCHECK: " .. h .. " skipped: " .. tostring(w) .. ".")
+            else
+                local blocked = {}
+                for _, o in ipairs(obstacles) do
+                    if overlaps(zone, o.pts) then blocked[#blocked + 1] = o.h end
+                end
+                if #blocked == 0 then
+                    pass = pass + 1
+                    print(string.format("ATDOORCLEARCHECK: %s (%s wide): clear %s mm on both sides -> ok", h, fmt(d.width), fmt(depth)))
+                else
+                    fail = fail + 1
+                    print(string.format("ATDOORCLEARCHECK: %s (%s wide): BLOCKED by %s within %s mm of the opening; move it clear of the door",
+                        h, fmt(d.width), table.concat(blocked, ", "), fmt(depth)))
+                end
+            end
+        end
+    end
+    print(string.format("ATDOORCLEARCHECK: %d clear, %d blocked (zone %s mm deep both sides, house rule).", pass, fail, fmt(depth)))
+end, "Checks that no obstacle stands in front of a door: a zone as wide as the opening and 900 mm deep on both sides of the wall must be free (house rule)", {
+    { name = "doors",     type = "selection", prompt = "Select doors <all>", filter = "AEC_DOOR", optional = true },
+    { name = "dwelling",  type = "string", prompt = "Dwelling id <all>", optional = true,
+      description = "When no doors are selected: only the doors of this dwelling's rooms" },
+    { name = "depth",     type = "distance", prompt = "Clear depth on each side of the door", default = 900 },
+    { name = "obstacles", type = "string", prompt = "Obstacle types", default = "INSERT,AEC_MVBLOCK_REF",
+      description = "Comma-separated entity types counted as obstacles" },
+})
+
 -- ── ATDWELLINGCHECK ─────────────────────────────────────────────────────────
 -- Runs every check on the rooms tagged with one dwelling id and adds the
 -- dwelling-level rules: composition (living, kitchen, bathroom, bedrooms as
@@ -614,7 +912,15 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
         section("doors", runCounted("ATDOORCHECK", { doors = doors }))
     end
 
-    -- 5. access
+    -- 4b. nothing in front of the doors
+    print("-- door clearance (house rule)")
+    section("door clearance", runCounted("ATDOORCLEARCHECK", { dwelling = p.dwelling }))
+
+    -- 5. circulation widths
+    print("-- circulation widths (Art. 160)")
+    section("circulation widths", runCounted("ATCIRCULATIONCHECK", { dwelling = p.dwelling }))
+
+    -- 6. access
     print("-- access (Art. 147, circulation house rule)")
     section("access", runCounted("ATPASSAGECHECK", { dwelling = p.dwelling }))
 

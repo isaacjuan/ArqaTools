@@ -101,6 +101,8 @@ After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
   `Portal`) or from outside, never through another useful space; the entrance opens into a
   hall or portal. Exception: an en-suite bathroom reached only from its own bedroom.
   Checked by `ATPASSAGECHECK`; see `QUITO_SPACE_STANDARDS.md` §8.1.
+- **Doors are never obstructed:** a zone as wide as the opening and 900 mm deep stays free on
+  both sides (`ATDOORCLEARCHECK`). When placing furniture, keep it out of door zones.
 - `ATDWELLINGCHECK <id>` runs every check on one dwelling.
 - Regional rules: `QUITO_SPACE_STANDARDS.md` (binding code), `BEDROOM_DESIGN_CRITERIA.md`,
   `BATHROOM_DESIGN_CRITERIA.md` (Belgian, mostly secondary-sourced). Tag rooms with
