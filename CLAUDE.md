@@ -105,6 +105,8 @@ changing a dwelling:
    useful space through another one; the entrance opens into a hall or portal; an en-suite
    bathroom from its own bedroom is the exception. Private rooms are entered only from
    circulation or other private rooms. **Doors are never obstructed** (900 mm zone both sides).
+   **Space economy:** as little circulation as possible; enter rectangular rooms through a
+   long side, near its middle (`ATECONOMYCHECK`).
 4. **Size on the 300 mm module**, code minimums rounded up (`QUITO_SPACE_STANDARDS.md`).
 
 Tag rooms with `ATROOMTYPE` (and the entrance with `ATDOORTYPE`), then `ATDWELLINGCHECK <id>`

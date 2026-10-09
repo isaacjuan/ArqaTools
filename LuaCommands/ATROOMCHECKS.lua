@@ -1295,6 +1295,174 @@ end, "Checks bathroom fixtures (Quito Art. 68, 150): shower size, 100 mm between
       description = "When no rooms are selected: this dwelling's bathrooms, plus the complete-bathroom rule" },
 })
 
+-- ── ATECONOMYCHECK ──────────────────────────────────────────────────────────
+-- Space economy (DESIGN_PRINCIPLES.md §5), guidance rather than rules, so it
+-- reports "check" lines, not problems:
+--   1. as little circulation and as much useful space as possible: the
+--      circulation share (Hall, Corridor, Portal area / total) above `maxCirc`
+--      (default 15%, a starting figure) is a check;
+--   2. where a room is entered decides how far you walk in it: a rectangular
+--      room is best entered through a long side. For each entry (door or
+--      walkable light boundary) of a useful room: the side it is on, and the
+--      mean walking distance from it to every point of the room compared with
+--      entering at the middle of the longest side. A room at least 1.25 times
+--      as long as wide entered from a short side, or more than 15% extra
+--      walking, is a check.
+local ECON_GRID = 150          -- mm between sample points
+local ECON_ASPECT = 1.25       -- below this a room is "square enough"
+local ECON_EXTRA = 0.15        -- extra mean walk that is worth a check
+
+-- Sample points inside a closed outline on a ECON_GRID grid.
+local function samplePoints(pts)
+    local minx, miny, maxx, maxy = math.huge, math.huge, -math.huge, -math.huge
+    for _, v in ipairs(pts) do
+        minx, maxx = math.min(minx, v.x), math.max(maxx, v.x)
+        miny, maxy = math.min(miny, v.y), math.max(maxy, v.y)
+    end
+    local out = {}
+    local x = minx + ECON_GRID / 2
+    while x < maxx do
+        local y = miny + ECON_GRID / 2
+        while y < maxy do
+            if pointInPts(x, y, pts) then out[#out + 1] = { x = x, y = y } end
+            y = y + ECON_GRID
+        end
+        x = x + ECON_GRID
+    end
+    return out
+end
+
+local function meanDist(px, py, samples)
+    local s = 0
+    for _, q in ipairs(samples) do s = s + math.sqrt((q.x - px) ^ 2 + (q.y - py) ^ 2) end
+    return #samples > 0 and s / #samples or 0
+end
+
+-- Nearest outline edge to a point: index, length, projected point.
+local function nearestEdge(pts, px, py)
+    local bi, bd
+    for i = 1, #pts do
+        local d = distToSegment(px, py, pts[i], pts[i % #pts + 1])
+        if not bd or d < bd then bi, bd = i, d end
+    end
+    local a, b = pts[bi], pts[bi % #pts + 1]
+    local ex, ey = b.x - a.x, b.y - a.y
+    local len = math.sqrt(ex * ex + ey * ey)
+    local t = len > 0 and math.max(0, math.min(1, ((px - a.x) * ex + (py - a.y) * ey) / (len * len))) or 0
+    return bi, len, { x = a.x + ex * t, y = a.y + ey * t }
+end
+
+-- Where a door opens into a room: its opening centre on the host wall (or its
+-- extents centre for a freestanding door), projected onto the room's edge.
+local function doorEntry(d, roomPts)
+    local px, py = d.center.x, d.center.y
+    local w = hostWall(d)
+    if w then
+        local a, b = w.startPoint, w.endPoint
+        local ux, uy = b.x - a.x, b.y - a.y
+        local l = math.sqrt(ux * ux + uy * uy)
+        if l > 0 then
+            ux, uy = ux / l, uy / l
+            local t = (px - a.x) * ux + (py - a.y) * uy
+            px, py = a.x + ux * t, a.y + uy * t
+        end
+    end
+    local _, _, q = nearestEdge(roomPts, px, py)
+    return q
+end
+
+at.defineCommand("ATECONOMYCHECK", function(p)
+    local maxCirc = p.maxCirc or 0.15
+    local rooms = dwellingRooms(p.dwelling)
+    if #rooms == 0 then
+        print("ATECONOMYCHECK: no rooms found (tag them with ATROOMTYPE).")
+        return
+    end
+    local g = buildGraph(rooms, WALL_TOL)
+
+    -- 1. circulation share
+    local total, circArea = 0, 0
+    for _, r in ipairs(rooms) do
+        local a = roomAreaM2(r) or 0
+        total = total + a
+        if CIRCULATION[roomType(r)] then circArea = circArea + a end
+    end
+    local share = total > 0 and circArea / total or 0
+    print(string.format("ATECONOMYCHECK: circulation %.2fm2 of %.2fm2 = %.1f%% (useful %.1f%%)",
+        circArea, total, share * 100, (1 - share) * 100))
+    if share > maxCirc then
+        print(string.format("  check: circulation above %.0f%%; shorten corridors or let halls do more work.", maxCirc * 100))
+    else
+        print(string.format("  ok: circulation at or below %.0f%%.", maxCirc * 100))
+    end
+
+    -- 2. where each useful room is entered
+    local doors = at.entities("AEC_DOOR")
+    for _, r in ipairs(rooms) do
+        if not CIRCULATION[roomType(r)] then
+            local pts, closed = at.outline(r)
+            if pts and closed and #pts >= 3 then
+                local samples = samplePoints(pts)
+                -- the longest edge and the ideal entry at its middle
+                local li, ll = 1, 0
+                local shortest = math.huge
+                for i = 1, #pts do
+                    local a, b = pts[i], pts[i % #pts + 1]
+                    local l = math.sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2)
+                    if l > ll then li, ll = i, l end
+                    if l > 1 and l < shortest then shortest = l end
+                end
+                local la, lb = pts[li], pts[li % #pts + 1]
+                local ideal = meanDist((la.x + lb.x) / 2, (la.y + lb.y) / 2, samples)
+                local elongated = shortest < math.huge and ll / shortest >= ECON_ASPECT
+
+                -- entries: doors and walkable light boundaries of this room
+                local entries = {}
+                for _, h in ipairs(doors) do
+                    local d = at.getAecProps(h)
+                    if d and d.center and doorTouches(r, d, WALL_TOL) then
+                        entries[#entries + 1] = { what = "door " .. h, pt = doorEntry(d, pts) }
+                    end
+                end
+                for _, lb in ipairs(g.boundaries) do
+                    if lb.walkable and (lb.r1 == r or lb.r2 == r) then
+                        entries[#entries + 1] = { what = lb.type .. " boundary",
+                            pt = { x = (lb.a.x + lb.b.x) / 2, y = (lb.a.y + lb.b.y) / 2 } }
+                    end
+                end
+
+                if #entries == 0 then
+                    print(string.format("ATECONOMYCHECK: %s: no entry found.", roomLabel(r)))
+                else
+                    local parts, worst = {}, 0
+                    local shortSide = false
+                    for _, e in ipairs(entries) do
+                        local _, el = nearestEdge(pts, e.pt.x, e.pt.y)
+                        local isLong = el >= ll - 1
+                        local extra = ideal > 0 and meanDist(e.pt.x, e.pt.y, samples) / ideal - 1 or 0
+                        if extra > worst then worst = extra end
+                        if elongated and not isLong then shortSide = true end
+                        parts[#parts + 1] = string.format("%s on a %s side (%s), %+.0f%% walk",
+                            e.what, isLong and "long" or "short", fmt(el), extra * 100)
+                    end
+                    print(string.format("ATECONOMYCHECK: %s (%s x %s): %s", roomLabel(r), fmt(ll), fmt(shortest),
+                        table.concat(parts, "; ")))
+                    if shortSide then
+                        print("  check: entered from a short side; entering through a long side means walking less.")
+                    elseif worst > ECON_EXTRA then
+                        print(string.format("  check: the entry is off-centre (%.0f%% more walking than the middle of the long side).", worst * 100))
+                    end
+                end
+            end
+        end
+    end
+    print("ATECONOMYCHECK: done (space economy guidance, DESIGN_PRINCIPLES.md §5).")
+end, "Space economy guidance: circulation share of the dwelling, and whether each room is entered through a long side with little walking (house principle)", {
+    { name = "dwelling", type = "string", prompt = "Dwelling id <all rooms>", optional = true },
+    { name = "maxCirc",  type = "number", prompt = "Maximum circulation share", default = 0.15,
+      description = "Circulation area / total area above which a check is reported (0.15 = 15%)" },
+})
+
 -- ── ATBOUNDARYTYPE / ATBOUNDARYLIST ─────────────────────────────────────────
 -- Marks lines / polylines drawn along the edge between two rooms as a light
 -- boundary of a given type (DESIGN_PRINCIPLES.md §3), on layer A-BOUNDARY.
@@ -1472,6 +1640,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
     -- 7. zones
     print("-- zones (public / private / service, house principle)")
     section("zones", runCounted("ATZONECHECK", { dwelling = p.dwelling }))
+
+    -- 8. space economy (guidance: "check" lines, not counted)
+    print("-- space economy (house principle)")
+    section("space economy", runCounted("ATECONOMYCHECK", { dwelling = p.dwelling }))
 
     -- summary
     local total, line = 0, {}

@@ -9,8 +9,9 @@ The project's own design method for dwellings, on top of the building code (code
 1. **Locate the zones on the site** (§2): where the road and the access are, where the
    private zone goes, how the service zone is supplied.
 2. **Define the spaces** (§3): choose, for each boundary, how strongly it separates.
-3. **Connect them** through transition spaces (§4), keeping doors clear (§5).
-4. **Size them**: code minimums (Quito) on the 300 mm module (§6).
+3. **Connect them** through transition spaces (§4), with as little circulation as
+   possible and each room entered where it is used best (§5), keeping doors clear (§6).
+4. **Size them**: code minimums (Quito) on the 300 mm module (§7).
 
 Decide in this order: a later step never overrules an earlier one without going back to it.
 
@@ -98,20 +99,41 @@ corridors, portals.
   shared bathroom, and a bathroom between two bedrooms is not private.
 - Circulation spaces need no daylight of their own (Quito Art. 69).
 
-## 5. Doors are never obstructed
+## 5. Space economy
+
+A better design has **as little circulation and as much useful space as possible**. The
+transition principle (§4) asks for halls and corridors; economy asks for them to be as small
+as they can be while doing that job. Let halls distribute directly to several rooms instead of
+adding corridor length.
+
+**Where a space is entered changes how well it can be used.** A rectangular space is best
+entered through its long side: every part of it is then reached walking less, and the
+furniture can use both ends. Entering through a short side turns the room into a corridor to
+its far end; entering off-centre wastes the corner behind the door.
+
+In the drawing (`ATECONOMYCHECK`, guidance: it reports "check" lines, not problems):
+
+- circulation share: Hall, Corridor and Portal area over the dwelling's total; above
+  `maxCirc` (default 15 %, a starting figure to adjust) is a check;
+- for each useful room and each entry (door or walkable light boundary): the side it is on
+  and the mean walking distance to every point of the room, compared with entering at the
+  middle of the longest side. A room at least 1.25 times as long as wide entered from a short
+  side, or more than 15 % extra walking, is a check.
+
+## 6. Doors are never obstructed
 
 Nothing stands in front of a door: on both sides of the wall, a zone as wide as the opening
 and 900 mm deep (approach space, and the swing of a 900 leaf) stays free of furniture and
 fixtures.
 
-## 6. 300 mm planning module
+## 7. 300 mm planning module
 
 Every space dimension is a multiple of 300 mm, so sizes are easy to choose and coordinate.
 Applied to the room boundary as drawn (clear interior dimensions), tolerance 1 mm. Code
 minimum sides round up to the next multiple (table in `QUITO_SPACE_STANDARDS.md` §8). Door
 openings are element sizes, not space dimensions.
 
-## 7. What the tools check
+## 8. What the tools check
 
 | Principle | Tool | Status |
 |---|---|---|
@@ -119,8 +141,9 @@ openings are element sizes, not space dimensions.
 | §2 siting against road and access | (none yet) | needs the road / access marked in the drawing |
 | §3 light boundaries as connections | `ATBOUNDARYTYPE`, `ATBOUNDARYLIST`, room graph | done |
 | §4 transition, entrance, en-suite | `ATPASSAGECHECK` | done |
-| §5 door clearance | `ATDOORCLEARCHECK` | done |
-| §6 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
+| §5 space economy | `ATECONOMYCHECK` | done (guidance) |
+| §6 door clearance | `ATDOORCLEARCHECK` | done |
+| §7 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
 | everything for one dwelling | `ATDWELLINGCHECK <id>` | done |
 
 Rooms are tagged with `ATROOMTYPE` (room type, dwelling, bedrooms, zone) first; doors with
