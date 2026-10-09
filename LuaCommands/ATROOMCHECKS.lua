@@ -8,6 +8,7 @@
 --   ATROOMDEPTHCHECK  room depth <= 5 x the window's smaller dimension (Art. 151)
 --   ATDOORCHECK       door opening sizes (Art. 153)
 --   ATDOORTYPE        tags a door as Entrance / Interior / Bathroom
+--   ATDOORSWINGCHECK  doors open inward, into the room they serve (house rule)
 --
 -- Edit this file and run ATLUARELOAD, no rebuild needed.
 
@@ -975,6 +976,201 @@ end, "Checks that no obstacle stands in front of a door: a zone as wide as the o
     { name = "depth",     type = "distance", prompt = "Clear depth on each side of the door", default = 900 },
     { name = "obstacles", type = "string", prompt = "Obstacle types", default = "INSERT,AEC_MVBLOCK_REF",
       description = "Comma-separated entity types counted as obstacles" },
+})
+
+-- ── ATDOORSWINGCHECK ────────────────────────────────────────────────────────
+-- House rule: doors open inward, into the space they serve (more secure, and
+-- the leaf does not cut into the circulation). An exterior door opens into
+-- the dwelling; an interior door opens away from the circulation, into the
+-- room further from the entrance. Opening outward is the exception, only when
+-- the room has no space for the leaf: then it is a "check", otherwise a
+-- PROBLEM.
+--
+-- The swing side is read from the door's plan extents: the leaf and its arc
+-- fill them, so the room (or the outside) holding most of the extents is the
+-- one the door opens into. Doors whose extents are thin (sliding, or no swing
+-- drawn) are skipped. The door's other side is the other room it touches, or
+-- the outside for a door touching one room (as in the room graph).
+
+-- Share of the door's extents in each room (OUTSIDE = in none of them).
+local function swingShares(e, touching)
+    local n, counts = 12, {}
+    for i = 0, n - 1 do
+        for j = 0, n - 1 do
+            local x = e.min.x + (i + 0.5) * (e.max.x - e.min.x) / n
+            local y = e.min.y + (j + 0.5) * (e.max.y - e.min.y) / n
+            local where = OUTSIDE
+            for _, r in ipairs(touching) do
+                if at.pointInPolygon(r, x, y, 0) then where = r; break end
+            end
+            counts[where] = (counts[where] or 0) + 1
+        end
+    end
+    return counts, n * n
+end
+
+-- The edge of `room` the door stands on, facing `beyond` (a room or OUTSIDE):
+-- origin under the door, unit direction, inward normal.
+local function doorEdge(room, beyond, touching, cx, cy)
+    local pts = at.outline(room)
+    local best
+    for i = 1, #(pts or {}) do
+        local a, b = pts[i], pts[i % #pts + 1]
+        local ux, uy = b.x - a.x, b.y - a.y
+        local len = math.sqrt(ux * ux + uy * uy)
+        if len > 1 then
+            ux, uy = ux / len, uy / len
+            local t = (cx - a.x) * ux + (cy - a.y) * uy
+            if t >= 0 and t <= len then
+                local ox, oy = a.x + ux * t, a.y + uy * t
+                local nx, ny = -uy, ux
+                if at.pointInPolygon(room, ox + nx * 50, oy + ny * 50, 0) == false then nx, ny = -nx, -ny end
+                -- what lies beyond this edge (through a wall up to 300 thick)
+                local px, py = ox - nx * 350, oy - ny * 350
+                local there = OUTSIDE
+                for _, r in ipairs(touching) do
+                    if r ~= room and at.pointInPolygon(r, px, py, 0) then there = r; break end
+                end
+                local dist = math.abs((cx - ox) * nx + (cy - oy) * ny)
+                if there == beyond and (not best or dist < best.dist) then
+                    best = { o = { x = ox, y = oy }, ux = ux, uy = uy, nx = nx, ny = ny, dist = dist }
+                end
+            end
+        end
+    end
+    return best
+end
+
+at.defineCommand("ATDOORSWINGCHECK", function(p)
+    local tol = p.tol or WALL_TOL
+    local rooms = dwellingRooms(p.dwelling)
+    if #rooms == 0 then
+        print("ATDOORSWINGCHECK: no rooms found (tag them with ATROOMTYPE).")
+        return
+    end
+    -- depth of each room from outside through the dwelling's connections
+    local g = buildGraph(rooms, tol)
+    local depthOf, queue = { [OUTSIDE] = 0 }, { OUTSIDE }
+    while #queue > 0 do
+        local n = table.remove(queue, 1)
+        for m in pairs(g.adj[n] or {}) do
+            if not depthOf[m] then depthOf[m] = depthOf[n] + 1; queue[#queue + 1] = m end
+        end
+    end
+    local obstacles = {}
+    for _, t in ipairs(splitTypes(p.obstacles or "INSERT,AEC_MVBLOCK_REF")) do
+        for _, h in ipairs(at.entities(t)) do
+            local pts = at.outline(h)
+            if pts and #pts >= 3 then obstacles[#obstacles + 1] = { h = h, pts = pts } end
+        end
+    end
+    local function name(n) return n == OUTSIDE and "outside" or roomLabel(n) end
+
+    local pass, fail, skip = 0, 0, 0
+    for _, h in ipairs(at.entities("AEC_DOOR")) do
+        local d = at.getAecProps(h)
+        local touching = {}
+        if d and d.center and d.width then
+            for _, r in ipairs(rooms) do
+                if doorTouches(r, d, tol) then touching[#touching + 1] = r end
+            end
+        end
+        local e = #touching > 0 and at.getProps(h) or nil
+        if #touching == 0 then
+            -- not a door of this dwelling
+        elseif not (e and e.min and e.max) then
+            skip = skip + 1
+            print("ATDOORSWINGCHECK: " .. h .. " skipped: no extents.")
+        elseif math.min(e.max.x - e.min.x, e.max.y - e.min.y) < 0.5 * d.width then
+            skip = skip + 1
+            print(string.format("ATDOORSWINGCHECK: %s: no swing drawn in plan (sliding door or plain opening), skipped.", h))
+        else
+            -- the side it opens into, and the other side
+            local counts = swingShares(e, touching)
+            local swingRoom, bestN = OUTSIDE, -1
+            for k, c in pairs(counts) do
+                if c > bestN then swingRoom, bestN = k, c end
+            end
+            local otherRoom
+            if #touching == 1 then
+                otherRoom = swingRoom == OUTSIDE and touching[1] or OUTSIDE
+            else
+                local on = -1
+                for _, r in ipairs(touching) do
+                    if r ~= swingRoom and (counts[r] or 0) > on then otherRoom, on = r, counts[r] or 0 end
+                end
+            end
+            -- which side the door should open into
+            local want, why
+            if otherRoom == OUTSIDE then
+                want, why = swingRoom, "exterior door, into the dwelling"
+            elseif swingRoom == OUTSIDE then
+                want, why = otherRoom, "exterior door: open into the dwelling"
+            else
+                local cs, co = CIRCULATION[roomType(swingRoom)], CIRCULATION[roomType(otherRoom)]
+                if cs and not co then want, why = otherRoom, "open into the room, not into the circulation"
+                elseif co and not cs then want, why = swingRoom, "into the room, away from the circulation"
+                else
+                    local ds, dn = depthOf[swingRoom], depthOf[otherRoom]
+                    if ds and dn and ds ~= dn then
+                        want = ds > dn and swingRoom or otherRoom
+                        why = "into the room further from the entrance"
+                    end
+                end
+            end
+            if not want then
+                pass = pass + 1
+                print(string.format("ATDOORSWINGCHECK: %s between %s and %s opens into %s: either way is fine (same depth from the entrance).",
+                    h, name(swingRoom), name(otherRoom), name(swingRoom)))
+            elseif want == swingRoom then
+                pass = pass + 1
+                print(string.format("ATDOORSWINGCHECK: %s opens inward into %s from %s (%s) -> ok",
+                    h, name(swingRoom), name(otherRoom), why))
+            else
+                -- outward: allowed only when the leaf has no space inside
+                local cx, cy = (e.min.x + e.max.x) / 2, (e.min.y + e.max.y) / 2
+                local ed = doorEdge(want, swingRoom, touching, cx, cy)
+                local reason
+                if ed then
+                    -- the leaf's square inside the wanted room, centred on the opening
+                    local t = (cx - ed.o.x) * ed.ux + (cy - ed.o.y) * ed.uy
+                    local ox, oy = ed.o.x + ed.ux * t, ed.o.y + ed.uy * t
+                    local half, inner, outer = d.width / 2, 5, d.width
+                    local sq = {
+                        { x = ox - ed.ux * half + ed.nx * inner, y = oy - ed.uy * half + ed.ny * inner },
+                        { x = ox + ed.ux * half + ed.nx * inner, y = oy + ed.uy * half + ed.ny * inner },
+                        { x = ox + ed.ux * half + ed.nx * outer, y = oy + ed.uy * half + ed.ny * outer },
+                        { x = ox - ed.ux * half + ed.nx * outer, y = oy - ed.uy * half + ed.ny * outer },
+                    }
+                    for _, c in ipairs(sq) do
+                        if not at.pointInPolygon(want, c.x, c.y, 5) then reason = "the room is too small for the leaf"; break end
+                    end
+                    if not reason then
+                        for _, ob in ipairs(obstacles) do
+                            if overlaps(sq, ob.pts) then reason = "fixture " .. ob.h .. " stands where the leaf would swing"; break end
+                        end
+                    end
+                end
+                if reason then
+                    pass = pass + 1
+                    print(string.format("ATDOORSWINGCHECK: %s opens outward into %s; check: allowed only because %s.",
+                        h, name(swingRoom), reason))
+                else
+                    fail = fail + 1
+                    print(string.format("ATDOORSWINGCHECK: %s opens outward into %s: PROBLEM, it should open into %s (%s)%s.",
+                        h, name(swingRoom), name(want), why,
+                        ed and "; there is space for the leaf" or ""))
+                end
+            end
+        end
+    end
+    print(string.format("ATDOORSWINGCHECK: %d ok, %d opening outward, %d skipped (house rule: doors open inward).", pass, fail, skip))
+end, "Checks that doors open inward, into the room they serve (house rule; outward only when there is no space inside)", {
+    { name = "dwelling",  type = "string", prompt = "Dwelling id <all>", optional = true },
+    { name = "obstacles", type = "string", prompt = "Obstacle types", default = "INSERT,AEC_MVBLOCK_REF",
+      description = "Comma-separated entity types that justify an outward door when they stand in the leaf's swing" },
+    { name = "tol",       type = "distance", prompt = "Max. distance of a door centre outside a room (wall)",
+      default = WALL_TOL },
 })
 
 -- ── ATZONECHECK ─────────────────────────────────────────────────────────────
@@ -2495,6 +2691,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
     -- 4b. nothing in front of the doors
     print("-- door clearance (house rule)")
     section("door clearance", runCounted("ATDOORCLEARCHECK", { dwelling = p.dwelling }))
+
+    -- 4b'. doors open inward
+    print("-- door swing (house rule)")
+    section("door swing", runCounted("ATDOORSWINGCHECK", { dwelling = p.dwelling }))
 
     -- 4c. bathrooms
     print("-- bathrooms (Art. 68, 150)")

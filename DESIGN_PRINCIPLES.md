@@ -186,11 +186,29 @@ In the drawing (`ATFURNITURECHECK`, also inside `ATDWELLINGCHECK`):
 - a required side failing is a PROBLEM, a recommended one a check. Pieces are typed from their
   block / style name (English or Spanish) or tagged with `ATFIXTURETYPE`.
 
-## 7. Doors are never obstructed
+## 7. Doors
 
-Nothing stands in front of a door: on both sides of the wall, a zone as wide as the opening
-and 900 mm deep (approach space, and the swing of a 900 leaf) stays free of furniture and
-fixtures.
+**Never obstructed.** Nothing stands in front of a door: on both sides of the wall, a zone as
+wide as the opening and 900 mm deep (approach space, and the swing of a 900 leaf) stays free of
+furniture and fixtures.
+
+**Doors open inward.** A door opens into the space it serves: it is more secure, and the leaf
+does not cut into the circulation.
+
+- An exterior door, the entrance included, opens into the dwelling.
+- An interior door opens away from the hall or corridor, into the room.
+- Between two rooms, the door opens into the room further from the entrance (an en-suite
+  door into the bathroom).
+- Opening outward is the exception, only when the room has no space for the leaf (very
+  unusual).
+
+In the drawing (`ATDOORSWINGCHECK`, also inside `ATDWELLINGCHECK`):
+
+- The side a door opens into is the room, or the outside, that holds most of its plan extents
+  (the leaf and its arc).
+- A door opening outward is a PROBLEM, unless a square of the door's width on the inner side
+  leaves the room or is cut by a fixture. Then it is a "check": the exception, to be confirmed.
+- Doors with no swing drawn (sliding doors, plain openings) are skipped.
 
 ## 8. 300 mm planning module
 
@@ -211,6 +229,7 @@ openings are element sizes, not space dimensions.
 | §5 all space usable | `ATROOMSHAPECHECK`, `at.roomWidth`, `at.roomUsable` | done |
 | §6 furniture access | `ATFURNITURECHECK`, `at.roomReach` | done |
 | §7 door clearance | `ATDOORCLEARCHECK` | done |
+| §7 doors open inward | `ATDOORSWINGCHECK` | done |
 | §8 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
 | everything for one dwelling | `ATDWELLINGCHECK <id>` | done |
 
