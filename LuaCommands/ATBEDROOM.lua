@@ -71,6 +71,94 @@ local QUITO_ROOMS = {
     ServiceBedroom = { side = 2.00, area = {  6.00,  6.00,  6.00 }, label = "staff bedroom" },
 }
 
+-- House design rule (project decision 2026-10-09, not a code requirement):
+-- every space dimension is a multiple of a 300mm planning module, so sizes
+-- are easy to choose and coordinate. Measured on the boundary as drawn.
+local MODULE_DEFAULT = 300
+local MODULE_TOL = 1.0   -- mm; drawing noise, not design freedom
+
+-- Smallest multiple of `module` (mm) that is >= v (mm).
+local function moduleCeil(v, module)
+    return math.ceil(v / module - 1e-9) * module
+end
+
+-- The dimensions of a room boundary, in drawing units (mm):
+-- closed polyline -> every straight edge; ACA space -> its length and width;
+-- anything else -> its bounding-box width and depth.
+local function roomDimensions(h)
+    local props = at.getProps(h)
+    if not props then return nil, "could not read the object" end
+    if props.vertices and props.closed then
+        local v, dims, arcs = props.vertices, {}, 0
+        for i = 1, #v do
+            local a, b = v[i], v[i % #v + 1]
+            if math.abs(a.bulge or 0) > 1e-9 then
+                arcs = arcs + 1
+            else
+                local len = math.sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2)
+                if len > MODULE_TOL then dims[#dims + 1] = len end
+            end
+        end
+        return dims, nil, arcs
+    end
+    local aec = at.getAecProps(h)
+    if aec and aec.kind == "space" and aec.length and aec.width then
+        return { aec.length, aec.width }
+    end
+    if props.min and props.max then
+        return { props.max.x - props.min.x, props.max.y - props.min.y }
+    end
+    return nil, "no dimensions found"
+end
+
+-- Checks every dimension against the module. Returns ok, a text summary.
+local function moduleCheck(h, module)
+    local dims, err, arcs = roomDimensions(h)
+    if not dims then return nil, err end
+    local bad, parts, seen = 0, {}, {}
+    for _, d in ipairs(dims) do
+        local key = string.format("%.0f", d)
+        if not seen[key] then
+            seen[key] = true
+            local off = math.abs(d - math.floor(d / module + 0.5) * module)
+            if off <= MODULE_TOL then
+                parts[#parts + 1] = key .. " ok"
+            else
+                bad = bad + 1
+                parts[#parts + 1] = string.format("%s NOT a multiple of %d (nearest %.0f / %.0f)",
+                    key, module, math.floor(d / module) * module, moduleCeil(d, module))
+            end
+        end
+    end
+    local text = table.concat(parts, ", ")
+    if arcs and arcs > 0 then text = text .. string.format(" (%d arc edge(s) not checked)", arcs) end
+    return bad == 0, text
+end
+
+-- Checks spaces / room boundaries against the 300mm planning module.
+at.defineCommand("ATMODULECHECK", function(p)
+    local module = p.module or MODULE_DEFAULT
+    if module <= 0 then print("ATMODULECHECK: module must be > 0."); return end
+    local pass, fail = 0, 0
+    for _, h in ipairs(p.rooms) do
+        local ok, text = moduleCheck(h, module)
+        if ok == nil then
+            print(string.format("ATMODULECHECK: %s skipped: %s", h, text))
+        else
+            if ok then pass = pass + 1 else fail = fail + 1 end
+            local rt = at.getData(h, "roomType")
+            print(string.format("ATMODULECHECK: %s%s: %s -> %s", h, rt and (" (" .. rt .. ")") or "",
+                text, ok and "on module" or "OFF MODULE"))
+        end
+    end
+    print(string.format("ATMODULECHECK: %d on module, %d off module (module %d mm, tolerance %.0f mm).",
+        pass, fail, module, MODULE_TOL))
+end, "Checks that every dimension of the selected spaces / closed room boundaries is a multiple of the planning module (default 300mm)", {
+    { name = "rooms",  type = "selection", prompt = "Select spaces or closed room boundaries",
+      filter = "AEC_SPACE,LWPOLYLINE" },
+    { name = "module", type = "distance", prompt = "Planning module", default = MODULE_DEFAULT },
+})
+
 -- Draws one or two clearance rectangles flush against a bed's long side(s)
 -- (the side(s) you walk around / make the bed from). Two sides is the
 -- common case for a double bed against a wall; pass only side1 for a bed
@@ -135,13 +223,22 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
 
     -- Quito: per room type, area AND minimum side.
     if p.jurisdiction == "Quito" then
-        local rule = QUITO_ROOMS[p.roomType]
+        -- Room type and bedroom count: as given, else the room's ATROOMTYPE tags.
+        local roomType = p.roomType
+        if roomType == nil or roomType == "" then roomType = at.getData(p.room, "roomType") end
+        local rule = QUITO_ROOMS[roomType or ""]
         if not rule then
-            print("ATROOMSIZECHECK: unknown room type, expected Living, Kitchen, MainBedroom, "
-                .. "Bedroom2, Bedroom3, Bathroom, Laundry or ServiceBedroom.")
+            print("ATROOMSIZECHECK: " .. (roomType and ("unknown room type '" .. tostring(roomType) .. "'")
+                    or "no room type given and the room is not tagged (run ATROOMTYPE)")
+                .. "; expected Living, Kitchen, MainBedroom, Bedroom2, Bedroom3, Bathroom, Laundry or ServiceBedroom.")
             return
         end
-        local beds = math.floor(p.bedrooms)
+        local bedrooms = p.bedrooms or at.getData(p.room, "bedrooms")
+        if type(bedrooms) ~= "number" then
+            print("ATROOMSIZECHECK: no bedroom count given and the room is not tagged with one (run ATROOMTYPE).")
+            return
+        end
+        local beds = math.floor(bedrooms)
         if beds < 1 then
             print("ATROOMSIZECHECK: the dwelling needs at least 1 bedroom.")
             return
@@ -159,6 +256,10 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
             shortM = math.min(roomProps.max.x - roomProps.min.x,
                               roomProps.max.y - roomProps.min.y) / 1000
         end
+        -- With the 300mm module, the legal minimum side rounds up to the next
+        -- multiple (e.g. 2.50m -> 2.70m).
+        local modSide = moduleCeil(rule.side * 1000, MODULE_DEFAULT) / 1000
+        local modOk, modText = moduleCheck(p.room, MODULE_DEFAULT)
         local areaOk = areaM2 >= reqArea
         local sideOk = shortM and shortM >= rule.side
         print(string.format(
@@ -171,6 +272,9 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
         if shortM then
             print("  (shorter side read from the bounding box: exact only for an axis-aligned rectangle)")
         end
+        print(string.format("  300mm module: %s -> %s; modular minimum side %.2fm%s.",
+            modText or "not checked", modOk == nil and "not checked" or (modOk and "on module" or "OFF MODULE"),
+            modSide, (shortM and shortM + 1e-6 < modSide) and " -> BELOW" or ""))
         return
     end
 
@@ -201,9 +305,37 @@ end, "Checks a room against a region's minimum: floor area (Belgian rental-housi
     { name = "jurisdiction", type = "string", prompt = "Jurisdiction", options = "Flanders Brussels Wallonia Quito", default = "Flanders" },
     { name = "occupants",   type = "number", prompt = "Number of occupants", default = 1, conditional = true,
       description = "Flanders/Brussels/Wallonia only" },
-    { name = "roomType",    type = "string", prompt = "Room type",
+    { name = "roomType",    type = "string", prompt = "Room type <from the room's tag>",
       options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom",
-      default = "MainBedroom", conditional = true, description = "Quito only" },
-    { name = "bedrooms",    type = "integer", prompt = "Bedrooms in the dwelling", default = 1, conditional = true,
-      description = "Quito only: the dwelling's bedroom count, which sets the minimum area" },
+      optional = true, conditional = true,
+      description = "Quito only; omit to use the room's ATROOMTYPE tag" },
+    { name = "bedrooms",    type = "integer", prompt = "Bedrooms in the dwelling <from the room's tag>",
+      optional = true, conditional = true,
+      description = "Quito only: the dwelling's bedroom count, which sets the minimum area; omit to use the room's tag" },
+})
+
+-- Tags a room boundary (closed polyline or ACA space) with what the room
+-- checks need, so they don't have to be typed again for every check:
+-- roomType, dwelling (any id grouping rooms of one dwelling) and the
+-- dwelling's bedroom count. Stored with at.setData, travels with the DWG.
+at.defineCommand("ATROOMTYPE", function(p)
+    local ok, err = at.setData(p.room, "roomType", p.roomType)
+    if not ok then print("ATROOMTYPE: " .. tostring(err)); return end
+    if p.dwelling and p.dwelling ~= "" then at.setData(p.room, "dwelling", p.dwelling) end
+    if p.bedrooms then at.setData(p.room, "bedrooms", p.bedrooms) end
+
+    local tags = at.getData(p.room) or {}
+    local parts = {}
+    for _, k in ipairs({ "roomType", "dwelling", "bedrooms" }) do
+        if tags[k] ~= nil then parts[#parts + 1] = k .. "=" .. tostring(tags[k]) end
+    end
+    print("ATROOMTYPE: room " .. p.room .. " tagged " .. table.concat(parts, ", ") .. ".")
+end, "Tags a room boundary or ACA space with its room type, dwelling and the dwelling's bedroom count (used by ATROOMSIZECHECK)", {
+    { name = "room",     type = "entity", prompt = "Select the room boundary or space" },
+    { name = "roomType", type = "string", prompt = "Room type",
+      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom",
+      default = "MainBedroom" },
+    { name = "dwelling", type = "string", prompt = "Dwelling id (blank = keep)", optional = true,
+      description = "Any label shared by the rooms of one dwelling, e.g. A-101" },
+    { name = "bedrooms", type = "integer", prompt = "Bedrooms in the dwelling (blank = keep)", optional = true },
 })

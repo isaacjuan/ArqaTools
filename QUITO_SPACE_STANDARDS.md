@@ -118,17 +118,45 @@ narrowing to 0.90 m), doors 0.90 × 2.05 m clear, exits 1.20 m (0.60 m per perso
 
 Hollow block or brick 0.15 m; solid or filled 0.12 m; reinforced concrete 0.10 m.
 
-## 8. Tooling
+## 8. House rule: 300 mm planning module
 
-- `ATROOMSIZECHECK` with `jurisdiction = Quito`, a `roomType` (Living, Kitchen, MainBedroom,
-  Bedroom2, Bedroom3, Bathroom, Laundry, ServiceBedroom) and the dwelling's `bedrooms`
-  count checks both the area and the shorter side. The shorter side comes from the bounding
-  box, so it is exact only for an axis-aligned rectangle. Use an `ATRECT` boundary, not an
-  `AEC_SPACE` (see `BEDROOM_DESIGN_CRITERIA.md` §5).
+Project decision (2026-10-09), on top of the code: **every space dimension is a multiple of
+300 mm (0.30 m)**, so sizes are easy to choose and coordinate. Applied to the room boundary as
+drawn (clear interior dimensions), tolerance 1 mm.
+
+The legal minimum sides then round up to the next multiple:
+
+| Room | Legal min. side | Modular min. side |
+|---|---|---|
+| Living + dining | 2.70 m | 2.70 m |
+| Kitchen | 1.50 m | 1.50 m |
+| Main bedroom | 2.50 m | **2.70 m** |
+| Bedroom 2 / 3 | 2.20 m | **2.40 m** |
+| Bathroom | 1.20 m | 1.20 m |
+| Laundry / drying | 1.30 m | **1.50 m** |
+| Staff bedroom | 2.00 m | **2.10 m** |
+
+Corridors (0.90 m, 1.20 m) are already on the module. Door openings (0.96 / 0.86 / 0.76 m) are
+element sizes, not space dimensions, and are not checked.
+
+## 9. Tooling
+
+- `ATMODULECHECK` checks every straight edge of closed polylines and the length/width of ACA
+  spaces against the module (default 300 mm; arc edges are listed as not checked).
+  `ATROOMSIZECHECK` (Quito) also reports it, with the modular minimum side.
+- `ATROOMTYPE` tags a room boundary or ACA space with its `roomType` (Living, Kitchen,
+  MainBedroom, Bedroom2, Bedroom3, Bathroom, Laundry, ServiceBedroom), a `dwelling` id and the
+  dwelling's `bedrooms` count (`at.setData`, stored in the DWG).
+- `ATROOMSIZECHECK` with `jurisdiction = Quito` checks both the area and the shorter side. It
+  takes `roomType` and `bedrooms` as given, else from the room's tags. The shorter side comes from the bounding
+  box, so it is exact only for an axis-aligned rectangle. An `ATRECT` boundary or an
+  `AEC_SPACE` both work (space areas now cross-check with `at.getAecProps`, see
+  `BEDROOM_DESIGN_CRITERIA.md` §5).
 - Not automated yet: window area (20 %), room depth (1:5), door widths, corridor widths,
   the "no bedroom as a passage" rule.
 
-## 9. Applied to the session layouts
+## 10. Applied to the session layouts
 
 - The 2026-10-07 test bedroom (3.60 × 3.40 m, 12.24 m²) meets the Quito main-bedroom minimum
-  (9.00 m², side 2.50 m) with margin.
+  (9.00 m², side 2.50 m) with margin, but is **off the 300 mm module**: 3400 should be
+  3300 or 3600.

@@ -122,6 +122,8 @@
     <ClCompile Include="ReactorPersistence.cpp" />
     <ClCompile Include="AITools.cpp" />
     <ClCompile Include="AecTools.cpp" />
+    <ClCompile Include="EntityData.cpp" />
+    <ClCompile Include="GeomTools.cpp" />
     <ClCompile Include="LayerTools.cpp" />
     <ClCompile Include="CommonTools.cpp" />
     <ClCompile Include="AcmlLexer.cpp" />
@@ -191,6 +193,8 @@
     <ClInclude Include="ReactorPersistence.h" />
     <ClInclude Include="AITools.h" />
     <ClInclude Include="AecTools.h" />
+    <ClInclude Include="EntityData.h" />
+    <ClInclude Include="GeomTools.h" />
     <ClInclude Include="LayerTools.h" />
     <ClInclude Include="AcmlLexer.h" />
     <ClInclude Include="AcmlAst.h" />

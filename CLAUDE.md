@@ -92,6 +92,14 @@ No unit tests or CI. Verification happens in a running AutoCAD:
 
 After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
 
+## Design criteria (space planning work)
+
+- **Every space dimension is a multiple of 300 mm** (house rule, checked by `ATMODULECHECK`).
+  Legal minimum sides round up to the next multiple.
+- Regional rules: `QUITO_SPACE_STANDARDS.md` (binding code), `BEDROOM_DESIGN_CRITERIA.md`,
+  `BATHROOM_DESIGN_CRITERIA.md` (Belgian, mostly secondary-sourced). Tag rooms with
+  `ATROOMTYPE` before running checks.
+
 ## Other notes
 
 - ACML (`Acml*.cpp`, `*.acml`, `ATACML*`) is a separate DSL, decoupled from Lua.

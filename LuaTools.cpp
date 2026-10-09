@@ -18,6 +18,8 @@
 #include "AiHarness.h"
 #include "CommandTester.h"
 #include "AecTools.h"
+#include "GeomTools.h"
+#include "EntityData.h"
 
 extern "C" {
 #include "lua.h"
@@ -1272,6 +1274,168 @@ int at_getAecProps(lua_State* L)
             break;
         }
     }
+    return 1;
+}
+
+// ── Rooms: containment (GeomTools) and entity tags (EntityData) ─────────────
+
+// at.pointInPolygon(boundary, x, y [, tol]) -> inside, distance | nil,err
+int at_pointInPolygon(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    double x = luaL_checknumber(L, 2), y = luaL_checknumber(L, 3);
+    double tol = luaL_optnumber(L, 4, 0.0);
+
+    bool ok = false, inside = false;
+    double dist = 0.0;
+    std::string err;
+    {
+        GeomTools::Outline poly;
+        CString e;
+        ok = GeomTools::GetBoundary(ResolveHandle(handle), poly, e);
+        if (ok) inside = GeomTools::Contains(poly, AcGePoint2d(x, y), tol, &dist);
+        else    err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+    lua_pushboolean(L, inside ? 1 : 0);
+    lua_pushnumber(L, dist);
+    return 2;
+}
+
+// at.entitiesInside(boundary [, typeFilter [, tol]]) -> {handle,...} | nil,err
+int at_entitiesInside(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    const char* filter = luaL_optstring(L, 2, nullptr);
+    double tol = luaL_optnumber(L, 3, 0.0);
+
+    bool ok = false;
+    std::string err;
+    std::vector<AcDbObjectId> ids;
+    {
+        AcDbObjectId bId = ResolveHandle(handle);
+        GeomTools::Outline poly;
+        CString e;
+        ok = GeomTools::GetBoundary(bId, poly, e);
+        if (ok)
+        {
+            CString wFilter = filter ? CString(CA2T(filter, CP_UTF8)) : CString();
+            std::vector<AcDbObjectId> candidates;
+            for (AcDbObjectId id : CommonTools::ModelSpaceIds())
+                if (ClassMatches(id.objectClass(), wFilter))
+                    candidates.push_back(id);
+            ids = GeomTools::FilterInside(bId, poly, candidates, tol);
+        }
+        else err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+    PushIdList(L, ids);
+    return 1;
+}
+
+void PushDataValue(lua_State* L, const EntityData::Value& v)
+{
+    switch (v.kind)
+    {
+    case EntityData::Value::String: { std::string s = ToUtf8(v.str); lua_pushlstring(L, s.data(), s.size()); break; }
+    case EntityData::Value::Number:
+        // xdata keeps reals; give whole numbers back as Lua integers (2, not 2.0)
+        if (std::fabs(v.num) < 9.0e15 && v.num == std::floor(v.num))
+            lua_pushinteger(L, static_cast<lua_Integer>(v.num));
+        else
+            lua_pushnumber(L, v.num);
+        break;
+    case EntityData::Value::Bool:   lua_pushboolean(L, v.b ? 1 : 0); break;
+    }
+}
+
+// Reads a string/number/boolean at idx; false for nil or other types.
+bool ReadDataValue(lua_State* L, int idx, EntityData::Value& v)
+{
+    switch (lua_type(L, idx))
+    {
+    case LUA_TSTRING:  v.kind = EntityData::Value::String; v.str = CA2T(lua_tostring(L, idx), CP_UTF8); return true;
+    case LUA_TNUMBER:  v.kind = EntityData::Value::Number; v.num = lua_tonumber(L, idx); return true;
+    case LUA_TBOOLEAN: v.kind = EntityData::Value::Bool;   v.b   = lua_toboolean(L, idx) != 0; return true;
+    default: return false;
+    }
+}
+
+// at.getData(handle [, key]) -> value | {key = value, ...} | nil,err
+int at_getData(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    const char* key    = luaL_optstring(L, 2, nullptr);
+
+    EntityData::Map map;
+    bool ok = false;
+    std::string err;
+    {
+        CString e;
+        ok = EntityData::Read(ResolveHandle(handle), map, e);
+        if (!ok) err = ToUtf8(e);
+    }
+    if (!ok) return PushNilError(L, err.c_str());
+
+    if (key)
+    {
+        CString wKey(CA2T(key, CP_UTF8));
+        for (const auto& kv : map)
+            if (kv.first == wKey) { PushDataValue(L, kv.second); return 1; }
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, 0, static_cast<int>(map.size()));
+    for (const auto& kv : map)
+    {
+        std::string k = ToUtf8(kv.first);
+        PushDataValue(L, kv.second);
+        lua_setfield(L, -2, k.c_str());
+    }
+    return 1;
+}
+
+// at.setData(handle, key, value) -> true | false,err  (value nil removes the key)
+int at_setData(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    const char* key    = luaL_checkstring(L, 2);
+    bool remove = lua_isnoneornil(L, 3);
+    if (!remove && lua_type(L, 3) != LUA_TSTRING && lua_type(L, 3) != LUA_TNUMBER
+        && lua_type(L, 3) != LUA_TBOOLEAN)
+        return luaL_argerror(L, 3, "value must be a string, number, boolean or nil");
+
+    bool ok = false;
+    std::string err;
+    {
+        EntityData::Value v;
+        if (!remove) ReadDataValue(L, 3, v);
+        CString e;
+        ok = EntityData::Set(ResolveHandle(handle), CString(CA2T(key, CP_UTF8)),
+                             remove ? nullptr : &v, e);
+        if (!ok) err = ToUtf8(e);
+    }
+    if (!ok) return PushFalseError(L, err.c_str());
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// at.findByData(key [, value]) -> {handle,...}
+int at_findByData(lua_State* L)
+{
+    const char* key = luaL_checkstring(L, 1);
+    bool hasValue = !lua_isnoneornil(L, 2);
+    if (hasValue && lua_type(L, 2) != LUA_TSTRING && lua_type(L, 2) != LUA_TNUMBER
+        && lua_type(L, 2) != LUA_TBOOLEAN)
+        return luaL_argerror(L, 2, "value must be a string, number or boolean");
+
+    std::vector<AcDbObjectId> ids;
+    {
+        EntityData::Value v;
+        if (hasValue) ReadDataValue(L, 2, v);
+        ids = EntityData::FindWith(CString(CA2T(key, CP_UTF8)), hasValue ? &v : nullptr);
+    }
+    PushIdList(L, ids);
     return 1;
 }
 
@@ -2986,6 +3150,20 @@ const AtFn kFns[] = {
       "endPoint (baseline, WCS),length,style; space: name,area (ACA area units, m2 in metric drawings; reliable, unlike "
       "getProps' area),perimeter,height,length,width,volume,location,geometryType,style; lengths in drawing units; "
       "extra ACA COM property names in the table come back under the same name; nil,err for non-ACA objects" },
+    { "pointInPolygon", at_pointInPolygon, "(boundary, x, y [,tol]) -> inside, distance | nil,err",
+      "is the WCS point inside a closed curve or ACA space (XY plane)? distance = to the nearest boundary edge; "
+      "with tol a point outside but within tol of an edge counts as inside (e.g. tol = wall thickness for a door "
+      "sitting in the wall)" },
+    { "entitiesInside", at_entitiesInside, "(boundary [,typeFilter [,tol]]) -> {handle,...} | nil,err",
+      "model-space entities whose extents centre is inside a closed curve or ACA space, optionally of one type "
+      "(\"AEC_DOOR\", \"AEC_WINDOW\", \"INSERT\", ...); tol as in pointInPolygon; the boundary itself is skipped" },
+    { "getData",      at_getData,      "(handle [,key]) -> value | {key = value,...} | nil,err",
+      "tags set with setData: with key its value (nil if absent), without key all of them (empty table if none)" },
+    { "setData",      at_setData,      "(handle, key, value) -> true | false,err",
+      "tags any entity with a string/number/boolean value (stored in the DWG, kept by copies); nil removes the key; "
+      "keys and strings max 255 characters. Room conventions: roomType, dwelling, bedrooms" },
+    { "findByData",   at_findByData,   "(key [,value]) -> {handle,...}",
+      "model-space entities tagged with key (and that value; strings case-insensitive)" },
     // Create
     { "drawLine",     at_drawLine,     "(x1,y1,z1,x2,y2,z2) -> handle",        "" },
     { "drawCircle",   at_drawCircle,   "(cx,cy,cz,r) -> handle",               "" },
@@ -3314,7 +3492,7 @@ bool isReadOnlyFunction(const char* name)
     static const char* const kReadOnly[] = {
         "print", "listEntities", "entities", "getProps", "getText", "sumText",
         "countBlocks", "layers", "getCurrentLayer", "refPoint", "formatArea", "formatLength",
-        "getVar", "getAecProps",
+        "getVar", "getAecProps", "pointInPolygon", "entitiesInside", "getData", "findByData",
     };
     for (const char* n : kReadOnly)
         if (strcmp(name, n) == 0) return true;
