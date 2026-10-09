@@ -73,6 +73,11 @@ local QUITO_ROOMS = {
     Corridor       = { side = 0.90, area = {  0.00,  0.00,  0.00 }, label = "corridor (Art. 160)" },
     Hall           = { side = 0.90, area = {  0.00,  0.00,  0.00 }, label = "hall (circulation, Art. 160 width)" },
     Portal         = { side = 0.90, area = {  0.00,  0.00,  0.00 }, label = "portal (entrance transition, Art. 160 width)" },
+    -- Not in Art. 147 as separate rooms: dining counts with the living room (sala-comedor);
+    -- garage (Art. 162, parking rules) and storage have no room minimum here.
+    Dining         = { side = 0.00, area = {  0.00,  0.00,  0.00 }, label = "dining room (with living, Art. 147)" },
+    Garage         = { side = 0.00, area = {  0.00,  0.00,  0.00 }, label = "garage (Art. 162, parking rules)" },
+    Storage        = { side = 0.00, area = {  0.00,  0.00,  0.00 }, label = "storage" },
 }
 
 -- House design rule (project decision 2026-10-09, not a code requirement):
@@ -234,7 +239,7 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
         if not rule then
             print("ATROOMSIZECHECK: " .. (roomType and ("unknown room type '" .. tostring(roomType) .. "'")
                     or "no room type given and the room is not tagged (run ATROOMTYPE)")
-                .. "; expected Living, Kitchen, MainBedroom, Bedroom2, Bedroom3, Bathroom, Laundry, ServiceBedroom, Corridor, Hall or Portal.")
+                .. "; expected Living, Kitchen, MainBedroom, Bedroom2, Bedroom3, Bathroom, Laundry, ServiceBedroom, Corridor, Hall, Portal, Dining, Garage or Storage.")
             return
         end
         local bedrooms = p.bedrooms or at.getData(p.room, "bedrooms")
@@ -310,7 +315,7 @@ end, "Checks a room against a region's minimum: floor area (Belgian rental-housi
     { name = "occupants",   type = "number", prompt = "Number of occupants", default = 1, conditional = true,
       description = "Flanders/Brussels/Wallonia only" },
     { name = "roomType",    type = "string", prompt = "Room type <from the room's tag>",
-      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom Corridor Hall Portal",
+      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom Corridor Hall Portal Dining Garage Storage",
       optional = true, conditional = true,
       description = "Quito only; omit to use the room's ATROOMTYPE tag" },
     { name = "bedrooms",    type = "integer", prompt = "Bedrooms in the dwelling <from the room's tag>",
@@ -327,19 +332,26 @@ at.defineCommand("ATROOMTYPE", function(p)
     if not ok then print("ATROOMTYPE: " .. tostring(err)); return end
     if p.dwelling and p.dwelling ~= "" then at.setData(p.room, "dwelling", p.dwelling) end
     if p.bedrooms then at.setData(p.room, "bedrooms", p.bedrooms) end
+    if p.zone and p.zone ~= "" then
+        if p.zone == "Default" then at.setData(p.room, "zone", nil)
+        else at.setData(p.room, "zone", p.zone:lower()) end
+    end
 
     local tags = at.getData(p.room) or {}
     local parts = {}
-    for _, k in ipairs({ "roomType", "dwelling", "bedrooms" }) do
+    for _, k in ipairs({ "roomType", "dwelling", "bedrooms", "zone" }) do
         if tags[k] ~= nil then parts[#parts + 1] = k .. "=" .. tostring(tags[k]) end
     end
     print("ATROOMTYPE: room " .. p.room .. " tagged " .. table.concat(parts, ", ") .. ".")
 end, "Tags a room boundary or ACA space with its room type, dwelling and the dwelling's bedroom count (used by ATROOMSIZECHECK)", {
     { name = "room",     type = "entity", prompt = "Select the room boundary or space" },
     { name = "roomType", type = "string", prompt = "Room type",
-      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom Corridor Hall Portal",
+      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom Corridor Hall Portal Dining Garage Storage",
       default = "MainBedroom" },
     { name = "dwelling", type = "string", prompt = "Dwelling id (blank = keep)", optional = true,
       description = "Any label shared by the rooms of one dwelling, e.g. A-101" },
     { name = "bedrooms", type = "integer", prompt = "Bedrooms in the dwelling (blank = keep)", optional = true },
+    { name = "zone",     type = "keyword", prompt = "Zone (blank = keep)", optional = true,
+      options = "Public Private Service Circulation Default",
+      description = "Overrides the zone that follows from the room type (e.g. a guest toilet = Public); Default removes the override" },
 })

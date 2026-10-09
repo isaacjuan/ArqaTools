@@ -150,7 +150,27 @@ wall, a zone as wide as the opening and 900 mm deep (the approach space, and the
 `ATDWELLINGCHECK`). A fixture placed against a wall must also keep clear of the doors in that
 wall and of the doors facing it.
 
-### 8.3 300 mm planning module
+### 8.3 Zones: public, private, service
+
+**Principle:** a home has three zones.
+
+| Zone | Rooms (default from the room type) |
+|---|---|
+| Public | entrance hall, portal, living room, dining room |
+| Private | bedrooms and the spaces attached to them (bathrooms, en-suites) |
+| Service | kitchen, laundry, garage, storage, staff bedroom |
+| (circulation) | corridors: they connect zones and belong to none |
+
+A room's `zone` tag (`ATROOMTYPE ... zone`) overrides the default, e.g. a guest toilet off
+the entrance hall = Public. Rules (project interpretation, checked by `ATZONECHECK`):
+
+1. A private room is entered only from circulation or another private room, never directly
+   from a public or service room.
+2. Public and service rooms may connect directly (kitchen to dining).
+3. Each zone hangs together through its own rooms and corridors; a split zone is reported as
+   "check".
+
+### 8.4 300 mm planning module
 
 Project decision (2026-10-09), on top of the code: **every space dimension is a multiple of
 300 mm (0.30 m)**, so sizes are easy to choose and coordinate. Applied to the room boundary as
@@ -218,8 +238,17 @@ element sizes, not space dimensions, and are not checked.
 - Geometry functions: `at.outline(h)` (footprint in plan; ACA objects other than spaces use
   their extents rectangle, exact for axis-aligned walls and fixtures) and `at.distance(h1, h2)`
   (clear distance with closest points).
-- Not automated yet: kitchen aisle widths (0.90 / 1.10 m, Art. 149), bathroom fixture gaps
-  (Art. 68).
+  - `ATSANITARYCHECK`: per bathroom, fixtures (blocks / ACA multi-view blocks typed from their
+    style or block name, English or Spanish, or a `fixtureType` tag): shower ≥ 0.56 m² with a
+    side ≥ 0.70 m; ≥ 0.10 m between fixtures; WC / basin / bidet ≥ 0.15 m to a side wall and
+    ≥ 0.50 m to the wall in front (Art. 68). The back of a fixture is the room edge nearest to
+    it. With a dwelling: at least one bathroom with WC and shower or bath (Art. 150). ACA
+    fixture extents depend on the view: check in plan.
+  - `ATZONECHECK`: §8.3.
+  - All of them run inside `ATDWELLINGCHECK`.
+- Room types `Dining` (counts with living, Art. 147), `Garage` (Art. 162 parking rules) and
+  `Storage`: no room minimum.
+- Not automated yet: kitchen aisle widths (0.90 / 1.10 m, Art. 149).
 - Test fixture in `Drawing1.dwg` at X = 20000: dwelling `TEST-02` (hall, bathroom, two
   bedrooms; bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation).
   Entrance door 5AD5 is tagged `Entrance`; fixture 5AFA (900 × 900) stands in the hall's

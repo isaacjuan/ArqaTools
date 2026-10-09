@@ -103,6 +103,9 @@ After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
   Checked by `ATPASSAGECHECK`; see `QUITO_SPACE_STANDARDS.md` §8.1.
 - **Doors are never obstructed:** a zone as wide as the opening and 900 mm deep stays free on
   both sides (`ATDOORCLEARCHECK`). When placing furniture, keep it out of door zones.
+- **Three zones: public** (entrance hall, living, dining), **private** (bedrooms and their
+  attached spaces), **service** (kitchen, laundry, garage, storage). Private rooms are entered
+  only from circulation or other private rooms (`ATZONECHECK`, `QUITO_SPACE_STANDARDS.md` §8.3).
 - `ATDWELLINGCHECK <id>` runs every check on one dwelling.
 - Regional rules: `QUITO_SPACE_STANDARDS.md` (binding code), `BEDROOM_DESIGN_CRITERIA.md`,
   `BATHROOM_DESIGN_CRITERIA.md` (Belgian, mostly secondary-sourced). Tag rooms with
