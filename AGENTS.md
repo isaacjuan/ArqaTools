@@ -5,13 +5,26 @@
 ```
 Build.bat                          # Debug build + deploy to Documents
 VerifyBuild.bat                    # Release verification build
-CopyToDocuments.bat                # Deploy only (from c:\HSBCAD\ArqaToolsAcad2025\)
+dotnet build mcp\ArqaToolsMcp -c Release   # MCP server (C#)
 ```
 
 Or manually:
 ```
 msbuild ArqaTools.sln /t:Rebuild /p:Configuration="Debug 2025" /p:Platform=x64 /v:m
 ```
+
+- Configurations are named `Debug 2025`/`Release 2025` but build against the **2026** SDK
+  (see below); output is `x64\Debug 2025\ArqaTools.arx`.
+- The ARX is file-locked while loaded in AutoCAD — unload it before rebuilding.
+- `Build.bat` also copies the ARX to `Documents\` and `Documents\acadPlugins\` and
+  `ReloadArqaTools.lsp` to both (and `pause`s at the end). To build without touching those
+  deployments, run `msbuild` directly and load the output instead, e.g.
+  `(arxload "D:/dev_jp/Sync/ArqaToolsMcp/x64/Debug 2025/ArqaTools.arx")`.
+- `.mcp.json` launches `mcp/ArqaToolsMcp/bin/Release/net8.0/ArqaToolsMcp.exe` — after any C#
+  change, rerun `dotnet build mcp\ArqaToolsMcp -c Release` or MCP clients keep running the old
+  exe.
+- `CopyToDocuments.bat` deploys from `c:\HSBCAD\ArqaToolsAcad2025\`, which no longer exists —
+  it fails as-is; ignore it.
 
 The build target is **ObjectARX for AutoCAD 2026**. Include/lib paths come from the
 `OARX2026` env var (`$(OARX2026)\inc`, `$(OARX2026)\inc-x64`, `$(OARX2026)\lib-x64`).
@@ -30,9 +43,11 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
 
 - **Entry**: `ArqaTools.cpp` — OMF app class, `IMPLEMENT_ARX_ENTRYPOINT(CArqaToolsApp)`,
   command table in `On_kInitAppMsg`. Module def exports `acrxEntryPoint` / `acrxGetApiVersion`.
-- **Module pattern**: Module `FooTools.h/.cpp` with a `namespace FooTools { void func(); }`.
-  `CArqaToolsApp` has a static `func()` that calls `FooTools::func()`. Commands are
-  registered as `{ _T("CMD"), CArqaToolsApp::func }`.
+- **Module pattern**: Module `FooTools.h/.cpp` with a `namespace FooTools { ... }` holding the
+  non-interactive core. Commands are registered in `On_kInitAppMsg`'s `kCommands[]` as free
+  functions defined in `ArqaTools.cpp` or direct namespace pointers (`LuaTools::luaRunCommand`,
+  `AcmlTools::acmlRunCommand`, `McpBridge::startCommand`); `CArqaToolsApp` itself only keeps
+  `arqaHelpCommand`/`versionCommand`/`reloadCommand`.
 - **Infrastructure**:
   - `CommonTools` — model space access, group-aware transforms (`GroupUnits`: a selection
     resolved into objects/whole groups, each group once; `MoveObjects`), RAII guards
@@ -49,9 +64,9 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     `{ok, output, error}` — unlike `AITools::ExecuteLispCode`'s coarse `acedInvoke` return-code
     check, or `aiLispCommand`/`aiFixCommand`, which only copy generated LISP to the clipboard for
     manual paste. Restricted stdlib (`base`/`table`/`string`/`math` only — no `io`/`os`/`package`/
-    `debug`). Exposes a global `at` table — user input (`getPoint/getDistance/getReal/getInt/
-    getString/getKeyword/getEntity/getSelection`; ESC aborts the script, Enter → default or nil,
-    points converted UCS→WCS), query (`listEntities`, `entities([type])`, `getProps(handle)`),
+    `debug`). Exposes a global `at` table — input (`getPoint/getDistance/getReal/getInt/getString/
+    getKeyword/getEntity/getSelection`; ESC aborts the script, Enter → default or nil, points
+    converted UCS→WCS), query (`listEntities`, `entities([type])`, `getProps(handle)`, `getVar`),
     create (`drawLine/drawCircle/drawArc/drawRect/drawPolyline/drawText/drawMText/seqNumber/
     ensureLayer` → handle string), patterns (`goldenSpiral`, `pattern*` → `{handle,...}`),
     modify (`moveEntity/moveEntities/copyEntity/copyEntities/rotateEntity/erase/setLayer/setColor/alignTo/polyBoolean/
@@ -59,19 +74,24 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     setText/copyTextStyle/copyDimStyle/sumText/scaleText`), reactor-linked labels (`areaLabel/
     perimeterLabel/roomTag/lengthLabel/sumLengthLabel`), layers (`layers/getCurrentLayer/
     setCurrentLayer/setLayerState`), `countBlocks`, `exportSvg` (bare file name only, always
-    written to Documents), helpers (`refPoint/formatArea/formatLength`), `print`. Bindings for
-    existing tools call each module's non-interactive core (`ArabesqueTools::Draw*`,
+    written to Documents), helpers (`refPoint/formatArea/formatLength`), `print`, and command
+    glue (`defineCommand`, `runCommand`, `command` — run any AutoCAD/ACA command by name with
+    ordered prompt answers; use the English `_NAME` form).
+    Bindings for existing tools call each module's non-interactive core (`ArabesqueTools::Draw*`,
     `GoldenRectTools::DrawGoldenSpiral`, `PolylineTools::BooleanPolylines/RegionToPolyline`,
     `AlignTools::AlignObjects`, `SeqNumTools::CreateSeqNumber`, `DistributeTools::
     DistributeObjects/DistributeCopies`, `TextTools::GetText/SetText/CopyTextStyle/...`,
     `AreaTools::Insert*Label/InsertRoomTag/CountBlocks/SplitLine/SplitPolyline`,
     `LayerTools::GetCurrentLayer/SetCurrentLayer/SetLayerState`, `SvgExportTools::ExportSvg`) —
-    the AT* commands are thin prompt wrappers over the same functions, so new tool logic belongs
-    in such a core, not in the command. Void core functions are wrapped with `DrawAndCollect`, which uses
+    the interactive AT* commands are thin wrappers over the same cores (now mostly Lua files,
+    see `LUA_COMMANDS.md`), so new tool logic belongs in a C++ core, not in a command. Void core
+    functions are wrapped with `DrawAndCollect`, which uses
     `acdbEntLast`/`acdbEntNext` to return the handles they appended. The `kFns` table in `LuaTools.cpp`
     is the single source of truth: it registers the bindings *and* feeds `describeApi()`, which
     generates the API section of the `ATAILUA` prompt — add new functions only there, with a
-    signature and doc string. Lua is compiled as C, so `luaL_error`/`luaL_check*` longjmp past C++
+    signature and doc string; a new *query* function must also go into the `kReadOnly` list
+    inside `isReadOnlyFunction`, or MCP's read-only `run_lua` cannot call it.
+    Lua is compiled as C, so `luaL_error`/`luaL_check*` longjmp past C++
     destructors: in bindings, check args before opening any `AcDbObjectGuard`/creating a
     `CString`, and raise errors only after those scopes close. A count hook polls `acedUsrBrk()`
     (ESC breaks runaway loops) and enforces `LuaRunOptions::maxInstructions` (`ATAILUA` caps AI
@@ -85,8 +105,10 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
     `at` API and runs it directly. Fully decoupled from ACML — no cross-references either
     direction.
   - `LuaCommands` (`ATAICMD`, `ATLUACMDS`, `ATLUARELOAD`, `ATLUACMDDEL`, `ATLUAFOLDER`) — AutoCAD
-    commands written in Lua and changeable at run time. Every `*.lua` in
-    `Documents\ArqaTools\LuaCommands` (files starting with `_` first, as shared helpers) is loaded
+    commands written in Lua and changeable at run time. **`LuaCommands\` in this repo is the
+    versioned source of truth, but the plugin loads `Documents\ArqaTools\LuaCommands`** — copy
+    edited files across (or use `ATLUAFOLDER`) and run `ATLUARELOAD` to pick up changes; no C++
+    rebuild. Every `*.lua` there (files starting with `_` first, as shared helpers) is loaded
     at plugin start into one persistent `LuaTools::LuaEngine` (echoing `print` to the command
     line). A file calls `at.defineCommand("NAME", fn, "description")`; `LiveDefine` registers NAME
     in group `ARQATOOLS_LUA` through one of 128 template trampolines (`addCommand` callbacks take
@@ -161,25 +183,62 @@ on this machine (`OARX2025` env var still points at the 2025 SDK).
   use) does not hit. Confirmed via `SvgExportTools`' `explode()` fallback on an `AEC_WALL`.
 - Every new `.cpp` must include `StdAfx.h` as its first include and be listed in
   `ArqaTools.vcxproj` under both `<ClCompile>` (source) and `<ClInclude>` (header).
-- **Command names are prefixed `AT`** (e.g. `ATSEQNUM`, `ATGOLDENRECT`) — follow this for any
-  new command added to `kCommands[]` in `On_kInitAppMsg()`, and update the `ATHELP` listing.
+- **Command names are prefixed `AT`** (e.g. `ATSEQNUM`, `ATGOLDENRECT`) — for Lua commands and
+  C++ `kCommands[]` entries alike, and update the `ATHELP` listing.
 
 ## Adding a new command
 
-1. Add `static void myCommand();` to `CArqaToolsApp` in `ArqaTools.h`.
-2. Add `{ _T("ATMYCMD"), myCommand }` to the `kCommands[]` array in `On_kInitAppMsg()`.
-3. Implement a thin wrapper in `ArqaTools.cpp` that delegates to a module function.
-4. Add the corresponding module function to the relevant `FooTools` namespace.
+User-facing drawing/editing/label commands are **Lua commands**, not C++ — follow
+`LUA_COMMANDS.md` ("Adding or extracting a command"). In short:
+
+1. Put the logic in a non-interactive C++ core and expose it in the `kFns` table
+   (`LuaTools.cpp`) with a signature and doc string.
+2. Write `LuaCommands\ATMYCMD.lua` with `at.defineCommand("ATMYCMD", fn, "description", params)`.
+   Declare **every** input as a parameter and never call `at.get*` in the body — only then can
+   AI/MCP callers pass values by name (a file whose body prompts is flagged "prompts inside").
+3. Copy the file to `Documents\ArqaTools\LuaCommands\` and run `ATLUARELOAD` (names already taken
+   by core AutoCAD/other ARX/our C++ commands are refused — remove the C++ command first).
+4. Add the `ATHELP` line marked "(Lua command)".
+
+Only framework commands (AI, ACML, Lua/MCP infrastructure) are still C++: define the function
+(usually in the owning module's namespace, or file-local in `ArqaTools.cpp`), add
+`{ _T("ATMYCMD"), myCommand }` to `kCommands[]` in `On_kInitAppMsg()`, add a declaration where
+the other commands have theirs, and list it in `ATHELP`.
+
+## Testing / verification
+
+No unit-test framework, CI, or linters — verification happens in a running AutoCAD:
+
+- **Lua scripts**: `ATLUA @path\to\file.lua` — repo-root `test.lua`, `test_foundations.lua`,
+  `test_tier1.lua`, `test_tier2.lua`, `test_sandbox.lua`.
+- **Lua commands**: the MCP `test_command` tool runs one in a scratch drawing with
+  auto-answered parameters (internally `CommandTester::Run`/`RunScript`) and returns printed
+  output, a geometry report and a plan-view PNG; `AiHarness` uses the same for AI-written code.
+  Blocked in such test runs (`BlockedInTestRun` in `LuaTools.cpp`): the reactor label
+  functions, `at.exportSvg` and `at.command`.
+- **MCP server** (`.mcp.json` → `arqatools`; needs the ARX loaded + `ATMCPSTART` in AutoCAD):
+  `list_instances`/`select_instance`, `ping`, `get_api`, `list_commands`,
+  `get_command_source`, `run_lua` (read-only — only `isReadOnlyFunction` names),
+  `run_command` (positional `answers`), `run_acad_command`/`list_acad_commands` (drives any
+  AutoCAD/ACA command), `test_command`. Lua commands with declared parameters are additionally
+  published as their own tools.
+- After editing a `LuaCommands\` file: copy it to `Documents\ArqaTools\LuaCommands\` on the host
+  (no MCP tool can do that for you), then run `ATLUARELOAD` in AutoCAD — or via MCP
+  `run_acad_command "_ATLUARELOAD"`.
 
 ## Editing `.lsp` reload commands
 
 The reload commands live in `ReloadArqaTools.lsp`. Key vars: `*hw-project-path*` must point
-to the repo root. Commands: `RELOADHW`, `UNLOADHW`, `RELOADHWBUILD`, `RELOADHWPATH`.
+to the repo root — the checked-in value (`c:\HSBCAD\ArqaToolsAcad2025`) is stale and no longer
+exists, so `RELOADHWBUILD` fails until it is updated. Commands: `RELOADHW`, `UNLOADHW`,
+`RELOADHWBUILD`, `RELOADHWPATH`.
 
 ## Misc
 
-- No tests, no CI, no linters. There is no `npm`, `cargo`, `pytest`, etc.
-- `Build.bat` guards against re-initializing `VsDevCmd.bat` if `VSCMD_VER` is already set.
+- No `npm`, `cargo`, `pytest`, etc. — `Build.bat` guards against re-initializing
+  `VsDevCmd.bat` if `VSCMD_VER` is already set.
+- Run git commands from inside this project directory (the workspace root `D:\dev_jp` has no
+  `.git`).
 - The solution and project were renamed from `HelloWorld` → `ArqaTools`, and commands were later
   reprefixed `AT*`. `README.md`, `ARCHITECTURE.md`, and most of `USER_GUIDE.md` still predate
   both changes (old `HelloWorld`/`CHelloWorldApp` naming, pre-`AT` command names) — treat them
