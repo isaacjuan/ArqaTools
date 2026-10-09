@@ -881,6 +881,23 @@ local function overlaps(pa, pb)
     return anyInside(pa, pb) or anyInside(pb, pa)
 end
 
+-- Obstacles for the door checks: entities of the given types plus anything
+-- tagged with a fixture type (schematic rectangles), each once.
+local function doorObstacles(types)
+    local out, seen = {}, {}
+    local function add(h)
+        if seen[h] then return end
+        seen[h] = true
+        local pts = at.outline(h)
+        if pts and #pts >= 3 then out[#out + 1] = { h = h, pts = pts } end
+    end
+    for _, t in ipairs(splitTypes(types or "INSERT,AEC_MVBLOCK_REF")) do
+        for _, h in ipairs(at.entities(t)) do add(h) end
+    end
+    for _, h in ipairs(at.findByData("fixtureType")) do add(h) end
+    return out
+end
+
 -- The door's host wall: the ACA wall whose baseline is nearest its centre.
 local function hostWall(door)
     local best, bestD
@@ -935,13 +952,7 @@ at.defineCommand("ATDOORCLEARCHECK", function(p)
             if keep then doors[#doors + 1] = h end
         end
     end
-    local obstacles = {}
-    for _, t in ipairs(splitTypes(p.obstacles or "INSERT,AEC_MVBLOCK_REF")) do
-        for _, h in ipairs(at.entities(t)) do
-            local pts, closed = at.outline(h)
-            if pts and #pts >= 3 then obstacles[#obstacles + 1] = { h = h, pts = pts } end
-        end
-    end
+    local obstacles = doorObstacles(p.obstacles)
 
     local pass, fail = 0, 0
     for _, h in ipairs(doors) do
@@ -1057,13 +1068,7 @@ at.defineCommand("ATDOORSWINGCHECK", function(p)
             if not depthOf[m] then depthOf[m] = depthOf[n] + 1; queue[#queue + 1] = m end
         end
     end
-    local obstacles = {}
-    for _, t in ipairs(splitTypes(p.obstacles or "INSERT,AEC_MVBLOCK_REF")) do
-        for _, h in ipairs(at.entities(t)) do
-            local pts = at.outline(h)
-            if pts and #pts >= 3 then obstacles[#obstacles + 1] = { h = h, pts = pts } end
-        end
-    end
+    local obstacles = doorObstacles(p.obstacles)
     local function name(n) return n == OUTSIDE and "outside" or roomLabel(n) end
 
     local pass, fail, skip = 0, 0, 0
@@ -1334,13 +1339,21 @@ end, "Checks the public / private / service zoning of a dwelling: private rooms 
 -- Mark the site with ATSITEMARK: lines / polylines / points tagged
 -- site = road | access | serviceaccess (layer A-SITE).
 
-local function siteMarkers(kind)
-    local out = {}
+-- Markers of one kind for a dwelling: those tagged with the dwelling's id
+-- (ATSITEMARK ... dwelling) when there are any, else the untagged ones, so
+-- several dwellings or test layouts can share a drawing.
+local function siteMarkers(kind, dwelling)
+    local own, shared = {}, {}
     for _, h in ipairs(at.findByData("site", kind)) do
         local pts, closed = at.outline(h)
-        if pts and #pts >= 1 then out[#out + 1] = { h = h, pts = pts, closed = closed } end
+        if pts and #pts >= 1 then
+            local d = at.getData(h, "siteDwelling")
+            local m = { h = h, pts = pts, closed = closed }
+            if dwelling and dwelling ~= "" and d == dwelling then own[#own + 1] = m
+            elseif not d or d == "" then shared[#shared + 1] = m end
+        end
     end
-    return out
+    return #own > 0 and own or shared
 end
 
 -- Distance from a point to the nearest marker of a list (math.huge if none).
@@ -1371,28 +1384,33 @@ at.defineCommand("ATSITEMARK", function(p)
     at.ensureLayer("A-SITE", { color = "red" })
     local kind = p.siteType:lower()
     local n = 0
+    local dw = p.dwelling ~= "" and p.dwelling or nil
     for _, h in ipairs(p.objects) do
         if at.setData(h, "site", kind) then
+            at.setData(h, "siteDwelling", dw)
             at.setLayer(h, "A-SITE")
             n = n + 1
         end
     end
-    print(string.format("ATSITEMARK: %d object(s) marked %s on A-SITE.", n, p.siteType))
+    print(string.format("ATSITEMARK: %d object(s) marked %s on A-SITE%s.", n, p.siteType,
+        dw and (" for dwelling " .. dw) or " (all dwellings)"))
 end, "Marks the road edge, the pedestrian access or the service access (lines, polylines or points) for ATSITECHECK", {
     { name = "objects",  type = "selection", prompt = "Select lines, polylines or points",
       filter = "LINE,LWPOLYLINE,POINT,CIRCLE" },
     { name = "siteType", type = "keyword", prompt = "Marks", options = "Road Access ServiceAccess",
       default = "Road" },
+    { name = "dwelling", type = "string", prompt = "Dwelling id <all>", optional = true, default = "",
+      description = "Markers for one dwelling only; its own markers replace the untagged ones" },
 })
 
 at.defineCommand("ATSITECHECK", function(p)
-    local roads = siteMarkers("road")
+    local roads = siteMarkers("road", p.dwelling)
     if #roads == 0 then
         print("ATSITECHECK: check: no road marked (ATSITEMARK Road); siting not verified.")
         return
     end
-    local access = siteMarkers("access")
-    local serviceAccess = siteMarkers("serviceaccess")
+    local access = siteMarkers("access", p.dwelling)
+    local serviceAccess = siteMarkers("serviceaccess", p.dwelling)
     local rooms = dwellingRooms(p.dwelling)
     if #rooms == 0 then
         print("ATSITECHECK: no rooms found (tag them with ATROOMTYPE).")

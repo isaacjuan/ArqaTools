@@ -34,3 +34,9 @@ ipch/
 # .NET (mcp\ArqaToolsMcp)
 bin/
 obj/
+
+# AutoCAD lock files and test drawings (kept locally)
+*.dwl
+*.dwl2
+TEST_FIXTURES.dwg
+TEST_FIXTURES.bak

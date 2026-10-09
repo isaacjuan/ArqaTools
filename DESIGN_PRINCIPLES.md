@@ -38,8 +38,9 @@ A home has three zones:
   kitchen next to dining).
 
 **In the drawing** (`ATSITECHECK`): mark the road edge, the pedestrian access and the service
-access with `ATSITEMARK` (lines, polylines or points, layer `A-SITE`). Each zone's distance
-from the road is the area-weighted mean of its rooms' centres.
+access with `ATSITEMARK` (lines, polylines or points, layer `A-SITE`). Markers given a dwelling
+id apply to that dwelling only and replace the untagged ones, so several layouts can share a
+drawing. Each zone's distance from the road is the area-weighted mean of its rooms' centres.
 
 - PROBLEM: the private zone is not farther from the road than the public zone.
 - PROBLEM: the service zone has no exterior door of its own (other than the entrance).
@@ -190,7 +191,8 @@ In the drawing (`ATFURNITURECHECK`, also inside `ATDWELLINGCHECK`):
 
 **Never obstructed.** Nothing stands in front of a door: on both sides of the wall, a zone as
 wide as the opening and 900 mm deep (approach space, and the swing of a 900 leaf) stays free of
-furniture and fixtures.
+furniture and fixtures (blocks, ACA multi-view blocks and rectangles tagged with
+`ATFIXTURETYPE`).
 
 **Doors open inward.** A door opens into the space it serves: it is more secure, and the leaf
 does not cut into the circulation.

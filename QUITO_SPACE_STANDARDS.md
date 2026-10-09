@@ -215,7 +215,8 @@ element sizes, not space dimensions, and are not checked.
   `Storage`: no room minimum.
 - Not automated: the 30 % openable part of windows (Art. 69), ventilation ducts (Art. 156),
   heights and guards (Art. 148, 154), stairs (Art. 161).
-- Test fixtures in `Drawing1.dwg`:
+- Test fixtures in `TEST_FIXTURES.dwg` (repo root, not versioned; formerly the unsaved
+  `Drawing1`):
   - X = 20000, dwelling `TEST-02`: hall, bathroom, two bedrooms with ACA walls and doors;
     bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation. Entrance door
     5AD5 is tagged `Entrance`; fixture 5AFA (900 × 900) stands in the hall's south-east
@@ -230,6 +231,19 @@ element sizes, not space dimensions, and are not checked.
   - X = 60000, dwelling `TEST-05`: a 2700 × 3000 student bedroom (`student=Yes`) with tagged
     rectangles: single bed 5B16 long side against the north wall, desk 5B17 with chair 5B18
     against the south wall, freestanding door 5B19; passes `ATFURNITURECHECK`.
+  - X = 80000, dwelling `TEST-06`: **the reference house, passes every check of
+    `ATDWELLINGCHECK`** (only the optional-laundry note remains). Two bedrooms, all clear
+    dimensions on the 300 mm module, ACA walls 150 (centre-justified), 8 ACA doors all opening
+    inward, 5 ACA windows. South band, facing the road (line 5BE7 at y = -6000, access point
+    5BE8, service access point 5BE9, all marked for `TEST-06` only): kitchen 5BD0 (2700 × 4200,
+    service door 5B58 on its long side, door 5B48 to dining), dining 5BD1 and living 5BD2 (one
+    space across an open boundary), entrance hall 5BD3 (1500 × 4200, entrance 5B40), shared
+    bathroom 5BD4 off the hall. North: private corridor 5BD5 (`zone=Private`, door 5BA0 from
+    the hall) with bedroom 2 5BD6 and main bedroom 5BD7 (3000 × 3600) entered at the middle of
+    their long sides. Circulation 14.9 %. Tagged rectangles: WC, basin, shower; worktop with
+    sink and cooker, fridge; dining table; sofa; per bedroom a double bed (head on the outer
+    wall) and a 1200 wardrobe on the corridor wall. Use it as the regression baseline: after a
+    change to the checks it must still report "ALL CHECKS PASS".
 
 ## 10. Applied to the session layouts
 
