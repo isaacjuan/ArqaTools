@@ -210,7 +210,9 @@ element sizes, not space dimensions, and are not checked.
     corner, clear of every door zone, and leaves exactly the 900 mm passage minimum.
   - X = 40000, dwelling `TEST-03`: hall, living, dining and a bedroom drawn without walls,
     freestanding entrance door 5B03; light boundaries: hall/living open, living/dining floor
-    (marker 5B00), living/bedroom wall (marker 5B02, so the bedroom is unreachable).
+    (marker 5B00), living/bedroom wall (marker 5B02, so the bedroom is unreachable). Kitchen
+    5B07 above the dining room with its own exterior door 5B0A; road line 5B08 along the south
+    (y = -2000) and access point 5B09, marked with `ATSITEMARK`.
 
 ## 10. Applied to the session layouts
 

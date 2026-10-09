@@ -98,7 +98,8 @@ After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
 changing a dwelling:
 
 1. **Zones on the site first:** from the road and access, public zone at the entrance side,
-   private zone away from the road, service zone supplied from the road on its own access.
+   private zone away from the road, service zone supplied from the road on its own access
+   (mark road and access with `ATSITEMARK`, check with `ATSITECHECK`).
 2. **Define each space** with the boundary it needs, from a line or floor change, a level
    change, a curtain or glass wall, to a heavy wall. A space does not need four walls.
 3. **Connect through transition spaces** (`Hall` / `Corridor` / `Portal`): never reach a

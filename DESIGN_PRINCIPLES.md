@@ -36,6 +36,17 @@ A home has three zones:
   access, without crossing the public or private zone, and sits next to what it serves (the
   kitchen next to dining).
 
+**In the drawing** (`ATSITECHECK`): mark the road edge, the pedestrian access and the service
+access with `ATSITEMARK` (lines, polylines or points, layer `A-SITE`). Each zone's distance
+from the road is the area-weighted mean of its rooms' centres.
+
+- PROBLEM: the private zone is not farther from the road than the public zone.
+- PROBLEM: the service zone has no exterior door of its own (other than the entrance).
+- check: the service zone lies farther from the road than the private zone.
+- check: the entrance (door tagged `Entrance`) is not the exterior door nearest the access
+  (or the road, when no access is marked); a marked service access is not nearest a service
+  door.
+
 **Rules between zones** (project interpretation):
 
 1. A private room is entered only from circulation or another private room, never directly
@@ -138,7 +149,7 @@ openings are element sizes, not space dimensions.
 | Principle | Tool | Status |
 |---|---|---|
 | §2 rules between zones | `ATZONECHECK` | done |
-| §2 siting against road and access | (none yet) | needs the road / access marked in the drawing |
+| §2 siting against road and access | `ATSITEMARK`, `ATSITECHECK` | done |
 | §3 light boundaries as connections | `ATBOUNDARYTYPE`, `ATBOUNDARYLIST`, room graph | done |
 | §4 transition, entrance, en-suite | `ATPASSAGECHECK` | done |
 | §5 space economy | `ATECONOMYCHECK` | done (guidance) |

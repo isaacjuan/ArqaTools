@@ -1068,6 +1068,188 @@ end, "Checks the public / private / service zoning of a dwelling: private rooms 
       default = WALL_TOL },
 })
 
+-- ── ATSITEMARK / ATSITECHECK ────────────────────────────────────────────────
+-- Siting, the first design decision (DESIGN_PRINCIPLES.md §2): the road and
+-- the access fix where the house is entered; the public zone faces the
+-- access, the private zone goes away from the road, the service zone is
+-- supplied from the road through its own access.
+--
+-- Mark the site with ATSITEMARK: lines / polylines / points tagged
+-- site = road | access | serviceaccess (layer A-SITE).
+
+local function siteMarkers(kind)
+    local out = {}
+    for _, h in ipairs(at.findByData("site", kind)) do
+        local pts, closed = at.outline(h)
+        if pts and #pts >= 1 then out[#out + 1] = { h = h, pts = pts, closed = closed } end
+    end
+    return out
+end
+
+-- Distance from a point to the nearest marker of a list (math.huge if none).
+local function markerDist(px, py, markers)
+    local best = math.huge
+    for _, m in ipairs(markers) do
+        local d
+        if #m.pts == 1 then
+            d = math.sqrt((px - m.pts[1].x) ^ 2 + (py - m.pts[1].y) ^ 2)
+        else
+            d = chainDist(px, py, m.pts, m.closed)
+        end
+        if d < best then best = d end
+    end
+    return best
+end
+
+local function outlineCentre(pts)
+    local minx, miny, maxx, maxy = math.huge, math.huge, -math.huge, -math.huge
+    for _, v in ipairs(pts) do
+        minx, maxx = math.min(minx, v.x), math.max(maxx, v.x)
+        miny, maxy = math.min(miny, v.y), math.max(maxy, v.y)
+    end
+    return (minx + maxx) / 2, (miny + maxy) / 2
+end
+
+at.defineCommand("ATSITEMARK", function(p)
+    at.ensureLayer("A-SITE", { color = "red" })
+    local kind = p.siteType:lower()
+    local n = 0
+    for _, h in ipairs(p.objects) do
+        if at.setData(h, "site", kind) then
+            at.setLayer(h, "A-SITE")
+            n = n + 1
+        end
+    end
+    print(string.format("ATSITEMARK: %d object(s) marked %s on A-SITE.", n, p.siteType))
+end, "Marks the road edge, the pedestrian access or the service access (lines, polylines or points) for ATSITECHECK", {
+    { name = "objects",  type = "selection", prompt = "Select lines, polylines or points",
+      filter = "LINE,LWPOLYLINE,POINT,CIRCLE" },
+    { name = "siteType", type = "keyword", prompt = "Marks", options = "Road Access ServiceAccess",
+      default = "Road" },
+})
+
+at.defineCommand("ATSITECHECK", function(p)
+    local roads = siteMarkers("road")
+    if #roads == 0 then
+        print("ATSITECHECK: check: no road marked (ATSITEMARK Road); siting not verified.")
+        return
+    end
+    local access = siteMarkers("access")
+    local serviceAccess = siteMarkers("serviceaccess")
+    local rooms = dwellingRooms(p.dwelling)
+    if #rooms == 0 then
+        print("ATSITECHECK: no rooms found (tag them with ATROOMTYPE).")
+        return
+    end
+    local g = buildGraph(rooms, WALL_TOL)
+    local problems = 0
+
+    -- 1. zone distance from the road (area-weighted room centres)
+    local sum, wsum = {}, {}
+    for _, r in ipairs(rooms) do
+        local z = zoneOf(r)
+        local pts = at.outline(r)
+        if z and z ~= "circulation" and pts and #pts >= 3 then
+            local cx, cy = outlineCentre(pts)
+            local a = roomAreaM2(r) or 1
+            sum[z] = (sum[z] or 0) + markerDist(cx, cy, roads) * a
+            wsum[z] = (wsum[z] or 0) + a
+        end
+    end
+    local dist = {}
+    local parts = {}
+    for _, z in ipairs({ "public", "private", "service" }) do
+        if wsum[z] and wsum[z] > 0 then
+            dist[z] = sum[z] / wsum[z]
+            parts[#parts + 1] = string.format("%s %s", z, fmt(dist[z]))
+        end
+    end
+    print("ATSITECHECK: mean distance from the road: " .. table.concat(parts, ", "))
+    if dist.public and dist.private then
+        if dist.private <= dist.public then
+            problems = problems + 1
+            print("  PROBLEM: the private zone is not farther from the road than the public zone; put the private zone away from the road.")
+        else
+            print("  ok: the public zone faces the road, the private zone lies away from it.")
+        end
+    end
+    if dist.service and dist.private and dist.service > dist.private then
+        print("  check: the service zone lies farther from the road than the private zone; it is supplied from the road.")
+    end
+
+    -- exterior doors: entrances and one-room doors
+    local exterior = {}
+    for _, e in ipairs(g.entrances) do
+        local d = at.getAecProps(e.door)
+        exterior[#exterior + 1] = { door = e.door, rooms = e.rooms, entrance = true, d = d }
+    end
+    for _, e in ipairs(g.exterior) do
+        local d = at.getAecProps(e.door)
+        exterior[#exterior + 1] = { door = e.door, rooms = { e.room }, entrance = false, d = d }
+    end
+    local function nearestDoor(markers)
+        local best, bd
+        for _, e in ipairs(exterior) do
+            if e.d and e.d.center then
+                local dd = markerDist(e.d.center.x, e.d.center.y, markers)
+                if not bd or dd < bd then best, bd = e, dd end
+            end
+        end
+        return best, bd
+    end
+
+    -- 2. the entrance faces the access
+    local entrance = nil
+    for _, e in ipairs(exterior) do if e.entrance then entrance = e end end
+    if not entrance then
+        print("  check: no door tagged Entrance (ATDOORTYPE); the entrance position is not verified.")
+    else
+        local ref = #access > 0 and access or roads
+        local near = nearestDoor(ref)
+        if near and near.door == entrance.door then
+            print(string.format("  ok: entrance %s is the exterior door nearest the %s.", entrance.door,
+                #access > 0 and "access" or "road"))
+        else
+            print(string.format("  check: entrance %s is not the exterior door nearest the %s (%s is).", entrance.door,
+                #access > 0 and "access" or "road", near and near.door or "?"))
+        end
+    end
+
+    -- 3. the service zone has its own access from outside
+    local hasService = dist.service ~= nil
+    if hasService then
+        local own = {}
+        for _, e in ipairs(exterior) do
+            if not e.entrance then
+                for _, r in ipairs(e.rooms) do
+                    if zoneOf(r) == "service" then own[#own + 1] = e end
+                end
+            end
+        end
+        if #own == 0 then
+            problems = problems + 1
+            print("  PROBLEM: the service zone has no exterior door of its own; supply it from the road without crossing the other zones.")
+        else
+            local names = {}
+            for _, e in ipairs(own) do names[#names + 1] = e.door end
+            print("  ok: the service zone has its own exterior door(s): " .. table.concat(names, ", ") .. ".")
+            if #serviceAccess > 0 then
+                local near = nearestDoor(serviceAccess)
+                local isOwn = false
+                for _, e in ipairs(own) do if near and near.door == e.door then isOwn = true end end
+                if not isOwn then
+                    print(string.format("  check: the exterior door nearest the service access is %s, not a service door.",
+                        near and near.door or "?"))
+                end
+            end
+        end
+    end
+
+    print(string.format("ATSITECHECK: %d problem(s) (siting against road and access, DESIGN_PRINCIPLES.md §2).", problems))
+end, "Checks the siting of a dwelling's zones against the marked road and access: private zone away from the road, entrance at the access, service zone with its own access (house principle)", {
+    { name = "dwelling", type = "string", prompt = "Dwelling id <all rooms>", optional = true },
+})
+
 -- ── ATSANITARYCHECK ─────────────────────────────────────────────────────────
 -- Quito Art. 68 and 150, per bathroom:
 --   shower >= 0.56m2 with a shorter side >= 0.70m, separate from the rest;
@@ -1640,6 +1822,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
     -- 7. zones
     print("-- zones (public / private / service, house principle)")
     section("zones", runCounted("ATZONECHECK", { dwelling = p.dwelling }))
+
+    -- 7b. siting against road and access
+    print("-- siting (house principle)")
+    section("siting", runCounted("ATSITECHECK", { dwelling = p.dwelling }))
 
     -- 8. space economy (guidance: "check" lines, not counted)
     print("-- space economy (house principle)")
