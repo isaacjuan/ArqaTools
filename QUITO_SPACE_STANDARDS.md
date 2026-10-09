@@ -163,7 +163,15 @@ element sizes, not space dimensions, and are not checked.
   - A room's type comes from its `ATROOMTYPE` tag, else an ACA space named like a room type
     ("Bathroom"). A door or window belongs to a room when its centre is within 300 mm of it
     (the wall); a door also when a corner of its extents is inside (outward-swinging doors).
-- Not automated yet: corridor widths, the "no bedroom as a passage" rule.
+  - `ATPASSAGECHECK`: builds the dwelling's room/door graph and checks that no bedroom or
+    bathroom is the only way into another room, and that a single bathroom for several
+    bedrooms opens onto a non-bedroom (Art. 147). A door touching one room leads "outside";
+    model every room, or an unmodelled space counts as outside. Open connections without a
+    door or ACA opening are not seen.
+- Room type `Corridor` (hall, corridor): size check uses the Art. 160 width (0.90 m), no area.
+- Not automated yet: corridor clear width between walls (needs distance measuring).
+- Test fixture in `Drawing1.dwg` at X = 20000: dwelling `TEST-02` (hall, bathroom, two
+  bedrooms; bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation).
 
 ## 10. Applied to the session layouts
 

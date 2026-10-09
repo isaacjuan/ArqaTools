@@ -69,6 +69,8 @@ local QUITO_ROOMS = {
     Bathroom       = { side = 1.20, area = {  2.50,  2.50,  2.50 }, label = "bathroom" },
     Laundry        = { side = 1.30, area = {  3.00,  3.00,  3.00 }, label = "laundry/drying area" },
     ServiceBedroom = { side = 2.00, area = {  6.00,  6.00,  6.00 }, label = "staff bedroom" },
+    -- Not in Art. 147: Art. 160 corridor width inside a dwelling, no area minimum.
+    Corridor       = { side = 0.90, area = {  0.00,  0.00,  0.00 }, label = "corridor (Art. 160)" },
 }
 
 -- House design rule (project decision 2026-10-09, not a code requirement):
@@ -230,7 +232,7 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
         if not rule then
             print("ATROOMSIZECHECK: " .. (roomType and ("unknown room type '" .. tostring(roomType) .. "'")
                     or "no room type given and the room is not tagged (run ATROOMTYPE)")
-                .. "; expected Living, Kitchen, MainBedroom, Bedroom2, Bedroom3, Bathroom, Laundry or ServiceBedroom.")
+                .. "; expected Living, Kitchen, MainBedroom, Bedroom2, Bedroom3, Bathroom, Laundry, ServiceBedroom or Corridor.")
             return
         end
         local bedrooms = p.bedrooms or at.getData(p.room, "bedrooms")
@@ -306,7 +308,7 @@ end, "Checks a room against a region's minimum: floor area (Belgian rental-housi
     { name = "occupants",   type = "number", prompt = "Number of occupants", default = 1, conditional = true,
       description = "Flanders/Brussels/Wallonia only" },
     { name = "roomType",    type = "string", prompt = "Room type <from the room's tag>",
-      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom",
+      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom Corridor",
       optional = true, conditional = true,
       description = "Quito only; omit to use the room's ATROOMTYPE tag" },
     { name = "bedrooms",    type = "integer", prompt = "Bedrooms in the dwelling <from the room's tag>",
@@ -333,7 +335,7 @@ at.defineCommand("ATROOMTYPE", function(p)
 end, "Tags a room boundary or ACA space with its room type, dwelling and the dwelling's bedroom count (used by ATROOMSIZECHECK)", {
     { name = "room",     type = "entity", prompt = "Select the room boundary or space" },
     { name = "roomType", type = "string", prompt = "Room type",
-      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom",
+      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom Corridor",
       default = "MainBedroom" },
     { name = "dwelling", type = "string", prompt = "Dwelling id (blank = keep)", optional = true,
       description = "Any label shared by the rooms of one dwelling, e.g. A-101" },

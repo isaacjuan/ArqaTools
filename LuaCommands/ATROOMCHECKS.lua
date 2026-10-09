@@ -65,7 +65,7 @@ local function roomWindows(room, tol)
 end
 
 local ROOM_TYPES = { "Living", "Kitchen", "MainBedroom", "Bedroom2", "Bedroom3",
-                     "Bathroom", "Laundry", "ServiceBedroom" }
+                     "Bathroom", "Laundry", "ServiceBedroom", "Corridor" }
 
 -- Room type: the ATROOMTYPE tag, else an ACA space whose name is a room type
 -- ("Bathroom", "kitchen", ...; case-insensitive).
@@ -105,8 +105,10 @@ local function doorTouches(room, door, tol)
     if at.pointInPolygon(room, door.center.x, door.center.y, tol) then return true end
     local p = at.getProps(door.handle)
     if not (p and p.min and p.max) then return false end
+    -- corners within 25mm: a frame as deep as its wall has its corners on
+    -- the room faces on both sides of the wall
     for _, c in ipairs({ { p.min.x, p.min.y }, { p.max.x, p.min.y }, { p.max.x, p.max.y }, { p.min.x, p.max.y } }) do
-        if at.pointInPolygon(room, c[1], c[2]) then return true end
+        if at.pointInPolygon(room, c[1], c[2], 25) then return true end
     end
     return false
 end
@@ -260,6 +262,131 @@ at.defineCommand("ATDOORCHECK", function(p)
 end, "Checks ACA door sizes against Quito minimums (Art. 153: entrance 960, interior 860, bathroom 760, height 2030)", {
     { name = "doors", type = "selection", prompt = "Select doors <all>", filter = "AEC_DOOR", optional = true },
     { name = "tol",   type = "distance", prompt = "Max. distance of a door centre outside a room (wall)",
+      default = WALL_TOL },
+})
+
+-- ── ATPASSAGECHECK ──────────────────────────────────────────────────────────
+-- Art. 147: no bedroom or bathroom may be the obligatory passage to another
+-- room; with more than one bedroom and a single bathroom, the bathroom must
+-- open onto a room that is not a bedroom.
+--
+-- Rooms are linked by the ACA doors and openings that touch them. A door that
+-- touches only one room links it to "outside" (the exterior, or a space that
+-- is not modelled as a room), and so does a door tagged Entrance. Model every
+-- room of the dwelling, or an unmodelled space counts as outside and can hide
+-- a problem. Open connections without a door or opening object are not seen.
+local BEDROOM_TYPES = { MainBedroom = true, Bedroom2 = true, Bedroom3 = true, ServiceBedroom = true }
+local OUTSIDE = "outside"
+
+at.defineCommand("ATPASSAGECHECK", function(p)
+    local tol = p.tol or WALL_TOL
+    local rooms = {}
+    for _, r in ipairs(allRooms()) do
+        if not p.dwelling or p.dwelling == "" or at.getData(r, "dwelling") == p.dwelling then
+            rooms[#rooms + 1] = r
+        end
+    end
+    if #rooms == 0 then
+        print("ATPASSAGECHECK: no rooms found" .. (p.dwelling and (" for dwelling " .. p.dwelling) or "")
+            .. " (tag them with ATROOMTYPE).")
+        return
+    end
+
+    -- connection graph
+    local adj, via = {}, {}
+    local function link(a, b, door)
+        adj[a] = adj[a] or {}; adj[b] = adj[b] or {}
+        adj[a][b] = true; adj[b][a] = true
+        via[a .. ">" .. b] = door; via[b .. ">" .. a] = door
+    end
+    local doors = at.entities("AEC_DOOR")
+    for _, h in ipairs(at.entities("AecDbOpening")) do doors[#doors + 1] = h end
+    local used = 0
+    for _, h in ipairs(doors) do
+        local d = at.getAecProps(h)
+        if d and d.center then
+            local touch = {}
+            for _, r in ipairs(rooms) do
+                if doorTouches(r, d, tol) then touch[#touch + 1] = r end
+            end
+            if #touch > 0 then used = used + 1 end
+            if #touch == 1 or at.getData(h, "doorType") == "Entrance" then
+                for _, r in ipairs(touch) do link(r, OUTSIDE, h) end
+            end
+            for i = 1, #touch do
+                for j = i + 1, #touch do link(touch[i], touch[j], h) end
+            end
+        end
+    end
+
+    local function reach(skip)
+        local seen, queue = { [OUTSIDE] = true }, { OUTSIDE }
+        while #queue > 0 do
+            local n = table.remove(queue)
+            for m in pairs(adj[n] or {}) do
+                if m ~= skip and not seen[m] then seen[m] = true; queue[#queue + 1] = m end
+            end
+        end
+        return seen
+    end
+    local function name(n) return n == OUTSIDE and OUTSIDE or roomLabel(n) end
+
+    -- connections, for the record
+    for _, r in ipairs(rooms) do
+        local parts = {}
+        for m in pairs(adj[r] or {}) do parts[#parts + 1] = name(m) .. " via " .. via[r .. ">" .. m] end
+        table.sort(parts)
+        print(string.format("ATPASSAGECHECK: %s -> %s", roomLabel(r),
+            #parts > 0 and table.concat(parts, ", ") or "no doors"))
+    end
+
+    local problems = 0
+    local base = reach(nil)
+    for _, r in ipairs(rooms) do
+        if not base[r] then
+            problems = problems + 1
+            print("  PROBLEM: " .. roomLabel(r) .. " cannot be reached from outside (no door found).")
+        end
+    end
+
+    -- rule 1: bedrooms and bathrooms are no obligatory passage
+    local beds, baths = 0, {}
+    for _, x in ipairs(rooms) do
+        local t = roomType(x)
+        if BEDROOM_TYPES[t] then beds = beds + 1 end
+        if t == "Bathroom" then baths[#baths + 1] = x end
+        if BEDROOM_TYPES[t] or t == "Bathroom" then
+            local without = reach(x)
+            for _, y in ipairs(rooms) do
+                if y ~= x and base[y] and not without[y] then
+                    problems = problems + 1
+                    print(string.format("  PROBLEM: %s is the only way into %s (Art. 147).", roomLabel(x), roomLabel(y)))
+                end
+            end
+        end
+    end
+
+    -- rule 2: one bathroom for several bedrooms opens onto a non-bedroom
+    if beds > 1 and #baths == 1 then
+        local b, ok = baths[1], false
+        for m in pairs(adj[b] or {}) do
+            if m == OUTSIDE or not BEDROOM_TYPES[roomType(m)] then ok = true end
+        end
+        if not ok then
+            problems = problems + 1
+            print(string.format("  PROBLEM: %s is the only bathroom for %d bedrooms and opens only onto bedrooms (Art. 147).",
+                roomLabel(b), beds))
+        else
+            print(string.format("  ok: the single bathroom %s opens onto a room that is not a bedroom.", roomLabel(b)))
+        end
+    end
+
+    print(string.format("ATPASSAGECHECK: %d room(s), %d door(s)/opening(s) used, %d problem(s). %s",
+        #rooms, used, problems, SOURCE))
+end, "Checks that no bedroom or bathroom is the only way into another room, and that a single bathroom for several bedrooms opens onto a non-bedroom (Quito Art. 147)", {
+    { name = "dwelling", type = "string", prompt = "Dwelling id <all rooms>", optional = true,
+      description = "Only rooms tagged with this dwelling id (ATROOMTYPE); omit for every room in the drawing" },
+    { name = "tol",      type = "distance", prompt = "Max. distance of a door centre outside a room (wall)",
       default = WALL_TOL },
 })
 
