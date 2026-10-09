@@ -220,7 +220,9 @@ element sizes, not space dimensions, and are not checked.
   - X = 20000, dwelling `TEST-02`: hall, bathroom, two bedrooms with ACA walls and doors;
     bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation. Entrance door
     5AD5 is tagged `Entrance`; fixture 5AFA (900 × 900) stands in the hall's south-east
-    corner, clear of every door zone, and leaves exactly the 900 mm passage minimum.
+    corner, clear of every door zone, and leaves exactly the 900 mm passage minimum. Doors
+    5AD5 (entrance) and 5AED open outward on purpose: failing cases for `ATDOORSWINGCHECK`
+    (as is 5B03 in TEST-03).
   - X = 40000, dwelling `TEST-03`: hall, living, dining and a bedroom drawn without walls,
     freestanding entrance door 5B03; light boundaries: hall/living open, living/dining floor
     (marker 5B00), living/bedroom wall (marker 5B02, so the bedroom is unreachable). Kitchen
@@ -249,4 +251,7 @@ element sizes, not space dimensions, and are not checked.
 
 - The 2026-10-07 test bedroom (3.60 × 3.40 m, 12.24 m²) meets the Quito main-bedroom minimum
   (9.00 m², side 2.50 m) with margin, but is **off the 300 mm module**: 3400 should be
-  3300 or 3600.
+  3300 or 3600 (open: a design decision, not changed). On 2026-10-09 its door 4730 was raised
+  to 2100 (Art. 153 needs 2030) and its window 4738 widened to 1800 × 1500 (2.70 m² for the
+  2.45 m² Art. 69 needs); the desk is gone and the furniture passes. The bathroom demo's door
+  4297 was flipped to open inward.

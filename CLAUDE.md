@@ -59,6 +59,24 @@ Key tools:
 
 Commands with declared parameters are published as their own MCP tools with typed schemas.
 
+**Drawing ACA objects with `run_acad_command`** (learned building TEST-06):
+
+- Set `OSMODE` to 0 first: object snaps pull `_MOVE` base points and positions go wrong.
+- Walls: `_WALLADD` `["WI", 150, "JU", "C", p1, p2, ..., ""]` (centre-justified).
+- Doors / windows: pick the wall first, then the options, then the point:
+  `_DOORADD [{"handle": wall}, "WI", 900, "HE", 2100, "JU", "C", point, ""]`. The point is
+  not the centre (a door ends about 50 mm before it, a window at it, along the wall's
+  direction): place it, read its extents with `at.getProps`, then `_MOVE` it into place.
+- A point near a wall junction can anchor the door to the other wall: keep it away from
+  corners and check the extents (the leaf sweeps a box about 1000 deep on the swing side).
+- The swing side follows the side of the wall the point is on, not always reliably:
+  `AECOPENINGFLIPSWING [{"handle": door}, ""]` flips it. Rotating or mirroring an anchored
+  door detaches it from the wall.
+- Properties without a command-line option (door height, window size of an existing
+  object): AutoCAD COM from PowerShell, `ActiveDocument.HandleToObject("4730").Height = 2100`.
+- `_SAVEAS ["", path]` / `_QSAVE` save without dialogs. The test drawing is
+  `TEST_FIXTURES.dwg` (repo root, git-ignored); `TEST-06` in it is the reference house.
+
 ## AI / MCP architecture
 
 ```
