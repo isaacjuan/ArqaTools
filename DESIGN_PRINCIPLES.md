@@ -21,10 +21,10 @@ A home has three zones:
 
 | Zone | Rooms (default from the room type) |
 |---|---|
-| Public | entrance hall, portal, living room, dining room |
-| Private | bedrooms and the spaces attached to them (bathrooms, en-suites) |
+| Public | entrance hall, portal, living room, dining room, the shared bathroom (with discretion) |
+| Private | bedrooms and the spaces attached to them: en-suite bathroom, the private zone's own hall or corridor |
 | Service | kitchen, laundry, garage, storage, staff bedroom |
-| (circulation) | corridors: they connect zones and belong to none |
+| (circulation) | a corridor not tagged with a zone: it connects zones and belongs to none |
 
 **Siting, the first design decision:**
 
@@ -47,16 +47,21 @@ from the road is the area-weighted mean of its rooms' centres.
   (or the road, when no access is marked); a marked service access is not nearest a service
   door.
 
-**Rules between zones** (project interpretation):
+**Rules between zones** (project decisions, checked by `ATZONECHECK`):
 
-1. A private room is entered only from circulation or another private room, never directly
-   from a public or service room.
-2. Public and service rooms may connect directly (kitchen to dining).
-3. Each zone hangs together through its own rooms and corridors; a split zone is a "check"
+1. **A bedroom never has its access from the central hall.** A private room is entered only
+   from the private zone's own hall or corridor, when one is needed (tag it `zone=Private`),
+   or from another private room (its en-suite). Never from the public hall, a neutral
+   corridor, or a public or service room.
+2. **The shared bathroom** belongs to the public zone, with discretion (out of direct view
+   from living and entrance: design guidance, not checked), and is entered **from a hall or
+   corridor only**, never from a useful space. An en-suite bathroom belongs to its bedroom.
+3. The entrance opens into the public zone, never into the private hall.
+4. Public and service rooms may connect directly (kitchen to dining).
+5. Each zone hangs together through its own rooms and corridors; a split zone is a "check"
    (a garage reached from outside can be separate on purpose).
 
-A room's `zone` tag (`ATROOMTYPE ... zone`) overrides the default, e.g. a guest toilet off the
-entrance hall = Public.
+A room's `zone` tag (`ATROOMTYPE ... zone`) overrides the default; `Default` removes it.
 
 ## 3. Defining a space
 
@@ -124,8 +129,9 @@ its far end; entering off-centre wastes the corner behind the door.
 
 In the drawing (`ATECONOMYCHECK`, guidance: it reports "check" lines, not problems):
 
-- circulation share: Hall, Corridor and Portal area over the dwelling's total; above
-  `maxCirc` (default 15 %, a starting figure to adjust) is a check;
+- circulation share: Hall, Corridor and Portal area over the dwelling's total. The ideal is
+  as low as possible; the right figure depends on the design conditions, so `maxCirc` is a
+  parameter (default 15 %) and above it is a check;
 - for each useful room and each entry (door or walkable light boundary): the side it is on
   and the mean walking distance to every point of the room, compared with entering at the
   middle of the longest side. A room at least 1.25 times as long as wide entered from a short

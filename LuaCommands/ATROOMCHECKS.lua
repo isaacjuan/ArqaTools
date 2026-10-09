@@ -313,7 +313,8 @@ end
 -- Zones (DESIGN_PRINCIPLES.md §2), used by ATZONECHECK and the access rules.
 local ZONE_OF = {
     Hall = "public", Portal = "public", Living = "public", Dining = "public",
-    MainBedroom = "private", Bedroom2 = "private", Bedroom3 = "private", Bathroom = "private",
+    MainBedroom = "private", Bedroom2 = "private", Bedroom3 = "private",
+    Bathroom = "public",        -- the shared one; an en-suite is private (ATZONECHECK)
     Kitchen = "service", Laundry = "service", Garage = "service", Storage = "service",
     ServiceBedroom = "service",
     Corridor = "circulation",
@@ -977,18 +978,38 @@ end, "Checks that no obstacle stands in front of a door: a zone as wide as the o
 })
 
 -- ── ATZONECHECK ─────────────────────────────────────────────────────────────
--- House principle: a home has three zones.
---   public  : entrance hall, portal, living, dining
---   private : bedrooms and the spaces attached to them (bathrooms, en-suites)
+-- House principle: a home has three zones (DESIGN_PRINCIPLES.md §2).
+--   public  : entrance hall, portal, living, dining, the shared bathroom
+--   private : bedrooms and the spaces attached to them (en-suite bathroom,
+--             the private zone's own hall or corridor, tagged zone=Private)
 --   service : kitchen, laundry, garage, storage, staff bedroom
--- Corridors are circulation: they connect zones and belong to none. A room's
--- `zone` tag (ATROOMTYPE) overrides the default, e.g. a guest toilet = public.
--- Rules (project interpretation):
---   1. a private room is entered only from circulation or another private
---      room, never directly from a public or service room;
---   2. public and service rooms may connect directly (kitchen - dining);
---   3. each zone should hang together through its own rooms and corridors
+-- Corridors are neutral circulation unless tagged with a zone. A room's
+-- `zone` tag (ATROOMTYPE) overrides the default.
+-- Rules (project decisions 2026-10-09):
+--   1. a private room is entered only from the private zone's own hall /
+--      corridor (circulation tagged zone=Private) or from another private
+--      room; never from the central (public) hall, a neutral corridor, or a
+--      public or service room;
+--   2. the shared bathroom (public, with discretion) is entered from a hall
+--      or corridor only, never from a useful space;
+--   3. the entrance opens into the public zone, not the private hall;
+--   4. public and service rooms may connect directly (kitchen - dining);
+--   5. each zone should hang together through its own rooms and corridors
 --      (a split zone is reported as "check", not counted as a problem).
+
+-- En-suite bathrooms: a bathroom whose only connection is one bedroom.
+local function ensuiteMap(rooms, g)
+    local map = {}
+    for _, b in ipairs(rooms) do
+        if roomType(b) == "Bathroom" then
+            local only, n = nil, 0
+            for m in pairs(g.adj[b] or {}) do only = m; n = n + 1 end
+            if n == 1 and only ~= OUTSIDE and BEDROOM_TYPES[roomType(only)] then map[b] = only end
+        end
+    end
+    return map
+end
+
 at.defineCommand("ATZONECHECK", function(p)
     local rooms = dwellingRooms(p.dwelling)
     if #rooms == 0 then
@@ -996,12 +1017,17 @@ at.defineCommand("ATZONECHECK", function(p)
         return
     end
     local g = buildGraph(rooms, p.tol or WALL_TOL)
+    local ensuite = ensuiteMap(rooms, g)
+    local function zone(r)
+        if ensuite[r] and not at.getData(r, "zone") then return "private" end
+        return zoneOf(r)
+    end
     local problems = 0
 
     -- classification
     local byZone, area = {}, {}
     for _, r in ipairs(rooms) do
-        local z = zoneOf(r) or "?"
+        local z = zone(r) or "?"
         byZone[z] = byZone[z] or {}
         table.insert(byZone[z], r)
         area[z] = (area[z] or 0) + (roomAreaM2(r) or 0)
@@ -1018,19 +1044,54 @@ at.defineCommand("ATZONECHECK", function(p)
         print("  check: rooms without a zone; tag their roomType or zone with ATROOMTYPE.")
     end
 
-    -- rule 1: private rooms are entered from circulation or private rooms only
+    -- rule 1: private rooms only from the private hall or other private rooms
     for _, r in ipairs(byZone.private or {}) do
-        for m in pairs(g.adj[r] or {}) do
-            local zm = m ~= OUTSIDE and zoneOf(m) or nil
-            if zm == "public" or zm == "service" then
-                problems = problems + 1
-                print(string.format("  PROBLEM: private %s opens directly into %s room %s via %s; enter private rooms from a corridor (zones).",
-                    roomLabel(r), zm, roomLabel(m), g.via[r .. ">" .. m]))
+        if not CIRCULATION[roomType(r)] then
+            for m in pairs(g.adj[r] or {}) do
+                if m ~= OUTSIDE then
+                    local zm = zone(m)
+                    local how = g.via[r .. ">" .. m]
+                    if CIRCULATION[roomType(m)] then
+                        if zm ~= "private" then
+                            problems = problems + 1
+                            print(string.format("  PROBLEM: private %s opens off %s (%s, not the private zone's own hall) via %s; give the private zone its own hall or corridor (tag it zone=Private).",
+                                roomLabel(r), roomLabel(m), zm or "neutral", how))
+                        end
+                    elseif zm ~= "private" then
+                        problems = problems + 1
+                        print(string.format("  PROBLEM: private %s opens directly into %s room %s via %s; enter private rooms from the private hall (zones).",
+                            roomLabel(r), zm or "?", roomLabel(m), how))
+                    end
+                end
             end
         end
     end
 
-    -- rule 3: each zone hangs together through its own rooms and corridors
+    -- rule 2: the shared bathroom is entered from a hall or corridor only
+    for _, b in ipairs(rooms) do
+        if roomType(b) == "Bathroom" and not ensuite[b] then
+            for m in pairs(g.adj[b] or {}) do
+                if m ~= OUTSIDE and not CIRCULATION[roomType(m)] then
+                    problems = problems + 1
+                    print(string.format("  PROBLEM: shared bathroom %s opens into useful space %s via %s; enter it from a hall or corridor only.",
+                        roomLabel(b), roomLabel(m), g.via[b .. ">" .. m]))
+                end
+            end
+        end
+    end
+
+    -- rule 3: the entrance opens into the public zone
+    for _, e in ipairs(g.entrances) do
+        for _, r in ipairs(e.rooms) do
+            if zone(r) == "private" then
+                problems = problems + 1
+                print(string.format("  PROBLEM: entrance %s opens into the private zone (%s); enter through the public hall.",
+                    e.door, roomLabel(r)))
+            end
+        end
+    end
+
+    -- rule 5: each zone hangs together through its own rooms and corridors
     for _, z in ipairs({ "public", "private", "service" }) do
         local list = byZone[z]
         if list and #list > 1 then
@@ -1045,7 +1106,7 @@ at.defineCommand("ATZONECHECK", function(p)
                     while #queue > 0 do
                         local n = table.remove(queue)
                         for m in pairs(g.adj[n] or {}) do
-                            if not group[m] and m ~= OUTSIDE and (member[m] or zoneOf(m) == "circulation") then
+                            if not group[m] and m ~= OUTSIDE and (member[m] or zone(m) == "circulation") then
                                 group[m] = groups; queue[#queue + 1] = m
                             end
                         end
@@ -1062,7 +1123,7 @@ at.defineCommand("ATZONECHECK", function(p)
 
     print(string.format("ATZONECHECK: %d room(s), %d problem(s) (public / private / service, house principle).",
         #rooms, problems))
-end, "Checks the public / private / service zoning of a dwelling: private rooms entered only from circulation or other private rooms, zones kept together (house principle)", {
+end, "Checks the public / private / service zoning of a dwelling: private rooms only from the private hall, shared bathroom from a hall only, entrance into the public zone, zones kept together (house principle)", {
     { name = "dwelling", type = "string", prompt = "Dwelling id <all rooms>", optional = true },
     { name = "tol",      type = "distance", prompt = "Max. distance of a door centre outside a room (wall)",
       default = WALL_TOL },
@@ -1327,6 +1388,35 @@ local function reachAlong(pts, cx, cy, dx, dy)
     return m
 end
 
+-- A fixture's back: of the room edges it touches (within 10mm), the one it
+-- runs along the longest (a worktop filling a wall touches the side walls
+-- too); when it touches none, the nearest edge. Returns the edge index.
+local function backEdge(roomPts, fpts)
+    local best, bestScore
+    for i = 1, #roomPts do
+        local a, b = roomPts[i], roomPts[i % #roomPts + 1]
+        local ex, ey = b.x - a.x, b.y - a.y
+        local l = math.sqrt(ex * ex + ey * ey)
+        if l > 0 then
+            local d = segOutline(a, b, fpts)
+            local score
+            if d <= 10 then
+                local ux, uy = ex / l, ey / l
+                local lo, hi = math.huge, -math.huge
+                for _, v in ipairs(fpts) do
+                    local s = (v.x - a.x) * ux + (v.y - a.y) * uy
+                    lo, hi = math.min(lo, s), math.max(hi, s)
+                end
+                score = 1e9 + math.max(0, math.min(l, hi) - math.max(0, lo))
+            else
+                score = -d
+            end
+            if not bestScore or score > bestScore then best, bestScore = i, score end
+        end
+    end
+    return best
+end
+
 local function checkBathroom(room, report)
     local roomPts = at.outline(room)
     if not roomPts or #roomPts < 3 then
@@ -1334,14 +1424,17 @@ local function checkBathroom(room, report)
         return
     end
     local fixtures, other = {}, {}
-    for _, t in ipairs({ "AEC_MVBLOCK_REF", "INSERT" }) do
+    for _, t in ipairs({ "AEC_MVBLOCK_REF", "INSERT", "LWPOLYLINE" }) do
         for _, h in ipairs(at.entitiesInside(room, t) or {}) do
-            local ft = fixtureType(h)
-            local pts = at.outline(h)
-            if ft and pts and #pts >= 3 then
-                fixtures[#fixtures + 1] = { h = h, type = ft, pts = pts }
-            elseif not ft then
-                other[#other + 1] = h
+            -- plain rectangles count only when tagged (schematic layouts)
+            if t ~= "LWPOLYLINE" or at.getData(h, "fixtureType") then
+                local ft = fixtureType(h)
+                local pts = at.outline(h)
+                if ft and pts and #pts >= 3 then
+                    fixtures[#fixtures + 1] = { h = h, type = ft, pts = pts }
+                elseif not ft then
+                    other[#other + 1] = h
+                end
             end
         end
     end
@@ -1393,12 +1486,8 @@ local function checkBathroom(room, report)
     -- side and front clearances of WC / basin / bidet
     for _, f in ipairs(fixtures) do
         if WALL_FIXTURES[f.type] then
-            -- back: the room edge nearest the fixture
-            local bi, bd
-            for i = 1, #roomPts do
-                local d = segOutline(roomPts[i], roomPts[i % #roomPts + 1], f.pts)
-                if not bd or d < bd then bi, bd = i, d end
-            end
+            -- back: the room edge it stands against
+            local bi = backEdge(roomPts, f.pts)
             local a, b = roomPts[bi], roomPts[bi % #roomPts + 1]
             local ux, uy = b.x - a.x, b.y - a.y
             local l = math.sqrt(ux * ux + uy * uy)
@@ -1573,7 +1662,7 @@ at.defineCommand("ATECONOMYCHECK", function(p)
     print(string.format("ATECONOMYCHECK: circulation %.2fm2 of %.2fm2 = %.1f%% (useful %.1f%%)",
         circArea, total, share * 100, (1 - share) * 100))
     if share > maxCirc then
-        print(string.format("  check: circulation above %.0f%%; shorten corridors or let halls do more work.", maxCirc * 100))
+        print(string.format("  check: circulation above %.0f%%; keep it as low as the design conditions allow: shorten corridors, let halls serve more rooms.", maxCirc * 100))
     else
         print(string.format("  ok: circulation at or below %.0f%%.", maxCirc * 100))
     end
@@ -1680,6 +1769,173 @@ at.defineCommand("ATBOUNDARYLIST", function(p)
         #list, #rooms))
 end, "Lists the light boundaries (no wall between two rooms that touch) and whether they connect the rooms", {
     { name = "dwelling", type = "string", prompt = "Dwelling id <all rooms>", optional = true },
+})
+
+-- ── ATFIXTURETYPE ───────────────────────────────────────────────────────────
+-- Tags blocks, ACA multi-view blocks or plain rectangles (schematic layouts)
+-- with their fixture type, for ATSANITARYCHECK and ATKITCHENCHECK. Overrides
+-- the type guessed from the block / style name.
+at.defineCommand("ATFIXTURETYPE", function(p)
+    local n = 0
+    for _, h in ipairs(p.objects) do
+        if p.fixtureType == "Default" then
+            if at.setData(h, "fixtureType", nil) then n = n + 1 end
+        elseif at.setData(h, "fixtureType", p.fixtureType) then
+            n = n + 1
+        end
+    end
+    print(string.format("ATFIXTURETYPE: %d object(s) %s.", n,
+        p.fixtureType == "Default" and "back to their name-based type" or ("tagged " .. p.fixtureType)))
+end, "Tags fixtures (blocks, ACA multi-view blocks, rectangles) as WC, Basin, Shower, Bathtub, Bidet, Worktop, Sink, Cooker, Fridge or Shelving", {
+    { name = "objects",     type = "selection", prompt = "Select fixtures",
+      filter = "INSERT,AEC_MVBLOCK_REF,LWPOLYLINE" },
+    { name = "fixtureType", type = "keyword", prompt = "Fixture type",
+      options = "WC Basin Shower Bathtub Bidet Worktop Sink Cooker Fridge Shelving Default", default = "Worktop",
+      description = "Default removes the tag" },
+})
+
+-- ── ATKITCHENCHECK ──────────────────────────────────────────────────────────
+-- Quito Art. 149, per kitchen:
+--   a worktop at least 0.60m deep, with a built-in sink;
+--   room for a cooker and a fridge (missing ones are a "check": early layouts
+--   often leave them out);
+--   circulation in front of each worktop at least 0.90m, or 1.10m when it
+--   faces shelving (30cm deep). The ordinance gives no figure for facing
+--   worktops (the text is missing in the source); 0.90m, the general
+--   minimum, is applied and reported as such.
+-- Elements are blocks, ACA multi-view blocks or tagged rectangles inside the
+-- kitchen, typed from their name (English or Spanish) or a fixtureType tag.
+-- A worktop's back is the nearest room edge; the aisle is measured in front
+-- of it with three rays across its width, up to the nearest element or the
+-- room edge.
+local KITCHEN_KEYS = {
+    { "Fridge",   { "fridge", "refrig", "nevera" } },
+    { "Cooker",   { "cooker", "stove", "range", "hob", "oven", "estufa", "horno" } },
+    { "Sink",     { "sink", "fregadero", "lavaplatos" } },
+    { "Shelving", { "shelf", "shelving", "estant", "alacena", "pantry" } },
+    { "Worktop",  { "worktop", "counter", "meson", "mesón", "encimera", "cabinet" } },
+}
+local KITCHEN_TYPES = { Fridge = true, Cooker = true, Sink = true, Shelving = true, Worktop = true }
+
+local function kitchenType(h)
+    local t = at.getData(h, "fixtureType")
+    if t then return KITCHEN_TYPES[t] and t or nil end
+    local name
+    local a = at.getAecProps(h, { "StyleName" })
+    if a and a.StyleName then name = a.StyleName end
+    if not name then
+        local pr = at.getProps(h)
+        name = pr and pr.name
+    end
+    if not name then return nil end
+    name = name:lower()
+    for _, k in ipairs(KITCHEN_KEYS) do
+        for _, w in ipairs(k[2]) do
+            if name:find(w, 1, true) then return k[1] end
+        end
+    end
+    return nil
+end
+
+local function checkKitchen(room, report)
+    local roomPts = at.outline(room)
+    if not roomPts or #roomPts < 3 then
+        print("ATKITCHENCHECK: " .. room .. " skipped: no outline.")
+        return
+    end
+    local elems = {}
+    for _, t in ipairs({ "AEC_MVBLOCK_REF", "INSERT", "LWPOLYLINE" }) do
+        for _, h in ipairs(at.entitiesInside(room, t) or {}) do
+            if t ~= "LWPOLYLINE" or at.getData(h, "fixtureType") then
+                local kt = kitchenType(h)
+                local pts = at.outline(h)
+                if kt and pts and #pts >= 3 then elems[#elems + 1] = { h = h, type = kt, pts = pts } end
+            end
+        end
+    end
+    local have, parts = {}, {}
+    for _, e in ipairs(elems) do
+        have[e.type] = true
+        parts[#parts + 1] = e.type .. " " .. e.h
+    end
+    print(string.format("ATKITCHENCHECK: %s: %s", roomLabel(room),
+        #parts > 0 and table.concat(parts, ", ") or "no kitchen elements found"))
+    report.kitchens = report.kitchens + 1
+    local function bad(msg) report.fails = report.fails + 1; print("  BELOW: " .. msg) end
+
+    if not have.Worktop then print("  check: no worktop found (Art. 149 needs one, 0.60m deep, with a sink); draw or tag it.") end
+    if have.Worktop and not have.Sink then print("  check: no sink found (Art. 149: built into the worktop).") end
+    if not have.Cooker then print("  check: no cooker shown (Art. 149: leave room for one).") end
+    if not have.Fridge then print("  check: no fridge shown (Art. 149: leave room for one).") end
+
+    for _, w in ipairs(elems) do
+        if w.type == "Worktop" then
+            -- back: the room edge it stands against
+            local bi = backEdge(roomPts, w.pts)
+            local a, b = roomPts[bi], roomPts[bi % #roomPts + 1]
+            local ux, uy = b.x - a.x, b.y - a.y
+            local l = math.sqrt(ux * ux + uy * uy)
+            ux, uy = ux / l, uy / l
+            local cx, cy = centroid(w.pts)
+            local nx, ny = -uy, ux
+            if (cx - a.x) * nx + (cy - a.y) * ny < 0 then nx, ny = -nx, -ny end
+
+            -- depth (across the worktop) and its extent along the wall
+            local nmin, nmax, umin, umax = math.huge, -math.huge, math.huge, -math.huge
+            for _, v in ipairs(w.pts) do
+                local sn = (v.x - cx) * nx + (v.y - cy) * ny
+                local su = (v.x - cx) * ux + (v.y - cy) * uy
+                nmin, nmax = math.min(nmin, sn), math.max(nmax, sn)
+                umin, umax = math.min(umin, su), math.max(umax, su)
+            end
+            local depth = nmax - nmin
+
+            -- aisle in front: three rays across the worktop's width
+            local aisle, hitType = math.huge, "wall"
+            for _, s in ipairs({ 0.25, 0.5, 0.75 }) do
+                local off = umin + (umax - umin) * s
+                local ox = cx + ux * off + nx * (nmax + 1)
+                local oy = cy + uy * off + ny * (nmax + 1)
+                local t, tt = rayHit(ox, oy, nx, ny, roomPts), "wall"
+                for _, o in ipairs(elems) do
+                    if o ~= w then
+                        local to = rayHit(ox, oy, nx, ny, o.pts)
+                        if to and (not t or to < t) then t, tt = to, o.type end
+                    end
+                end
+                if t and t + 1 < aisle then aisle, hitType = t + 1, tt end
+            end
+            local need = hitType == "Shelving" and 1100 or 900
+            local facing = (hitType == "Worktop" or hitType == "Cooker" or hitType == "Sink" or hitType == "Fridge")
+            local msg = string.format("worktop %s: depth %s, aisle %s to the %s (min %s%s)",
+                w.h, fmt(depth), aisle == math.huge and "?" or fmt(aisle), hitType == "wall" and "room edge" or hitType:lower(),
+                fmt(need), facing and "; facing worktops: no figure in the ordinance, general 900 applied" or "")
+            local ok = depth + 0.5 >= 600 and (aisle == math.huge or aisle + 0.5 >= need)
+            if ok then print("  ok: " .. msg) else bad(msg .. " (Art. 149)") end
+        end
+    end
+end
+
+at.defineCommand("ATKITCHENCHECK", function(p)
+    local rooms = p.rooms
+    if not rooms or #rooms == 0 then
+        rooms = {}
+        for _, r in ipairs(dwellingRooms(p.dwelling)) do
+            if roomType(r) == "Kitchen" then rooms[#rooms + 1] = r end
+        end
+    end
+    if #rooms == 0 then
+        print("ATKITCHENCHECK: no kitchens found (tag them Kitchen with ATROOMTYPE).")
+        return
+    end
+    local report = { fails = 0, kitchens = 0 }
+    for _, r in ipairs(rooms) do checkKitchen(r, report) end
+    print(string.format("ATKITCHENCHECK: %d kitchen(s), %d problem(s). Extents of ACA elements depend on the view: check in plan. %s",
+        report.kitchens, report.fails, SOURCE))
+end, "Checks kitchens (Quito Art. 149): worktop 600 deep with sink, cooker and fridge shown, aisle in front of worktops 900 (1100 facing shelving)", {
+    { name = "rooms",    type = "selection", prompt = "Select kitchens <all tagged>",
+      filter = "AEC_SPACE,LWPOLYLINE", optional = true },
+    { name = "dwelling", type = "string", prompt = "Dwelling id <all>", optional = true },
 })
 
 -- ── ATDWELLINGCHECK ─────────────────────────────────────────────────────────
@@ -1810,6 +2066,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
     -- 4c. bathrooms
     print("-- bathrooms (Art. 68, 150)")
     section("bathrooms", runCounted("ATSANITARYCHECK", { dwelling = p.dwelling }))
+
+    -- 4d. kitchens
+    print("-- kitchens (Art. 149)")
+    section("kitchens", runCounted("ATKITCHENCHECK", { dwelling = p.dwelling }))
 
     -- 5. circulation widths
     print("-- circulation widths (Art. 160)")

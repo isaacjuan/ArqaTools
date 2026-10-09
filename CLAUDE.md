@@ -104,8 +104,10 @@ changing a dwelling:
    change, a curtain or glass wall, to a heavy wall. A space does not need four walls.
 3. **Connect through transition spaces** (`Hall` / `Corridor` / `Portal`): never reach a
    useful space through another one; the entrance opens into a hall or portal; an en-suite
-   bathroom from its own bedroom is the exception. Private rooms are entered only from
-   circulation or other private rooms. **Doors are never obstructed** (900 mm zone both sides).
+   bathroom from its own bedroom is the exception. **A bedroom never opens off the central
+   hall:** private rooms are entered from the private zone's own hall (tag `zone=Private`) or
+   their en-suite. The shared bathroom is public, discreet, entered from a hall only. The
+   entrance opens into the public zone. **Doors are never obstructed** (900 mm zone both sides).
    **Space economy:** as little circulation as possible; enter rectangular rooms through a
    long side, near its middle (`ATECONOMYCHECK`).
 4. **Size on the 300 mm module**, code minimums rounded up (`QUITO_SPACE_STANDARDS.md`).

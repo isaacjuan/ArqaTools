@@ -199,10 +199,20 @@ element sizes, not space dimensions, and are not checked.
     it. With a dwelling: at least one bathroom with WC and shower or bath (Art. 150). ACA
     fixture extents depend on the view: check in plan.
   - `ATZONECHECK`: the zone rules of `DESIGN_PRINCIPLES.md` §2.
+  - `ATKITCHENCHECK` (Art. 149): worktop ≥ 0.60 m deep; aisle in front of each worktop
+    (three rays across its width, up to the nearest element or the room edge) ≥ 0.90 m, or
+    ≥ 1.10 m when it faces shelving; facing worktops get the general 0.90 m, since the
+    ordinance's figure is missing. Missing sink, cooker or fridge are reported as checks.
+  - `ATFIXTURETYPE` tags blocks, ACA multi-view blocks or plain rectangles (schematic
+    layouts) as WC, Basin, Shower, Bathtub, Bidet, Worktop, Sink, Cooker, Fridge or Shelving;
+    rectangles count as fixtures only when tagged. A fixture's back is the wall it runs along
+    the longest among those it touches; a fixture in a corner touching two walls equally can
+    be read either way.
   - All of them run inside `ATDWELLINGCHECK`.
 - Room types `Dining` (counts with living, Art. 147), `Garage` (Art. 162 parking rules) and
   `Storage`: no room minimum.
-- Not automated yet: kitchen aisle widths (0.90 / 1.10 m, Art. 149).
+- Not automated: the 30 % openable part of windows (Art. 69), ventilation ducts (Art. 156),
+  heights and guards (Art. 148, 154), stairs (Art. 161).
 - Test fixtures in `Drawing1.dwg`:
   - X = 20000, dwelling `TEST-02`: hall, bathroom, two bedrooms with ACA walls and doors;
     bedroom 2 reachable only through bedroom 1, a deliberate Art. 147 violation. Entrance door
@@ -211,7 +221,9 @@ element sizes, not space dimensions, and are not checked.
   - X = 40000, dwelling `TEST-03`: hall, living, dining and a bedroom drawn without walls,
     freestanding entrance door 5B03; light boundaries: hall/living open, living/dining floor
     (marker 5B00), living/bedroom wall (marker 5B02, so the bedroom is unreachable). Kitchen
-    5B07 above the dining room with its own exterior door 5B0A; road line 5B08 along the south
+    5B07 above the dining room with its own exterior door 5B0A and tagged rectangles: worktop
+    5B0B (north wall) with sink 5B0D and cooker 5B0E, fridge 5B0F, shelving 5B10 (1500 aisle);
+    road line 5B08 along the south
     (y = -2000) and access point 5B09, marked with `ATSITEMARK`.
 
 ## 10. Applied to the session layouts
