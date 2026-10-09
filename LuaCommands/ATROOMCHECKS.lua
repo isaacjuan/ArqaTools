@@ -871,19 +871,6 @@ end, "Checks the clear width of circulation rooms (Corridor, Hall, Portal) inclu
 -- host wall (the wall whose baseline is nearest); the zone runs along that
 -- wall's direction, so it is right for walls in any direction.
 
-local function inPoly(px, py, pts)
-    local inside, n = false, #pts
-    local j = n
-    for i = 1, n do
-        local a, b = pts[i], pts[j]
-        if (a.y > py) ~= (b.y > py) and px < (b.x - a.x) * (py - a.y) / (b.y - a.y) + a.x then
-            inside = not inside
-        end
-        j = i
-    end
-    return inside
-end
-
 local function properCross(a1, a2, b1, b2)
     local d1, d2 = cross(a1, a2, b1), cross(a1, a2, b2)
     local d3, d4 = cross(b1, b2, a1), cross(b1, b2, a2)
@@ -899,13 +886,13 @@ local function overlaps(pa, pb)
     end
     local function anyInside(p, q)
         for _, v in ipairs(p) do
-            if inPoly(v.x, v.y, q) and segOutline(v, v, q) > 1 then return true end
+            if pointInPts(v.x, v.y, q) and segOutline(v, v, q) > 1 then return true end
         end
         -- also the centre (one fully inside the other with no vertex strictly inside is rare)
         local cx, cy = 0, 0
         for _, v in ipairs(p) do cx = cx + v.x; cy = cy + v.y end
         cx, cy = cx / #p, cy / #p
-        return inPoly(cx, cy, q) and segOutline({ x = cx, y = cy }, { x = cx, y = cy }, q) > 1
+        return pointInPts(cx, cy, q) and segOutline({ x = cx, y = cy }, { x = cx, y = cy }, q) > 1
     end
     return anyInside(pa, pb) or anyInside(pb, pa)
 end
