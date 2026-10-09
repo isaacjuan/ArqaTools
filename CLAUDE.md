@@ -94,22 +94,22 @@ After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
 
 ## Design criteria (space planning work)
 
-- **Every space dimension is a multiple of 300 mm** (house rule, checked by `ATMODULECHECK`).
-  Legal minimum sides round up to the next multiple.
-- **Important changes of space go through transition spaces** (people need time to perceive a
-  new environment): useful spaces connect only through circulation (`Hall` / `Corridor` /
-  `Portal`) or from outside, never through another useful space; the entrance opens into a
-  hall or portal. Exception: an en-suite bathroom reached only from its own bedroom.
-  Checked by `ATPASSAGECHECK`; see `QUITO_SPACE_STANDARDS.md` §8.1.
-- **Doors are never obstructed:** a zone as wide as the opening and 900 mm deep stays free on
-  both sides (`ATDOORCLEARCHECK`). When placing furniture, keep it out of door zones.
-- **Three zones: public** (entrance hall, living, dining), **private** (bedrooms and their
-  attached spaces), **service** (kitchen, laundry, garage, storage). Private rooms are entered
-  only from circulation or other private rooms (`ATZONECHECK`, `QUITO_SPACE_STANDARDS.md` §8.3).
-- `ATDWELLINGCHECK <id>` runs every check on one dwelling.
-- Regional rules: `QUITO_SPACE_STANDARDS.md` (binding code), `BEDROOM_DESIGN_CRITERIA.md`,
-  `BATHROOM_DESIGN_CRITERIA.md` (Belgian, mostly secondary-sourced). Tag rooms with
-  `ATROOMTYPE` before running checks.
+`DESIGN_PRINCIPLES.md` is the project's design method; follow its order when designing or
+changing a dwelling:
+
+1. **Zones on the site first:** from the road and access, public zone at the entrance side,
+   private zone away from the road, service zone supplied from the road on its own access.
+2. **Define each space** with the boundary it needs, from a line or floor change, a level
+   change, a curtain or glass wall, to a heavy wall. A space does not need four walls.
+3. **Connect through transition spaces** (`Hall` / `Corridor` / `Portal`): never reach a
+   useful space through another one; the entrance opens into a hall or portal; an en-suite
+   bathroom from its own bedroom is the exception. Private rooms are entered only from
+   circulation or other private rooms. **Doors are never obstructed** (900 mm zone both sides).
+4. **Size on the 300 mm module**, code minimums rounded up (`QUITO_SPACE_STANDARDS.md`).
+
+Tag rooms with `ATROOMTYPE` (and the entrance with `ATDOORTYPE`), then `ATDWELLINGCHECK <id>`
+runs every check. Regional code notes: `QUITO_SPACE_STANDARDS.md` (binding),
+`BEDROOM_DESIGN_CRITERIA.md`, `BATHROOM_DESIGN_CRITERIA.md` (Belgian, mostly secondary-sourced).
 
 ## Other notes
 

@@ -118,59 +118,13 @@ narrowing to 0.90 m), doors 0.90 × 2.05 m clear, exits 1.20 m (0.60 m per perso
 
 Hollow block or brick 0.15 m; solid or filled 0.12 m; reinforced concrete 0.10 m.
 
-## 8. House rules
+## 8. House rules and the 300 mm module
 
-### 8.1 Transition and circulation
+The project's own design rules (zones and their siting, defining spaces, transition and
+circulation, en-suite bathrooms, unobstructed doors, the 300 mm module) are in
+`DESIGN_PRINCIPLES.md`. Only the module's effect on the Quito minimums stays here.
 
-**Principle:** people do not adapt instantly to a different space; it takes time to perceive
-the new environment. **Important changes of space therefore go through transition spaces:
-halls, corridors, portals.** Project decisions (2026-10-09) that follow from it, stricter than
-Art. 147:
-
-- **Circulation:** useful spaces (living, kitchen, bedrooms, bathrooms, laundry, ...) are
-  connected only through circulation spaces (`Hall`, `Corridor`, `Portal`, whose only purpose
-  is to connect) or from outside. A useful space is never reached through another useful space.
-  A direct door between two useful spaces is allowed only as an extra connection, when both
-  are also reached from circulation (reported as a note).
-- **Entrance:** the dwelling's entrance (doors tagged `Entrance` with `ATDOORTYPE`) opens into
-  a hall or portal, never straight into a useful space.
-- **En-suite bathroom (interpretation of Art. 147):** a bathroom whose only door leads into one
-  bedroom is that bedroom's private bathroom and is allowed. It does not count as the shared
-  bathroom: with several bedrooms there must still be a bathroom reached from circulation
-  (Art. 147 rule 2). A bathroom between two bedrooms is not private.
-
-Checked by `ATPASSAGECHECK` (also inside `ATDWELLINGCHECK`). Circulation spaces need no
-daylight of their own (Art. 69).
-
-### 8.2 Doors are never obstructed
-
-Project decision (2026-10-09): **nothing stands in front of a door.** On both sides of the
-wall, a zone as wide as the opening and 900 mm deep (the approach space, and the swing of a
-900 leaf) stays free of furniture and fixtures. Checked by `ATDOORCLEARCHECK` (also inside
-`ATDWELLINGCHECK`). A fixture placed against a wall must also keep clear of the doors in that
-wall and of the doors facing it.
-
-### 8.3 Zones: public, private, service
-
-**Principle:** a home has three zones.
-
-| Zone | Rooms (default from the room type) |
-|---|---|
-| Public | entrance hall, portal, living room, dining room |
-| Private | bedrooms and the spaces attached to them (bathrooms, en-suites) |
-| Service | kitchen, laundry, garage, storage, staff bedroom |
-| (circulation) | corridors: they connect zones and belong to none |
-
-A room's `zone` tag (`ATROOMTYPE ... zone`) overrides the default, e.g. a guest toilet off
-the entrance hall = Public. Rules (project interpretation, checked by `ATZONECHECK`):
-
-1. A private room is entered only from circulation or another private room, never directly
-   from a public or service room.
-2. Public and service rooms may connect directly (kitchen to dining).
-3. Each zone hangs together through its own rooms and corridors; a split zone is reported as
-   "check".
-
-### 8.4 300 mm planning module
+### Modular minimum sides
 
 Project decision (2026-10-09), on top of the code: **every space dimension is a multiple of
 300 mm (0.30 m)**, so sizes are easy to choose and coordinate. Applied to the room boundary as
@@ -220,7 +174,7 @@ element sizes, not space dimensions, and are not checked.
     bedrooms opens onto a non-bedroom (Art. 147). A door touching one room leads "outside";
     model every room, or an unmodelled space counts as outside. Open connections without a
     door or ACA opening are not seen.
-    Also the circulation house rule (§8.1).
+    Also the circulation house rule (`DESIGN_PRINCIPLES.md` §4).
   - `ATDWELLINGCHECK <id>`: everything for one dwelling: composition (living, kitchen,
     bathroom, bedrooms as tagged, laundry), the Art. 147 useful-area subtotal
     (28.5 / 38 / 49 m²), sizes + module, daylight, depth, the dwelling's doors, access. Ends
@@ -232,7 +186,7 @@ element sizes, not space dimensions, and are not checked.
     parallel facing edges of its outline (each arm of an L); an obstacle inside it (blocks, ACA
     multi-view blocks) leaves the wider of its two gaps to the facing edges. Door leaves are
     transient and not counted. Also part of `ATDWELLINGCHECK`.
-  - `ATDOORCLEARCHECK`: the §8.2 door zone (opening width × `depth`, default 900 mm, both
+  - `ATDOORCLEARCHECK`: the door zone of `DESIGN_PRINCIPLES.md` §5 (opening width × `depth`, default 900 mm, both
     sides of the host wall, following the wall's direction) must not overlap any obstacle
     (blocks, ACA multi-view blocks). Touching the zone's edge is fine.
 - Geometry functions: `at.outline(h)` (footprint in plan; ACA objects other than spaces use
@@ -244,7 +198,7 @@ element sizes, not space dimensions, and are not checked.
     ≥ 0.50 m to the wall in front (Art. 68). The back of a fixture is the room edge nearest to
     it. With a dwelling: at least one bathroom with WC and shower or bath (Art. 150). ACA
     fixture extents depend on the view: check in plan.
-  - `ATZONECHECK`: §8.3.
+  - `ATZONECHECK`: the zone rules of `DESIGN_PRINCIPLES.md` §2.
   - All of them run inside `ATDWELLINGCHECK`.
 - Room types `Dining` (counts with living, Art. 147), `Garage` (Art. 162 parking rules) and
   `Storage`: no room minimum.
