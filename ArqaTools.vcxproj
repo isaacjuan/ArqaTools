@@ -72,7 +72,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(OARX2026)\lib-x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>rxapi.lib;acdb25.lib;acge25.lib;acgeoment.lib;ac1st25.lib;accore.lib;acgiapi.lib;AcPal.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>rxapi.lib;acdb25.lib;acge25.lib;acgeoment.lib;ac1st25.lib;accore.lib;acgiapi.lib;AcPal.lib;axdb.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ModuleDefinitionFile>ArqaTools.def</ModuleDefinitionFile>
       <IgnoreSpecificDefaultLibraries>nafxcw.lib;nafxcwd.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <DataExecutionPrevention></DataExecutionPrevention>
@@ -121,6 +121,7 @@
     <ClCompile Include="CadInfra.cpp" />
     <ClCompile Include="ReactorPersistence.cpp" />
     <ClCompile Include="AITools.cpp" />
+    <ClCompile Include="AecTools.cpp" />
     <ClCompile Include="LayerTools.cpp" />
     <ClCompile Include="CommonTools.cpp" />
     <ClCompile Include="AcmlLexer.cpp" />
@@ -189,6 +190,7 @@
     <ClInclude Include="CadInfra.h" />
     <ClInclude Include="ReactorPersistence.h" />
     <ClInclude Include="AITools.h" />
+    <ClInclude Include="AecTools.h" />
     <ClInclude Include="LayerTools.h" />
     <ClInclude Include="AcmlLexer.h" />
     <ClInclude Include="AcmlAst.h" />

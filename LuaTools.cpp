@@ -17,6 +17,7 @@
 #include "SvgExportTools.h"
 #include "AiHarness.h"
 #include "CommandTester.h"
+#include "AecTools.h"
 
 extern "C" {
 #include "lua.h"
@@ -1220,6 +1221,58 @@ int at_refPoint(lua_State* L)
         return PushNilError(L, "no reference point");
     lua_pushnumber(L, p.x); lua_pushnumber(L, p.y); lua_pushnumber(L, p.z);
     return 3;
+}
+
+// at.getAecProps(handle [, {comName,...}]) -> table | nil,err
+// ACA door/window/wall/space properties via COM (AecTools). Extra COM
+// property names come back under the same name.
+int at_getAecProps(lua_State* L)
+{
+    const char* handle = luaL_checkstring(L, 1);
+    bool hasExtra = lua_istable(L, 2);
+    if (!hasExtra && !lua_isnoneornil(L, 2))
+        return luaL_argerror(L, 2, "expected a table of COM property names");
+
+    AecTools::Props props;
+    CString err;
+    bool ok = false;
+    {
+        std::vector<CString> extra;
+        if (hasExtra)
+        {
+            lua_Integer n = static_cast<lua_Integer>(lua_rawlen(L, 2));
+            for (lua_Integer i = 1; i <= n; ++i)
+            {
+                lua_rawgeti(L, 2, i);
+                if (const char* s = lua_tostring(L, -1))
+                    extra.push_back(CString(CA2T(s, CP_UTF8)));
+                lua_pop(L, 1);
+            }
+        }
+        ok = AecTools::ReadProps(ResolveHandle(handle), extra, props, err);
+    }
+    if (!ok) return PushNilError(L, ToUtf8(err).c_str());
+
+    lua_createtable(L, 0, static_cast<int>(props.fields.size()) + 4);
+    SetStringField(L, "handle", CA2T(handle, CP_UTF8));
+    SetStringField(L, "kind", props.kind);
+    SetStringField(L, "class", props.className);
+    if (props.hasCenter) SetPointField(L, "center", props.center);
+    for (const AecTools::Field& f : props.fields)
+    {
+        std::string key = ToUtf8(f.name);
+        switch (f.kind)
+        {
+        case AecTools::Field::Number: SetNumberField(L, key.c_str(), f.num); break;
+        case AecTools::Field::String: SetStringField(L, key.c_str(), f.str); break;
+        case AecTools::Field::Point:  SetPointField(L, key.c_str(), f.pt);   break;
+        case AecTools::Field::Bool:
+            lua_pushboolean(L, f.b ? 1 : 0);
+            lua_setfield(L, -2, key.c_str());
+            break;
+        }
+    }
+    return 1;
 }
 
 // Reads a {handle, ...} table at idx into ids (unknown handles are skipped).
@@ -2926,6 +2979,13 @@ const AtFn kFns[] = {
       "handle,type,class,layer,linetype,color(ACI),min,max; plus startPoint/endPoint (any curve), center/radius/startAngle/endAngle, "
       "closed/elevation/vertices{x,y,bulge}, text/position/height/rotation, name/position/rotation/scale, length, area "
       "as applicable; points are {x=,y=,z=}, angles in degrees" },
+    { "getAecProps",  at_getAecProps,  "(handle [,{comName,...}]) -> table | nil,err",
+      "AutoCAD Architecture object properties: handle,kind(door|window|opening|wall|space|aec),class,center (WCS "
+      "centre of its extents); door/window: width,height,sillHeight,headHeight,rise,leafWidth,swingAngle,openPercent,"
+      "measureTo,style; wall: width (thickness),height,justify(Left|Center|Right|Baseline),justifyCode,startPoint,"
+      "endPoint (baseline, WCS),length,style; space: name,area (ACA area units, m2 in metric drawings; reliable, unlike "
+      "getProps' area),perimeter,height,length,width,volume,location,geometryType,style; lengths in drawing units; "
+      "extra ACA COM property names in the table come back under the same name; nil,err for non-ACA objects" },
     // Create
     { "drawLine",     at_drawLine,     "(x1,y1,z1,x2,y2,z2) -> handle",        "" },
     { "drawCircle",   at_drawCircle,   "(cx,cy,cz,r) -> handle",               "" },
@@ -3254,7 +3314,7 @@ bool isReadOnlyFunction(const char* name)
     static const char* const kReadOnly[] = {
         "print", "listEntities", "entities", "getProps", "getText", "sumText",
         "countBlocks", "layers", "getCurrentLayer", "refPoint", "formatArea", "formatLength",
-        "getVar",
+        "getVar", "getAecProps",
     };
     for (const char* n : kReadOnly)
         if (strcmp(name, n) == 0) return true;

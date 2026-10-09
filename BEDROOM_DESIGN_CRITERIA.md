@@ -149,6 +149,11 @@ all, regardless of which furniture layout is used.
   known wall-interior coordinates instead of trusting the `AEC_SPACE` object's
   own area. Don't trust `AEC_SPACE.area` for a regulatory check until this is
   root-caused.
+  *Update 2026-10-09:* `at.getAecProps(h).area` reads ACA's own calculated
+  area through COM. On the spaces now in the drawing it agrees with
+  `getProps` (bedroom space 4740: 12.24m² both ways); the 8.605m² reading
+  could not be reproduced, so the original space was probably edited or
+  deleted since. Cross-check the two when in doubt.
 - **Wall thickness direction is not consistent drawing-to-drawing** — see §4.
   Always draw one test wall and check its bounding box against the baseline
   before committing to a full room loop's coordinates.
