@@ -189,6 +189,8 @@ In `Documents\ArqaTools\LuaCommands\ATBEDROOM.lua`, reload with `ATLUARELOAD`:
   bed (secondary-sourced default 700mm/600mm minimum).
 - **`ATROOMSIZECHECK`**: checks a room's floor area against a region's rental-
   housing-quality minimum (Flanders/Brussels/Wallonia, secondary-sourced — §1).
+  Also has a `Quito` mode (area + shorter side per room type, from the Quito
+  building code) — see `QUITO_SPACE_STANDARDS.md`.
 
 Reused as-is from the bathroom session's `ATCLEARANCE.lua`: `ATFRONTCLEARANCE`
 (wardrobe and desk front clearance), `ATDOORSWINGZONE` (room door),

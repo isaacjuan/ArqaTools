@@ -43,8 +43,33 @@
 -- CONFIRM against wonenvlaanderen.be/woningkwaliteit (Flanders),
 -- be.brussels (Brussels) or the Walloon housing authority before relying on
 -- this for anything beyond an early, rough design-stage flag.
+--
+-- Quito (Ecuador): unlike the Belgian figures above, this IS a general
+-- building code that applies to every dwelling, owner-occupied included.
+-- Read from the ordinance text itself (Ordenanza 3457, DMQ, 2003, Art. 147;
+-- file "ORD-3746 - NORMAS DE ARQUITECTURA Y URBANISMO.pdf"). It sets a
+-- minimum useful area AND a minimum side per room type, the area scaled by
+-- the dwelling's bedroom count. See QUITO_SPACE_STANDARDS.md. Check whether
+-- a later DMQ amendment changed the figures before relying on them.
 
 local UNVERIFIED = "[SECONDARY-SOURCED FIGURE -- confirm current regional housing-quality rules before relying on this]"
+local QUITO_SOURCE = "[Quito Ord. 3457 Art. 147 (2003) -- check for later DMQ amendments]"
+
+-- Quito Art. 147: minimum side (m) and minimum useful area (m2) per room
+-- type, indexed by the dwelling's bedroom count (1, 2, 3 = three or more).
+-- nil = that room does not exist in a dwelling with that many bedrooms.
+-- Bedroom areas include the wardrobe. Bedroom3 is also used for a 4th or
+-- further bedroom (the table stops at "3 or more"; assumption, not stated).
+local QUITO_ROOMS = {
+    Living         = { side = 2.70, area = { 13.00, 13.00, 16.00 }, label = "living-dining room" },
+    Kitchen        = { side = 1.50, area = {  4.00,  5.50,  6.50 }, label = "kitchen" },
+    MainBedroom    = { side = 2.50, area = {  9.00,  9.00,  9.00 }, label = "main bedroom" },
+    Bedroom2       = { side = 2.20, area = {   nil,  8.00,  8.00 }, label = "second bedroom" },
+    Bedroom3       = { side = 2.20, area = {   nil,   nil,  7.00 }, label = "third (or further) bedroom" },
+    Bathroom       = { side = 1.20, area = {  2.50,  2.50,  2.50 }, label = "bathroom" },
+    Laundry        = { side = 1.30, area = {  3.00,  3.00,  3.00 }, label = "laundry/drying area" },
+    ServiceBedroom = { side = 2.00, area = {  6.00,  6.00,  6.00 }, label = "staff bedroom" },
+}
 
 -- Draws one or two clearance rectangles flush against a bed's long side(s)
 -- (the side(s) you walk around / make the bed from). Two sides is the
@@ -108,6 +133,47 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
     end
     local areaM2 = roomProps.area / 1000000 -- drawing units assumed mm -> m2
 
+    -- Quito: per room type, area AND minimum side.
+    if p.jurisdiction == "Quito" then
+        local rule = QUITO_ROOMS[p.roomType]
+        if not rule then
+            print("ATROOMSIZECHECK: unknown room type, expected Living, Kitchen, MainBedroom, "
+                .. "Bedroom2, Bedroom3, Bathroom, Laundry or ServiceBedroom.")
+            return
+        end
+        local beds = math.floor(p.bedrooms)
+        if beds < 1 then
+            print("ATROOMSIZECHECK: the dwelling needs at least 1 bedroom.")
+            return
+        end
+        local reqArea = rule.area[math.min(beds, 3)]
+        if not reqArea then
+            print(string.format("ATROOMSIZECHECK: a %d-bedroom dwelling has no %s in Art. 147.",
+                beds, rule.label))
+            return
+        end
+        -- Shorter side from the bounding box: exact for a rectangle aligned
+        -- with the axes, only an approximation for other shapes.
+        local shortM
+        if roomProps.min and roomProps.max then
+            shortM = math.min(roomProps.max.x - roomProps.min.x,
+                              roomProps.max.y - roomProps.min.y) / 1000
+        end
+        local areaOk = areaM2 >= reqArea
+        local sideOk = shortM and shortM >= rule.side
+        print(string.format(
+            "ATROOMSIZECHECK: room %s (%s, %d-bedroom dwelling): area %.2fm2 vs min %.2fm2 -> %s; "
+                .. "shorter side %s vs min %.2fm -> %s -> %s. %s",
+            p.room, rule.label, beds, areaM2, reqArea, areaOk and "ok" or "BELOW",
+            shortM and string.format("%.2fm", shortM) or "unknown", rule.side,
+            shortM and (sideOk and "ok" or "BELOW") or "not checked",
+            (areaOk and sideOk) and "meets" or "DOES NOT MEET", QUITO_SOURCE))
+        if shortM then
+            print("  (shorter side read from the bounding box: exact only for an axis-aligned rectangle)")
+        end
+        return
+    end
+
     local required, basis
     if p.jurisdiction == "Flanders" then
         if p.occupants <= 1 then
@@ -122,7 +188,7 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
         required, basis = 15.0 + 5.0 * math.max(0, p.occupants - 1),
             string.format("Wallonia light-dwelling overcrowding rule: 15m2 + 5m2 per additional occupant (%d occupant(s))", p.occupants)
     else
-        print("ATROOMSIZECHECK: unknown jurisdiction, expected Flanders, Brussels or Wallonia.")
+        print("ATROOMSIZECHECK: unknown jurisdiction, expected Flanders, Brussels, Wallonia or Quito.")
         return
     end
 
@@ -130,8 +196,14 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
     print(string.format(
         "ATROOMSIZECHECK: room %s = %.2fm2, %s requires %.2fm2 (%s) -> %s. %s",
         p.room, areaM2, p.jurisdiction, required, basis, status, UNVERIFIED))
-end, "Checks a room's floor area against a region's rental-housing-quality minimum (secondary-sourced)", {
+end, "Checks a room against a region's minimum: floor area (Belgian rental-housing rules, secondary-sourced) or area + shorter side per room type (Quito building code)", {
     { name = "room",        type = "entity", prompt = "Select the room boundary" },
-    { name = "jurisdiction", type = "string", prompt = "Jurisdiction", options = "Flanders Brussels Wallonia", default = "Flanders" },
-    { name = "occupants",   type = "number", prompt = "Number of occupants", default = 1 },
+    { name = "jurisdiction", type = "string", prompt = "Jurisdiction", options = "Flanders Brussels Wallonia Quito", default = "Flanders" },
+    { name = "occupants",   type = "number", prompt = "Number of occupants", default = 1, conditional = true,
+      description = "Flanders/Brussels/Wallonia only" },
+    { name = "roomType",    type = "string", prompt = "Room type",
+      options = "Living Kitchen MainBedroom Bedroom2 Bedroom3 Bathroom Laundry ServiceBedroom",
+      default = "MainBedroom", conditional = true, description = "Quito only" },
+    { name = "bedrooms",    type = "integer", prompt = "Bedrooms in the dwelling", default = 1, conditional = true,
+      description = "Quito only: the dwelling's bedroom count, which sets the minimum area" },
 })
