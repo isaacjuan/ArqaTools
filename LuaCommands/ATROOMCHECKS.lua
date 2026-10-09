@@ -350,6 +350,23 @@ local function pointInPts(px, py, pts)
     return inside
 end
 
+-- Merges consecutive collinear edges of an outline (an ACA space's outline is
+-- split where walls meet), so "the wall a piece stands against" is the whole
+-- wall, not a piece of it.
+local function simplifyOutline(pts)
+    local out = {}
+    local n = #pts
+    for i = 1, n do
+        local a, b, c = pts[(i - 2) % n + 1], pts[i], pts[i % n + 1]
+        local abx, aby, bcx, bcy = b.x - a.x, b.y - a.y, c.x - b.x, c.y - b.y
+        local l1, l2 = math.sqrt(abx * abx + aby * aby), math.sqrt(bcx * bcx + bcy * bcy)
+        local collinear = l1 > 0 and l2 > 0 and math.abs(abx * bcy - aby * bcx) / (l1 * l2) < 1e-4
+            and (abx * bcx + aby * bcy) > 0
+        if not collinear and l1 > 0.5 then out[#out + 1] = b end
+    end
+    return #out >= 3 and out or pts
+end
+
 -- Distance from a point to an open or closed chain of points.
 local function chainDist(px, py, pts, closed)
     local best = math.huge
@@ -400,6 +417,7 @@ local function lightBoundaries(rooms)
     local outlines = {}
     for _, r in ipairs(rooms) do
         local pts, closed = at.outline(r)
+        if pts then pts = simplifyOutline(pts) end
         if pts and closed and #pts >= 3 then outlines[r] = pts end
     end
     -- walls (and curtain walls) that could stand on a shared edge
@@ -780,6 +798,7 @@ at.defineCommand("ATCIRCULATIONCHECK", function(p)
     local pass, fail = 0, 0
     for _, r in ipairs(rooms) do
         local pts, closed = at.outline(r)
+        if pts then pts = simplifyOutline(pts) end
         if not pts or not closed or #pts < 3 then
             print("ATCIRCULATIONCHECK: " .. r .. " skipped: not a closed room outline.")
         else
@@ -788,8 +807,18 @@ at.defineCommand("ATCIRCULATIONCHECK", function(p)
             for _, f in ipairs(fp) do if f.gap < width then width = f.gap end end
             local clear, limiting = width, "room width"
             local notes = {}
+            -- obstacles: the given types, plus rectangles tagged with a fixture type
+            local found, seen = {}, {}
             for _, t in ipairs(types) do
                 for _, o in ipairs(at.entitiesInside(r, t) or {}) do
+                    if not seen[o] then seen[o] = true; found[#found + 1] = o end
+                end
+            end
+            for _, o in ipairs(at.entitiesInside(r, "LWPOLYLINE") or {}) do
+                if not seen[o] and at.getData(o, "fixtureType") then seen[o] = true; found[#found + 1] = o end
+            end
+            do
+                for _, o in ipairs(found) do
                     local op = at.outline(o)
                     if op and #op >= 2 then
                         -- the facing pair the obstacle stands between
@@ -1602,22 +1631,6 @@ local function reachAlong(pts, cx, cy, dx, dy)
     return m
 end
 
--- Merges consecutive collinear edges of an outline (an ACA space's outline is
--- split where walls meet), so "the wall a piece stands against" is the whole
--- wall, not a piece of it.
-local function simplifyOutline(pts)
-    local out = {}
-    local n = #pts
-    for i = 1, n do
-        local a, b, c = pts[(i - 2) % n + 1], pts[i], pts[i % n + 1]
-        local abx, aby, bcx, bcy = b.x - a.x, b.y - a.y, c.x - b.x, c.y - b.y
-        local l1, l2 = math.sqrt(abx * abx + aby * aby), math.sqrt(bcx * bcx + bcy * bcy)
-        local collinear = l1 > 0 and l2 > 0 and math.abs(abx * bcy - aby * bcx) / (l1 * l2) < 1e-4
-            and (abx * bcx + aby * bcy) > 0
-        if not collinear and l1 > 0.5 then out[#out + 1] = b end
-    end
-    return #out >= 3 and out or pts
-end
 
 -- A fixture's back: of the room edges it touches (within 10mm), the one it
 -- runs along the longest (a worktop filling a wall touches the side walls
@@ -1905,6 +1918,8 @@ at.defineCommand("ATECONOMYCHECK", function(p)
     for _, r in ipairs(rooms) do
         if not CIRCULATION[roomType(r)] then
             local pts, closed = at.outline(r)
+            -- ACA spaces split their edges where walls meet: merge them first
+            if pts then pts = simplifyOutline(pts) end
             if pts and closed and #pts >= 3 then
                 local samples = samplePoints(pts)
                 -- the longest edge and the ideal entry at its middle
