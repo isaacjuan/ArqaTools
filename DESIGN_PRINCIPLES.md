@@ -137,6 +137,11 @@ corridors, portals.
   door (Alexander's entrance transition): model it as a room of type `Portal` tagged
   `outdoor=Yes` (`ATROOMTYPE`). The front door between portal and hall opens into the hall,
   as if the portal were outside, and the outdoor portal is left out of the built floor area.
+- **Open kitchen** (American kitchen, project decision): a kitchen open to, or entered from,
+  the dining or living room is allowed; it need not open off a hall.
+- **Service WC** (project decision): a WC opening only onto service rooms (a workroom or
+  laundry, the garage, storage) is allowed off them and belongs to the service zone; the
+  shared-bathroom rules (public, from a hall only) do not apply to it.
 - **En-suite bathroom** (interpretation of Quito Art. 147): a bathroom whose only door leads
   into one bedroom is that bedroom's private bathroom and is allowed. It does not count as the
   shared bathroom, and a bathroom between two bedrooms is not private.

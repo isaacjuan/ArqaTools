@@ -335,6 +335,26 @@ local function zoneOf(room)
     return ZONE_OF[roomType(room) or ""]
 end
 
+-- A WC opening only onto service rooms (workroom / laundry, garage, storage)
+-- is a service WC: allowed off them, part of the service zone (project
+-- decision 2026-10-09). Not a kitchen: no WC opens into a kitchen.
+local SERVICE_ROOMS = { Laundry = true, Garage = true, Storage = true, ServiceBedroom = true }
+local function serviceWC(b, adj)
+    if roomType(b) ~= "Bathroom" then return false end
+    local n = 0
+    for m in pairs(adj[b] or {}) do
+        if m ~= OUTSIDE then
+            if not SERVICE_ROOMS[roomType(m)] then return false end
+            n = n + 1
+        end
+    end
+    return n > 0
+end
+
+-- Open kitchen (American kitchen): a kitchen open to, or entered from, the
+-- dining or living room is allowed (project decision 2026-10-09).
+local SOCIAL_ROOMS = { Dining = true, Living = true }
+
 -- ── Light boundaries (DESIGN_PRINCIPLES.md §3) ──────────────────────────────
 -- A space can be defined by a line, a change of floor or level, a curtain, a
 -- glass wall or a heavy wall. Two rooms whose outlines share an edge (gap
@@ -659,12 +679,21 @@ at.defineCommand("ATPASSAGECHECK", function(p)
         end
     end
 
+    -- service WCs: a WC opening only onto service rooms
+    local svc = {}
+    for _, b in ipairs(rooms) do
+        if serviceWC(b, adj) then
+            svc[b] = true
+            print(string.format("  ok: %s is a service WC off the service rooms (allowed).", roomLabel(b)))
+        end
+    end
+
     -- rule 1: bedrooms and bathrooms are no obligatory passage
     local beds, baths = 0, {}
     for _, x in ipairs(rooms) do
         local t = roomType(x)
         if BEDROOM_TYPES[t] then beds = beds + 1 end
-        if t == "Bathroom" and not ensuite[x] then baths[#baths + 1] = x end
+        if t == "Bathroom" and not ensuite[x] and not svc[x] then baths[#baths + 1] = x end
         if BEDROOM_TYPES[t] or t == "Bathroom" then
             local without = reach(x)
             for _, y in ipairs(rooms) do
@@ -731,11 +760,13 @@ at.defineCommand("ATPASSAGECHECK", function(p)
 
     local noted = {}
     for _, r in ipairs(rooms) do
-        if not CIRCULATION[roomType(r)] and not ensuite[r] then
+        if not CIRCULATION[roomType(r)] and not ensuite[r] and not svc[r] then
             local ok, through = spaceOk[find(r)] == true, {}
+            local social = false
             for m in pairs(adj[r] or {}) do
+                if SOCIAL_ROOMS[roomType(m)] then social = true end
                 if circ[m] then ok = true
-                elseif ensuite[m] ~= r then through[#through + 1] = name(m) end   -- not its own en-suite
+                elseif ensuite[m] ~= r and not svc[m] then through[#through + 1] = name(m) end   -- not its own en-suite / service WC
                 -- a direct door between two useful spaces: fine only as an extra
                 if m ~= OUTSIDE and not CIRCULATION[roomType(m)] and not ensuite[m]
                         and not lightPair[r .. "|" .. m] then
@@ -746,6 +777,10 @@ at.defineCommand("ATPASSAGECHECK", function(p)
                             via[r .. ">" .. m], roomLabel(r), roomLabel(m)))
                     end
                 end
+            end
+            if not ok and base[r] and roomType(r) == "Kitchen" and social then
+                ok = true
+                print(string.format("  ok: %s is an open kitchen, entered from the dining / living room (allowed).", roomLabel(r)))
             end
             if not ok and base[r] then
                 problems = problems + 1
@@ -1368,8 +1403,11 @@ at.defineCommand("ATZONECHECK", function(p)
     end
     local g = buildGraph(rooms, p.tol or WALL_TOL)
     local ensuite = ensuiteMap(rooms, g)
+    local svc = {}
+    for _, b in ipairs(rooms) do if serviceWC(b, g.adj) then svc[b] = true end end
     local function zone(r)
         if ensuite[r] and not at.getData(r, "zone") then return "private" end
+        if svc[r] and not at.getData(r, "zone") then return "service" end
         return zoneOf(r)
     end
     local problems = 0
@@ -1419,7 +1457,7 @@ at.defineCommand("ATZONECHECK", function(p)
 
     -- rule 2: the shared bathroom is entered from a hall or corridor only
     for _, b in ipairs(rooms) do
-        if roomType(b) == "Bathroom" and not ensuite[b] then
+        if roomType(b) == "Bathroom" and not ensuite[b] and not svc[b] then
             for m in pairs(g.adj[b] or {}) do
                 if m ~= OUTSIDE and not CIRCULATION[roomType(m)] then
                     problems = problems + 1
@@ -1559,7 +1597,7 @@ at.defineCommand("ATZONECHECK", function(p)
             end
             if not next(targets) then
                 for _, r in ipairs(rooms) do
-                    if roomType(r) == "Bathroom" and not ensuite[r] then targets[r] = true end
+                    if roomType(r) == "Bathroom" and not ensuite[r] and not svc[r] then targets[r] = true end
                 end
             end
             local dist, prev = { [b] = 0 }, {}
@@ -2212,6 +2250,17 @@ at.defineCommand("ATECONOMYCHECK", function(p)
                     local d = at.getAecProps(h)
                     if d and d.center and doorTouches(r, d, WALL_TOL) then
                         entries[#entries + 1] = { what = "door " .. h, pt = doorEntry(d, pts) }
+                    end
+                end
+                -- door marks of a sketch (ATDOORMARK)
+                for _, h in ipairs(at.findByData("doorMark")) do
+                    local pr = at.getProps(h)
+                    if pr and pr.min and pr.max then
+                        local d = { handle = h, width = 900,
+                                    center = { x = (pr.min.x + pr.max.x) / 2, y = (pr.min.y + pr.max.y) / 2 } }
+                        if doorTouches(r, d, WALL_TOL) then
+                            entries[#entries + 1] = { what = "door mark " .. h, pt = doorEntry(d, pts) }
+                        end
                     end
                 end
                 for _, lb in ipairs(g.boundaries) do
@@ -3189,8 +3238,20 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
     -- 2. per-room size + module
     print("-- room sizes and 300mm module (Art. 147, house rule)")
     fails = 0
+    -- a dining room open to the living room counts with it (Art. 147's
+    -- living figure is for the living-dining room)
+    local gs = buildGraph(rooms, WALL_TOL)
     for _, r in ipairs(rooms) do
-        fails = fails + runCounted("ATROOMSIZECHECK", { room = r, jurisdiction = "Quito" })
+        local joined = {}
+        if roomType(r) == "Living" then
+            for _, lb in ipairs(gs.boundaries) do
+                if lb.walkable and (lb.r1 == r or lb.r2 == r) then
+                    local o = lb.r1 == r and lb.r2 or lb.r1
+                    if roomType(o) == "Dining" then joined[#joined + 1] = o end
+                end
+            end
+        end
+        fails = fails + runCounted("ATROOMSIZECHECK", { room = r, jurisdiction = "Quito", joined = joined })
     end
     section("room sizes / module", fails)
 

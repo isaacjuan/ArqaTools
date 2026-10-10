@@ -217,7 +217,9 @@ element sizes, not space dimensions, and are not checked.
     be read either way.
   - All of them run inside `ATDWELLINGCHECK`.
 - Room types `Dining` (counts with living, Art. 147), `Garage` (Art. 162 parking rules) and
-  `Storage`: no room minimum.
+  `Storage`: no room minimum. Art. 147's living figure is for the living-dining room: in
+  `ATDWELLINGCHECK` a dining room joined to the living room by an open (walkable) boundary
+  counts with it (`ATROOMSIZECHECK ... joined`).
 - **Guest toilet (interpretation, to confirm):** Art. 147 gives one bathroom figure (2.50 m²,
   side 1.20 m) and no separate one for a WC-and-basin room. `ATROOMSIZECHECK` applies it fully
   to bathrooms with a shower or bath; a bathroom without one that falls short is reported as a

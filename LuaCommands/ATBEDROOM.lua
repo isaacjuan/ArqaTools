@@ -252,6 +252,19 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
             print("ATROOMSIZECHECK: the dwelling needs at least 1 bedroom.")
             return
         end
+        -- rooms open to this one that count with it (living + dining)
+        local joinedNote = ""
+        if p.joined and #p.joined > 0 then
+            local names = {}
+            for _, h in ipairs(p.joined) do
+                local a
+                local aec = at.getAecProps(h)
+                if aec and aec.kind == "space" and aec.area then a = aec.area
+                else local pr = at.getProps(h); a = pr and pr.area and pr.area / 1000000 end
+                if a then areaM2 = areaM2 + a; names[#names + 1] = string.format("%s %.2fm2", h, a) end
+            end
+            if #names > 0 then joinedNote = " (with " .. table.concat(names, ", ") .. " open to it)" end
+        end
         local reqArea = rule.area[math.min(beds, 3)]
         if not reqArea then
             print(string.format("ATROOMSIZECHECK: a %d-bedroom dwelling has no %s in Art. 147.",
@@ -311,7 +324,7 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
             end
         end
         print(string.format(
-            "ATROOMSIZECHECK: room %s (%s, %d-bedroom dwelling): area %.2fm2 vs min %.2fm2 -> %s; "
+            "ATROOMSIZECHECK: room %s (%s, %d-bedroom dwelling): area %.2fm2" .. joinedNote .. " vs min %.2fm2 -> %s; "
                 .. "shorter side %s vs min %.2fm -> %s -> %s. %s",
             p.room, rule.label, beds, areaM2, reqArea, areaOk and "ok" or "BELOW",
             shortM and string.format("%.2fm", shortM) or "unknown", rule.side,
@@ -360,6 +373,9 @@ end, "Checks a room against a region's minimum: floor area (Belgian rental-housi
     { name = "bedrooms",    type = "integer", prompt = "Bedrooms in the dwelling <from the room's tag>",
       optional = true, conditional = true,
       description = "Quito only: the dwelling's bedroom count, which sets the minimum area; omit to use the room's tag" },
+    { name = "joined",      type = "selection", prompt = "Rooms open to it that count with it (dining with living) <none>",
+      filter = "AEC_SPACE,LWPOLYLINE", optional = true, conditional = true,
+      description = "Quito only: Art. 147's living figure is for the living-dining room; a dining room open to the living counts with it" },
 })
 
 -- Tags a room boundary (closed polyline or ACA space) with what the room
