@@ -91,6 +91,9 @@ Public buildings also need an accessible toilet (NTE INEN 2 293).
 | Front door opening | 0.96 × 2.03 m | 153 |
 | Interior door opening | 0.86 × 2.03 m | 153 |
 | Bathroom door opening | 0.76 × 2.03 m | 153 |
+
+The door figures are the **wall opening** (vano). With a 30 mm frame at each side and at the
+head they correspond to leaves of 900, 800 and 700 × 2000 mm (front, interior, bathroom).
 | Guard at any drop | 0.90 m high | 154 |
 | Lift | required from 5 storeys, basements included | 164 |
 
@@ -166,8 +169,10 @@ element sizes, not space dimensions, and are not checked.
   - `ATROOMDEPTHCHECK`: depth from the window's wall ≤ 5 × the window's smaller dimension
     (Art. 151); with several windows, one passing window is enough (assumption).
   - `ATDOORCHECK`: door width and height against Art. 153. Type from the `ATDOORTYPE` tag,
-    else a door opening to a bathroom is a bathroom door, else interior. Sizes are ACA's
-    width/height as the door style measures them; the code means the rough opening.
+    else a door opening to a bathroom is a bathroom door, else interior. The code measures the
+    wall opening; ACA's door width and height are the leaf, so the opening is the leaf plus
+    the frame: width + 2 × 30 mm, height + 30 mm (`frame` parameter; 0 for door styles
+    dimensioned to the rough opening).
   - A room's type comes from its `ATROOMTYPE` tag, else an ACA space named like a room type
     ("Bathroom"). A door or window belongs to a room when its centre is within 300 mm of it
     (the wall); a door also when a corner of its extents is inside (outward-swinging doors).

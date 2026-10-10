@@ -229,8 +229,12 @@ end, "Checks room depth against 5 x the smaller window dimension (Quito Art. 151
 -- Art. 153 minimum door openings (vano): entrance 0.96 x 2.03 m, interior
 -- 0.86 x 2.03 m, bathroom 0.76 x 2.03 m. The door's type comes from its
 -- ATDOORTYPE tag, else: a door touching a Bathroom-tagged room is a bathroom
--- door, any other door is interior. Sizes are ACA's width/height, measured as
--- the door style says (measureTo); the code means the rough opening.
+-- door, any other door is interior. The code measures the wall opening; ACA
+-- dimensions these door styles by the leaf (a 900 door is 1000 across its
+-- frame), so the opening is the leaf plus the frame: width + 2 x frame, height
+-- + 1 x frame (head), with `frame` = 30 mm (Quito practice: a 700 leaf in a
+-- 760 opening, a 2000 leaf in a 2030 opening). Set frame = 0 for door styles
+-- dimensioned to the rough opening.
 local DOOR_MIN = {
     Entrance = { w = 960, h = 2030 },
     Interior = { w = 860, h = 2030 },
@@ -261,21 +265,25 @@ at.defineCommand("ATDOORCHECK", function(p)
             if not min then
                 print(string.format("ATDOORCHECK: %s: unknown doorType '%s' (Entrance, Interior or Bathroom).", h, kind))
             else
-                local wOk, hOk = d.width >= min.w - 0.5, d.height >= min.h - 0.5
+                local frame = p.frame or 30
+                local ow, oh = d.width + 2 * frame, d.height + frame
+                local wOk, hOk = ow >= min.w - 0.5, oh >= min.h - 0.5
                 if wOk and hOk then pass = pass + 1 else fail = fail + 1 end
-                print(string.format("ATDOORCHECK: %s %s door (%s)%s: %sx%s vs min %sx%s -> width %s, height %s",
+                print(string.format("ATDOORCHECK: %s %s door (%s)%s: leaf %sx%s, opening %sx%s vs min %sx%s -> width %s, height %s",
                     h, kind, why, #touching > 0 and (", rooms " .. table.concat(touching, ", ")) or "",
-                    fmt(d.width), fmt(d.height), fmt(min.w), fmt(min.h),
+                    fmt(d.width), fmt(d.height), fmt(ow), fmt(oh), fmt(min.w), fmt(min.h),
                     wOk and "ok" or "BELOW", hOk and "ok" or "BELOW"))
             end
         end
     end
-    print(string.format("ATDOORCHECK: %d ok, %d below. Sizes as ACA measures them (style measureTo). %s",
-        pass, fail, SOURCE))
-end, "Checks ACA door sizes against Quito minimums (Art. 153: entrance 960, interior 860, bathroom 760, height 2030)", {
+    print(string.format("ATDOORCHECK: %d ok, %d below. Opening = leaf + %s mm frame each side and at the head. %s",
+        pass, fail, fmt(p.frame or 30), SOURCE))
+end, "Checks door openings against Quito minimums (Art. 153 wall opening: entrance 960, interior 860, bathroom 760, height 2030; opening = leaf + frame)", {
     { name = "doors", type = "selection", prompt = "Select doors <all>", filter = "AEC_DOOR", optional = true },
     { name = "tol",   type = "distance", prompt = "Max. distance of a door centre outside a room (wall)",
       default = WALL_TOL },
+    { name = "frame", type = "distance", prompt = "Frame width added to the leaf (each side and head)", default = 30,
+      description = "0 when the door style is dimensioned to the rough opening" },
 })
 
 -- ── ATPASSAGECHECK ──────────────────────────────────────────────────────────
