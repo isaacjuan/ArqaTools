@@ -248,7 +248,7 @@ element sizes, not space dimensions, and are not checked.
     open boundary; the living room open to the entrance hall 5BD3 (1500 × 4200) where wall
     5B36 stops at y = 2100 (an opening detected by the light-boundary check); entrance 5B40 on
     the hall's east side; guest toilet 5BD4 (1200 × 1800, WC and basin, door 5B60). North band:
-    kitchen 5BD0 (3000 × 3600) over the dining room, with door 5D0B to dining, service door
+    kitchen 5BD0 (3000 × 3600) over the dining room, with door 5D0B to dining (east, clear of the service door leaf), service door
     5B58 and window 5D13 on its west side; bedroom 2 5BD6 (3000 × 3600); a private lobby 5BD5
     (1200 × 1800, `zone=Private`, door 5D03 from the hall) serving bedroom 2 (5B70), the family
     bathroom 5C0A (2100 × 1800, door 5BA0; WC, basin, shower) and the main bedroom 5BD7

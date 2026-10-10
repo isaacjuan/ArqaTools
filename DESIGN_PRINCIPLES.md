@@ -146,6 +146,11 @@ transition principle (§4) asks for halls and corridors; economy asks for them t
 as they can be while doing that job. Let halls distribute directly to several rooms instead of
 adding corridor length.
 
+**Priority: circulation between rooms comes before access inside a room.** Less hall and
+corridor area is worth more than a perfectly placed door: when a compact lobby forces a door to
+the end of a wall, keep the lobby. The entry position below is guidance ("note"), never a
+reason to add circulation.
+
 **Where a space is entered changes how well it can be used.** A rectangular space is best
 entered through its long side: every part of it is then reached walking less, and the
 furniture can use both ends. Entering through a short side turns the room into a corridor to
@@ -159,7 +164,8 @@ In the drawing (`ATECONOMYCHECK`, guidance: it reports "check" lines, not proble
 - for each useful room and each entry (door or walkable light boundary): the side it is on
   and the mean walking distance to every point of the room, compared with entering at the
   middle of the longest side. A room at least 1.25 times as long as wide entered from a short
-  side, or more than 15 % extra walking, is a check.
+  side, or more than 15 % extra walking, is a note (lower priority than circulation between
+  rooms, above).
 
 **All of a space should be usable.** Slivers, narrow niches and parts reached only through a
 gap narrower than a person are floor paid for and not used. In the drawing
@@ -225,6 +231,9 @@ does not cut into the circulation.
   door into the bathroom).
 - Opening outward is the exception, only when the room has no space for the leaf (very
   unusual).
+- **Leaves never meet:** two doors whose swings overlap (typically two doors near the same
+  corner of a room) hit each other; move one along its wall or change its hand. PROBLEM when
+  their plan extents (leaf and arc) overlap by more than 100 mm both ways.
 
 In the drawing (`ATDOORSWINGCHECK`, also inside `ATDWELLINGCHECK`):
 

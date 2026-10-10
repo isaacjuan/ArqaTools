@@ -1174,6 +1174,7 @@ at.defineCommand("ATDOORSWINGCHECK", function(p)
     local function name(n) return n == OUTSIDE and "outside" or roomLabel(n) end
 
     local pass, fail, skip = 0, 0, 0
+    local swung = {}            -- doors with a swing drawn: their plan extents
     for _, h in ipairs(at.entities("AEC_DOOR")) do
         local d = at.getAecProps(h)
         local touching = {}
@@ -1192,6 +1193,7 @@ at.defineCommand("ATDOORSWINGCHECK", function(p)
             skip = skip + 1
             print(string.format("ATDOORSWINGCHECK: %s: no swing drawn in plan (sliding door or plain opening), skipped.", h))
         else
+            swung[#swung + 1] = { h = h, e = e }
             -- the side it opens into, and the other side
             local counts = swingShares(e, touching)
             local swingRoom, bestN = OUTSIDE, -1
@@ -1271,7 +1273,23 @@ at.defineCommand("ATDOORSWINGCHECK", function(p)
             end
         end
     end
-    print(string.format("ATDOORSWINGCHECK: %d ok, %d opening outward, %d skipped (house rule: doors open inward).", pass, fail, skip))
+    -- leaves that clash: two doors whose swings (plan extents: leaf and arc)
+    -- overlap by more than 100 mm both ways hit each other when both open
+    local clashes = 0
+    for i = 1, #swung do
+        for j = i + 1, #swung do
+            local a, b = swung[i].e, swung[j].e
+            local ox = math.min(a.max.x, b.max.x) - math.max(a.min.x, b.min.x)
+            local oy = math.min(a.max.y, b.max.y) - math.max(a.min.y, b.min.y)
+            if ox > 100 and oy > 100 then
+                clashes = clashes + 1
+                print(string.format("ATDOORSWINGCHECK: PROBLEM: the leaves of %s and %s clash (their swings overlap %s x %s mm); move one door along its wall or change its hand.",
+                    swung[i].h, swung[j].h, fmt(ox), fmt(oy)))
+            end
+        end
+    end
+    print(string.format("ATDOORSWINGCHECK: %d ok, %d opening outward, %d leaf clash(es), %d skipped (house rule: doors open inward, leaves never meet).",
+        pass, fail, clashes, skip))
 end, "Checks that doors open inward, into the room they serve (house rule; outward only when there is no space inside)", {
     { name = "dwelling",  type = "string", prompt = "Dwelling id <all>", optional = true },
     { name = "obstacles", type = "string", prompt = "Obstacle types", default = "INSERT,AEC_MVBLOCK_REF",
@@ -2193,9 +2211,9 @@ at.defineCommand("ATECONOMYCHECK", function(p)
                     print(string.format("ATECONOMYCHECK: %s (%s x %s): %s", roomLabel(r), fmt(ll), fmt(shortest),
                         table.concat(parts, "; ")))
                     if shortSide then
-                        print("  check: entered from a short side; entering through a long side means walking less.")
+                        print("  note: entered from a short side; a long side means walking less inside the room (ranks below circulation between rooms, DESIGN_PRINCIPLES.md 5).")
                     elseif worst > ECON_EXTRA then
-                        print(string.format("  check: the entry is off-centre (%.0f%% more walking than the middle of the long side).", worst * 100))
+                        print(string.format("  note: the entry is off-centre (%.0f%% more walking than the middle of the long side; ranks below circulation between rooms, DESIGN_PRINCIPLES.md 5).", worst * 100))
                     end
                 end
             end
