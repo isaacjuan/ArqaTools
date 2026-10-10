@@ -164,7 +164,9 @@ In the drawing (`ATECONOMYCHECK`, guidance: it reports "check" lines, not proble
 - circulation share: Hall, Corridor and Portal area over the dwelling's built floor (rooms
   tagged `outdoor=Yes`, such as an open porch, are listed but not counted). The ideal is
   as low as possible; the right figure depends on the design conditions, so `maxCirc` is a
-  parameter (default 15 %) and above it is a check;
+  parameter (default 15 %) and above it is a check. A compact house can reach well under
+  10 % (TEST-06: 6.7 %); a high-profile house may afford more (generous halls, galleries):
+  raise `maxCirc` for it rather than treating that circulation as waste;
 - for each useful room and each entry (door or walkable light boundary): the side it is on
   and the mean walking distance to every point of the room, compared with entering at the
   middle of the longest side. A room at least 1.25 times as long as wide entered from a short
@@ -270,7 +272,29 @@ openings are element sizes, not space dimensions.
 | §7 door clearance | `ATDOORCLEARCHECK` | done |
 | §7 doors open inward | `ATDOORSWINGCHECK` | done |
 | §8 module | `ATMODULECHECK`, `ATROOMSIZECHECK` | done |
+| §10 services: wet core, plumbing walls, drainage | `ATSERVICESCHECK` | done (guidance) |
 | everything for one dwelling | `ATDWELLINGCHECK <id>` | done |
 
 Rooms are tagged with `ATROOMTYPE` (room type, dwelling, bedrooms, zone) first; doors with
 `ATDOORTYPE` (the entrance).
+
+## 10. Services: water and drainage
+
+Installations follow the same economy as circulation: fewer and shorter runs. "Servant"
+spaces (Kahn) are grouped so one wall and one stack serve several rooms.
+
+1. **Wet core:** wet rooms (kitchen, bathrooms, laundry) share walls with each other. A wet
+   room standing apart, with wet points farther than 6 m (`radius`) from the core, needs a
+   second stack and long supply runs: a check.
+2. **Plumbing walls:** a room's fixtures stand on one or two walls (more is a check), and
+   fixtures of adjoining wet rooms stand back to back on their common wall, so one stack
+   serves both.
+3. **Drainage:** each wet point drains to the sewer connection (mark it with `ATSITEMARK`
+   `Sewer`; without it the road is used). Runs are estimated orthogonally, as pipes run, with
+   their fall at 2 % (`slope`); a run longer than 15 m (`maxRun`) gets deep or needs an extra
+   inspection chamber: a check. Put wet rooms on the sewer side of the house.
+
+In the drawing (`ATSERVICESCHECK`, also inside `ATDWELLINGCHECK`): wet points are the
+fixtures (WC, basin, shower, bath, bidet, kitchen sink); no pipes are modelled. All lines are
+guidance ("check"), not problems. Hot water (heater position), electricity and gas are not
+checked yet.

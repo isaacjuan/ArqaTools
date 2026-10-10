@@ -136,6 +136,8 @@ leaf, `ATDOORSWINGCHECK`).
    must be reachable from the room's entrance (`ATFURNITURECHECK`, `DESIGN_PRINCIPLES.md` §6).
    Only a student bedroom (`student=Yes`) has a desk, with a single bed; other bedrooms no desk.
 4. **Size on the 300 mm module**, code minimums rounded up (`QUITO_SPACE_STANDARDS.md`).
+5. **Services:** wet rooms grouped in a core, fixtures back to back on shared walls, wet
+   rooms on the sewer side (`ATSERVICESCHECK`, `DESIGN_PRINCIPLES.md` §10).
 
 Tag rooms with `ATROOMTYPE` (and the entrance with `ATDOORTYPE`), then `ATDWELLINGCHECK <id>`
 runs every check. Over MCP, `run_command ATROOMTYPE` takes positional answers

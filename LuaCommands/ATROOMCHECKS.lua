@@ -1675,7 +1675,7 @@ at.defineCommand("ATSITEMARK", function(p)
 end, "Marks the road edge, the pedestrian access or the service access (lines, polylines or points) for ATSITECHECK", {
     { name = "objects",  type = "selection", prompt = "Select lines, polylines or points",
       filter = "LINE,LWPOLYLINE,POINT,CIRCLE" },
-    { name = "siteType", type = "keyword", prompt = "Marks", options = "Road Access ServiceAccess",
+    { name = "siteType", type = "keyword", prompt = "Marks", options = "Road Access ServiceAccess Sewer",
       default = "Road" },
     { name = "dwelling", type = "string", prompt = "Dwelling id <all>", optional = true, default = "",
       description = "Markers for one dwelling only; its own markers replace the untagged ones" },
@@ -2847,6 +2847,240 @@ end, "Checks kitchens (Quito Art. 149): worktop 600 deep with sink, cooker and f
     { name = "dwelling", type = "string", prompt = "Dwelling id <all>", optional = true },
 })
 
+-- ── ATSERVICESCHECK ─────────────────────────────────────────────────────────
+-- Water and drainage economy (DESIGN_PRINCIPLES.md, services), guidance:
+--   1. wet core: wet rooms (kitchen, bathrooms, laundry) are grouped when they
+--      share a wall; a wet room standing apart, its wet points farther than
+--      `radius` from the core, is a check (a second stack, long supply runs);
+--   2. plumbing walls: the wall each fixture stands against (its back, as in
+--      ATSANITARYCHECK); more than two plumbing walls in one room is a check;
+--      fixtures back to back across a shared wall are reported (one wall,
+--      one stack for both);
+--   3. drainage: each wet point's run to the sewer connection (ATSITEMARK
+--      Sewer), measured orthogonally as pipes run, and its fall at `slope`;
+--      a run longer than `maxRun` (15 m) is a check (deep or pumped drains).
+-- Wet points are the fixtures: WC, basin, shower, bath, bidet, and the
+-- kitchen sink. No pipes are modelled.
+local WET_ROOMS = { Kitchen = true, Bathroom = true, Laundry = true }
+local WET_FIXTURES = { WC = true, Basin = true, Shower = true, Bathtub = true, Bidet = true, Sink = true }
+
+-- The wet points of a room: { h, type, cx, cy, pts }.
+local function wetPoints(room)
+    local out, seen = {}, {}
+    local kitchen = roomType(room) == "Kitchen"
+    for _, t in ipairs({ "AEC_MVBLOCK_REF", "INSERT", "LWPOLYLINE" }) do
+        for _, h in ipairs(at.entitiesInside(room, t) or {}) do
+            if not seen[h] and (t ~= "LWPOLYLINE" or at.getData(h, "fixtureType")) then
+                seen[h] = true
+                local ft = kitchen and kitchenType(h) or fixtureType(h)
+                if kitchen and ft ~= "Sink" then ft = nil end
+                local pts = at.outline(h)
+                if ft and WET_FIXTURES[ft] and pts and #pts >= 3 then
+                    local cx, cy = centroid(pts)
+                    out[#out + 1] = { h = h, type = ft, cx = cx, cy = cy, pts = pts }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Nearest point of an open or closed chain to (px, py).
+local function nearestOnChain(px, py, pts, closed)
+    if #pts == 1 then return pts[1].x, pts[1].y end
+    local bx, by, bd
+    local n = closed and #pts or #pts - 1
+    for i = 1, n do
+        local a, b = pts[i], pts[i % #pts + 1]
+        local ex, ey = b.x - a.x, b.y - a.y
+        local l2 = ex * ex + ey * ey
+        local t = l2 > 0 and math.max(0, math.min(1, ((px - a.x) * ex + (py - a.y) * ey) / l2)) or 0
+        local qx, qy = a.x + ex * t, a.y + ey * t
+        local d = (qx - px) ^ 2 + (qy - py) ^ 2
+        if not bd or d < bd then bx, by, bd = qx, qy, d end
+    end
+    return bx, by
+end
+
+at.defineCommand("ATSERVICESCHECK", function(p)
+    local radius = p.radius or 6000
+    local slope = p.slope or 0.02
+    local maxRun = p.maxRun or 15000
+    local rooms = {}
+    for _, r in ipairs(dwellingRooms(p.dwelling)) do
+        if WET_ROOMS[roomType(r)] then rooms[#rooms + 1] = r end
+    end
+    if #rooms == 0 then
+        print("ATSERVICESCHECK: no wet rooms found (Kitchen, Bathroom, Laundry; tag them with ATROOMTYPE).")
+        return
+    end
+    local outline, wet, all = {}, {}, {}
+    local parts = {}
+    for _, r in ipairs(rooms) do
+        local pts = at.outline(r)
+        outline[r] = pts and simplifyOutline(pts) or nil
+        wet[r] = wetPoints(r)
+        local names = {}
+        for _, w in ipairs(wet[r]) do names[#names + 1] = w.type; all[#all + 1] = w end
+        parts[#parts + 1] = string.format("%s [%s]", roomLabel(r), #names > 0 and table.concat(names, ", ") or "no wet points")
+    end
+    print("ATSERVICESCHECK: wet rooms: " .. table.concat(parts, "; "))
+
+    -- 1. wet core: rooms sharing a wall form one group
+    print("-- wet core")
+    local group, ngroups = {}, 0
+    local function find(r) while group[r] ~= r do r = group[r] end return r end
+    for _, r in ipairs(rooms) do group[r] = r end
+    for i = 1, #rooms do
+        for j = i + 1, #rooms do
+            local a, b = rooms[i], rooms[j]
+            if outline[a] and outline[b] and #sharedStretches(outline[a], outline[b], OPENING_GAP) > 0 then
+                group[find(a)] = find(b)
+            end
+        end
+    end
+    local members = {}
+    for _, r in ipairs(rooms) do
+        local g = find(r)
+        if not members[g] then members[g] = {}; ngroups = ngroups + 1 end
+        table.insert(members[g], r)
+    end
+    -- the core: the group with the most wet points
+    local core, coreN = nil, -1
+    for g, list in pairs(members) do
+        local n = 0
+        for _, r in ipairs(list) do n = n + #wet[r] end
+        if n > coreN then core, coreN = g, n end
+    end
+    local ccx, ccy, cn = 0, 0, 0
+    for _, r in ipairs(members[core]) do
+        for _, w in ipairs(wet[r]) do ccx, ccy, cn = ccx + w.cx, ccy + w.cy, cn + 1 end
+    end
+    if cn > 0 then ccx, ccy = ccx / cn, ccy / cn end
+    local names = {}
+    for _, r in ipairs(members[core]) do names[#names + 1] = roomLabel(r) end
+    print(string.format("  core: %s%s", table.concat(names, " + "),
+        #members[core] > 1 and " (sharing walls)" or ""))
+    for g, list in pairs(members) do
+        if g ~= core then
+            for _, r in ipairs(list) do
+                local far = 0
+                for _, w in ipairs(wet[r]) do
+                    local d = math.sqrt((w.cx - ccx) ^ 2 + (w.cy - ccy) ^ 2)
+                    if d > far then far = d end
+                end
+                if #wet[r] == 0 then
+                    print(string.format("  note: %s stands apart from the wet core and has no wet points drawn.", roomLabel(r)))
+                elseif far > radius then
+                    print(string.format("  check: %s stands apart: its wet points are up to %.1f m from the wet core (radius %.1f m); a second stack and longer supply runs. Put it against the core, or bring its fixtures to the wall nearest the core.",
+                        roomLabel(r), far / 1000, radius / 1000))
+                else
+                    print(string.format("  ok: %s stands apart but within %.1f m of the wet core.", roomLabel(r), radius / 1000))
+                end
+            end
+        end
+    end
+    if ngroups == 1 then print("  ok: all wet rooms share walls: one wet core.") end
+
+    -- 2. plumbing walls: the wall each fixture stands against
+    print("-- plumbing walls")
+    local backs = {}           -- { w = wet point, r = room, a, b (edge), ux, uy, nx, ny (into the room) }
+    for _, r in ipairs(rooms) do
+        local pts = outline[r]
+        if pts and #pts >= 3 then
+            local used, list, where = {}, {}, {}
+            for _, w in ipairs(wet[r]) do
+                local bi = backEdge(pts, w.pts, 50)
+                local a, b = pts[bi], pts[bi % #pts + 1]
+                local ux, uy = b.x - a.x, b.y - a.y
+                local l = math.sqrt(ux * ux + uy * uy)
+                ux, uy = ux / l, uy / l
+                local nx, ny = -uy, ux
+                if (w.cx - a.x) * nx + (w.cy - a.y) * ny < 0 then nx, ny = -nx, -ny end
+                backs[#backs + 1] = { w = w, r = r, a = a, ux = ux, uy = uy, nx = nx, ny = ny }
+                if not used[bi] then used[bi] = true; list[#list + 1] = bi end
+                -- the wall's side: opposite to the normal into the room
+                local side
+                if math.abs(nx) >= math.abs(ny) then side = nx > 0 and "west" or "east"
+                else side = ny > 0 and "south" or "north" end
+                where[#where + 1] = w.type .. " " .. side
+            end
+            if #wet[r] > 0 then
+                local line = string.format("  %s: %d fixture(s) on %d wall(s) (%s)", roomLabel(r), #wet[r], #list, table.concat(where, ", "))
+                if #list > 2 then
+                    print(line .. "; check: group the fixtures on one or two walls (fewer pipe runs).")
+                else
+                    print(line .. ".")
+                end
+            end
+        end
+    end
+    -- fixtures back to back across one wall (different rooms, facing faces)
+    local pairsFound = 0
+    for i = 1, #backs do
+        for j = i + 1, #backs do
+            local f, g = backs[i], backs[j]
+            if f.r ~= g.r and math.abs(f.ux * g.uy - f.uy * g.ux) < 1e-3 and (f.nx * g.nx + f.ny * g.ny) < 0 then
+                -- distance between the two wall faces, and offset along the wall
+                local gap = math.abs((g.a.x - f.a.x) * f.nx + (g.a.y - f.a.y) * f.ny)
+                local along = math.abs((g.w.cx - f.w.cx) * f.ux + (g.w.cy - f.w.cy) * f.uy)
+                if gap <= OPENING_GAP and along <= 600 then
+                    pairsFound = pairsFound + 1
+                    print(string.format("  ok: %s %s and %s %s are back to back across one wall (%s mm apart along it): one stack serves both.",
+                        f.w.type, f.w.h, g.w.type, g.w.h, fmt(along)))
+                end
+            end
+        end
+    end
+    if pairsFound == 0 and #rooms > 1 then
+        print("  note: no fixtures back to back across a shared wall; placing the WCs or basins of adjoining wet rooms on their common wall shares one stack.")
+    end
+
+    -- 3. drainage: run to the sewer connection and its fall
+    print("-- drainage")
+    local sewer = siteMarkers("sewer", p.dwelling)
+    local how = "sewer connection"
+    if #sewer == 0 then
+        sewer = siteMarkers("road", p.dwelling)
+        how = "road (no sewer marked: ATSITEMARK Sewer)"
+    end
+    if #sewer == 0 then
+        print("  check: no sewer connection or road marked (ATSITEMARK Sewer); drainage runs not estimated.")
+    else
+        local longest = 0
+        for _, r in ipairs(rooms) do
+            local far, farW = 0, nil
+            for _, w in ipairs(wet[r]) do
+                local best
+                for _, m in ipairs(sewer) do
+                    local qx, qy = nearestOnChain(w.cx, w.cy, m.pts, m.closed)
+                    local d = math.abs(qx - w.cx) + math.abs(qy - w.cy)
+                    if not best or d < best then best = d end
+                end
+                if best and best > far then far, farW = best, w end
+            end
+            if farW then
+                if far > longest then longest = far end
+                local line = string.format("  %s: farthest wet point %s %s, run %.1f m to the %s, fall %d mm at %.0f%%",
+                    roomLabel(r), farW.type, farW.h, far / 1000, how, math.floor(far * slope + 0.5), slope * 100)
+                if far > maxRun then
+                    print(line .. "; check: longer than " .. string.format("%.0f", maxRun / 1000) .. " m, the drain gets deep; move the fixture toward the sewer side.")
+                else
+                    print(line .. ".")
+                end
+            end
+        end
+    end
+    print(string.format("ATSERVICESCHECK: done (%d wet room(s), %d wet point(s); water and drainage guidance).", #rooms, #all))
+end, "Water and drainage economy: wet rooms grouped in a core, fixtures on few plumbing walls and back to back, drainage runs to the sewer (guidance)", {
+    { name = "dwelling", type = "string", prompt = "Dwelling id <all rooms>", optional = true },
+    { name = "radius",   type = "distance", prompt = "Wet core radius", default = 6000,
+      description = "Wet points of a room standing apart farther than this from the core are a check" },
+    { name = "slope",    type = "number", prompt = "Drain slope", default = 0.02 },
+    { name = "maxRun",   type = "distance", prompt = "Longest drain run", default = 15000,
+      description = "Runs longer than this get deep (1.5 % to 2 % fall) or need an extra inspection chamber" },
+})
+
 -- ── ATDWELLINGCHECK ─────────────────────────────────────────────────────────
 -- Runs every check on the rooms tagged with one dwelling id and adds the
 -- dwelling-level rules: composition (living, kitchen, bathroom, bedrooms as
@@ -2991,6 +3225,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
     -- 4d. kitchens
     print("-- kitchens (Art. 149)")
     section("kitchens", runCounted("ATKITCHENCHECK", { dwelling = p.dwelling }))
+
+    -- 4e. services: water and drainage
+    print("-- services: water and drainage (guidance)")
+    section("services", runCounted("ATSERVICESCHECK", { dwelling = p.dwelling }))
 
     -- 5. circulation widths
     print("-- circulation widths (Art. 160)")

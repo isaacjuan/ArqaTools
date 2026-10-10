@@ -243,7 +243,8 @@ element sizes, not space dimensions, and are not checked.
     which rank below circulation between rooms). The compact layout (2026-10-09, designed by
     Juan, made exact by Claude): two bedrooms, all clear dimensions on the 300 mm module, ACA
     walls 150 (centre-justified), 8 ACA doors all opening inward, 5 ACA windows. Road line 5BE7
-    at y = -6000, access point 5BE8, service access point 5BE9, all marked for `TEST-06` only.
+    at y = -6000, access point 5BE8, service access point 5BE9, sewer connection 5D6E (in front
+    of the wet core), all marked for `TEST-06` only.
     South band: dining 5BD1 (2700 × 4200) and living 5BD2 (4200 × 4200), one space across an
     open boundary. A recessed entrance porch, modelled as portal 5D5F (1500 × 2400, `Portal`,
     `outdoor=Yes`, between the living room's east wall 5B36 and the toilet), leads to entrance
