@@ -373,6 +373,8 @@ at.defineCommand("ATROOMTYPE", function(p)
     if p.bedrooms then at.setData(p.room, "bedrooms", p.bedrooms) end
     if p.student == "Yes" then at.setData(p.room, "student", true)
     elseif p.student == "No" then at.setData(p.room, "student", nil) end
+    if p.outdoor == "Yes" then at.setData(p.room, "outdoor", true)
+    elseif p.outdoor == "No" then at.setData(p.room, "outdoor", nil) end
     if p.zone and p.zone ~= "" then
         if p.zone == "Default" then at.setData(p.room, "zone", nil)
         else at.setData(p.room, "zone", p.zone:lower()) end
@@ -380,7 +382,7 @@ at.defineCommand("ATROOMTYPE", function(p)
 
     local tags = at.getData(p.room) or {}
     local parts = {}
-    for _, k in ipairs({ "roomType", "dwelling", "bedrooms", "zone", "student" }) do
+    for _, k in ipairs({ "roomType", "dwelling", "bedrooms", "zone", "student", "outdoor" }) do
         if tags[k] ~= nil then parts[#parts + 1] = k .. "=" .. tostring(tags[k]) end
     end
     print("ATROOMTYPE: room " .. p.room .. " tagged " .. table.concat(parts, ", ") .. ".")
@@ -398,4 +400,7 @@ end, "Tags a room boundary or ACA space with its room type, dwelling and the dwe
     { name = "student",  type = "keyword", prompt = "Student bedroom (blank = keep)", optional = true,
       options = "Yes No",
       description = "Bedrooms only: a student bedroom has a desk and a single bed; other bedrooms have no desk" },
+    { name = "outdoor",  type = "keyword", prompt = "Outdoor space (blank = keep)", optional = true,
+      options = "Yes No",
+      description = "An open-air space (a porch as Portal, a patio): left out of the built floor area and the circulation share" },
 })

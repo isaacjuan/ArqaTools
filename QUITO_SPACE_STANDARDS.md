@@ -245,8 +245,9 @@ element sizes, not space dimensions, and are not checked.
     walls 150 (centre-justified), 8 ACA doors all opening inward, 5 ACA windows. Road line 5BE7
     at y = -6000, access point 5BE8, service access point 5BE9, all marked for `TEST-06` only.
     South band: dining 5BD1 (2700 × 4200) and living 5BD2 (4200 × 4200), one space across an
-    open boundary. A recessed entrance porch (1500 × 2400, outdoors, between the living room's
-    east wall 5B36 and the toilet) leads to entrance 5B40 facing the road, into a compact hall
+    open boundary. A recessed entrance porch, modelled as portal 5D5F (1500 × 2400, `Portal`,
+    `outdoor=Yes`, between the living room's east wall 5B36 and the toilet), leads to entrance
+    5B40 facing the road (it opens into the hall, away from the portal), into a compact hall
     5BD3 (1500 × 1800) that serves the living room (open where wall 5B36 stops at y = 2400),
     the guest toilet 5BD4 (1500 × 1800 = 2.70 m², WC and basin, door 5B60) and the private
     lobby. North band: kitchen 5BD0 (3000 × 3600) over the dining room, door 5D0B at the
@@ -254,7 +255,7 @@ element sizes, not space dimensions, and are not checked.
     window 5D13 on its west side; bedroom 2 5BD6 (3000 × 3600); private lobby 5BD5
     (1200 × 1800, `zone=Private`, door 5D03 from the hall) serving bedroom 2 (5B70), the family
     bathroom 5C0A (2100 × 1800, door 5BA0; WC, basin, shower) and the main bedroom 5BD7
-    (3600 × 3000, door 5C02) to the north. Circulation 6.7 % (hall 2.70 m² and lobby 2.16 m²;
+    (3600 × 3000, door 5C02) to the north. Circulation 6.7 % of the built floor (hall 2.70 m² and lobby 2.16 m²; the outdoor portal is not counted;
     was 14.7 % in the corridor version). Tagged rectangles: fixtures, worktop with sink and
     cooker, fridge, dining table, sofa, per bedroom a double bed and a wardrobe. Use it as the
     regression baseline: after a change to the checks it must still report "ALL CHECKS PASS".

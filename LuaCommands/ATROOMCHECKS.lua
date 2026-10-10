@@ -1211,9 +1211,14 @@ at.defineCommand("ATDOORSWINGCHECK", function(p)
             end
             -- which side the door should open into
             local want, why
-            if otherRoom == OUTSIDE then
+            -- a portal or an outdoor space counts as outside for the swing:
+            -- the front door opens into the house, away from its porch
+            local function outward(r)
+                return r == OUTSIDE or (r and (roomType(r) == "Portal" or at.getData(r, "outdoor")) and true or false)
+            end
+            if otherRoom == OUTSIDE or (outward(otherRoom) and not outward(swingRoom)) then
                 want, why = swingRoom, "exterior door, into the dwelling"
-            elseif swingRoom == OUTSIDE then
+            elseif swingRoom == OUTSIDE or (outward(swingRoom) and not outward(otherRoom)) then
                 want, why = otherRoom, "exterior door: open into the dwelling"
             else
                 local cs, co = CIRCULATION[roomType(swingRoom)], CIRCULATION[roomType(otherRoom)]
@@ -2141,16 +2146,22 @@ at.defineCommand("ATECONOMYCHECK", function(p)
     end
     local g = buildGraph(rooms, WALL_TOL)
 
-    -- 1. circulation share
-    local total, circArea = 0, 0
+    -- 1. circulation share of the built floor (outdoor spaces such as an open
+    -- porch are left out: they are not floor the house encloses)
+    local total, circArea, outdoor = 0, 0, {}
     for _, r in ipairs(rooms) do
         local a = roomAreaM2(r) or 0
-        total = total + a
-        if CIRCULATION[roomType(r)] then circArea = circArea + a end
+        if at.getData(r, "outdoor") then
+            outdoor[#outdoor + 1] = string.format("%s %.2fm2", roomLabel(r), a)
+        else
+            total = total + a
+            if CIRCULATION[roomType(r)] then circArea = circArea + a end
+        end
     end
     local share = total > 0 and circArea / total or 0
-    print(string.format("ATECONOMYCHECK: circulation %.2fm2 of %.2fm2 = %.1f%% (useful %.1f%%)",
-        circArea, total, share * 100, (1 - share) * 100))
+    print(string.format("ATECONOMYCHECK: circulation %.2fm2 of %.2fm2 built = %.1f%% (useful %.1f%%)%s",
+        circArea, total, share * 100, (1 - share) * 100,
+        #outdoor > 0 and ("; outdoor, not counted: " .. table.concat(outdoor, ", ")) or ""))
     if share > maxCirc then
         print(string.format("  check: circulation above %.0f%%; keep it as low as the design conditions allow: shorten corridors, let halls serve more rooms.", maxCirc * 100))
     else

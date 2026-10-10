@@ -133,7 +133,10 @@ corridors, portals.
   connect) or from outside, never through another useful space. A direct door between two
   useful spaces is fine only as an extra connection.
 - **Entrance:** the dwelling's entrance opens into a hall or portal, never straight into a
-  useful space.
+  useful space. A **portal** can be an outdoor transition, a recessed porch in front of the
+  door (Alexander's entrance transition): model it as a room of type `Portal` tagged
+  `outdoor=Yes` (`ATROOMTYPE`). The front door between portal and hall opens into the hall,
+  as if the portal were outside, and the outdoor portal is left out of the built floor area.
 - **En-suite bathroom** (interpretation of Quito Art. 147): a bathroom whose only door leads
   into one bedroom is that bedroom's private bathroom and is allowed. It does not count as the
   shared bathroom, and a bathroom between two bedrooms is not private.
@@ -158,7 +161,8 @@ its far end; entering off-centre wastes the corner behind the door.
 
 In the drawing (`ATECONOMYCHECK`, guidance: it reports "check" lines, not problems):
 
-- circulation share: Hall, Corridor and Portal area over the dwelling's total. The ideal is
+- circulation share: Hall, Corridor and Portal area over the dwelling's built floor (rooms
+  tagged `outdoor=Yes`, such as an open porch, are listed but not counted). The ideal is
   as low as possible; the right figure depends on the design conditions, so `maxCirc` is a
   parameter (default 15 %) and above it is a check;
 - for each useful room and each entry (door or walkable light boundary): the side it is on

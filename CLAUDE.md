@@ -138,7 +138,9 @@ leaf, `ATDOORSWINGCHECK`).
 4. **Size on the 300 mm module**, code minimums rounded up (`QUITO_SPACE_STANDARDS.md`).
 
 Tag rooms with `ATROOMTYPE` (and the entrance with `ATDOORTYPE`), then `ATDWELLINGCHECK <id>`
-runs every check. Regional code notes: `QUITO_SPACE_STANDARDS.md` (binding),
+runs every check. Over MCP, `run_command ATROOMTYPE` takes positional answers
+`[room, roomType, dwelling, bedrooms, zone, student, outdoor]` (zone `Default` / `Private` / ...,
+student and outdoor `Yes` / `No`; null keeps the current value). Regional code notes: `QUITO_SPACE_STANDARDS.md` (binding),
 `BEDROOM_DESIGN_CRITERIA.md`, `BATHROOM_DESIGN_CRITERIA.md` (Belgian, mostly secondary-sourced).
 
 ## Other notes
