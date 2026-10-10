@@ -107,6 +107,10 @@ curtain) are **connected** for access and zoning even though no door joins them.
 - Two rooms whose outlines share an edge (no gap, at least 600 mm long) with no ACA wall along
   it have a light boundary. Rooms divided by a real wall always have a gap (the wall's
   thickness) and are not light boundaries.
+- Where a wall stops (a hall open to the living room), the two outlines still lie a wall's
+  thickness apart: for rooms modelled with ACA walls, a stretch of at least 600 mm across a gap
+  up to 400 mm with no wall in it is an opening, an "open" boundary. Plans drawn with plain
+  lines instead of ACA walls keep the strict rule (outlines must touch).
 - Its type: draw a line or polyline along the edge and tag it with `ATBOUNDARYTYPE` (Line,
   Floor, Level, Curtain, Glass, Wall; layer `A-BOUNDARY`). Untagged it counts as "open".
   Line, Floor, Level, Curtain and open are walkable and connect the rooms; Glass and Wall
@@ -225,7 +229,8 @@ does not cut into the circulation.
 In the drawing (`ATDOORSWINGCHECK`, also inside `ATDWELLINGCHECK`):
 
 - The side a door opens into is the room, or the outside, that holds most of its plan extents
-  (the leaf and its arc).
+  (the leaf and its arc). "Further from the entrance" counts rooms from the door tagged
+  `Entrance`, inside the dwelling (a kitchen's service door does not make it "near").
 - A door opening outward is a PROBLEM, unless a square of the door's width on the inner side
   leaves the room or is cut by a fixture. Then it is a "check": the exception, to be confirmed.
 - Doors with no swing drawn (sliding doors, plain openings) are skipped.

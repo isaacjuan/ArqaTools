@@ -40,3 +40,4 @@ obj/
 *.dwl2
 TEST_FIXTURES.dwg
 TEST_FIXTURES.bak
+TEST_FIXTURES_*.dwg

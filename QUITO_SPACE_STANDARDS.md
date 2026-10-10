@@ -239,22 +239,26 @@ element sizes, not space dimensions, and are not checked.
     rectangles: single bed 5B16 long side against the north wall, desk 5B17 with chair 5B18
     against the south wall, freestanding door 5B19; passes `ATFURNITURECHECK`.
   - X = 80000, dwelling `TEST-06`: **the reference house, passes every check of
-    `ATDWELLINGCHECK`** (remaining notes: optional laundry, guest-toilet size to confirm). Two bedrooms, all clear
-    dimensions on the 300 mm module, ACA walls 150 (centre-justified), 8 ACA doors all opening
-    inward, 5 ACA windows. South band, facing the road (line 5BE7 at y = -6000, access point
-    5BE8, service access point 5BE9, all marked for `TEST-06` only): kitchen 5BD0 (2700 × 4200,
-    service door 5B58 on its long side, door 5B48 to dining), dining 5BD1 and living 5BD2 (one
-    space across an open boundary), entrance hall 5BD3 (1500 × 4200, entrance 5B40), shared
-    bathroom 5BD4 off the hall. North: private corridor 5BD5 (`zone=Private`, door 5BA0 from
-    the hall) with bedroom 2 5BD6 and main bedroom 5BD7 (3000 × 3600) entered at the middle of
-    their long sides, and a family bathroom 5C0A (2100 × 1800, `zone=Private`, door 5C02 at
-    the corridor's north end; WC, basin, shower) so the night route stays in the private zone.
-    The shared bathroom 5BD4 off the hall serves the day zone as a guest toilet: 1200 × 1800
-    (2.16 m², the guest-toilet check above), door 5B60 on its long side near the south end,
-    basin on the west wall and WC on the north wall. Circulation 14.7 %. Tagged rectangles: WC and basin (guest toilet); worktop with
-    sink and cooker, fridge; dining table; sofa; per bedroom a double bed (head on the outer
-    wall) and a 1200 wardrobe on the corridor wall. Use it as the regression baseline: after a
-    change to the checks it must still report "ALL CHECKS PASS".
+    `ATDWELLINGCHECK`** (remaining notes: optional laundry, guest-toilet size to confirm, and
+    economy guidance on three entries). The compact layout (2026-10-09, designed by Juan,
+    made exact by Claude): two bedrooms, all clear dimensions on the 300 mm module, ACA walls
+    150 (centre-justified), 8 ACA doors all opening inward, 5 ACA windows. Road line 5BE7 at
+    y = -6000, access point 5BE8, service access point 5BE9, all marked for `TEST-06` only.
+    South band: dining 5BD1 (2700 × 4200) and living 5BD2 (4200 × 4200), one space across an
+    open boundary; the living room open to the entrance hall 5BD3 (1500 × 4200) where wall
+    5B36 stops at y = 2100 (an opening detected by the light-boundary check); entrance 5B40 on
+    the hall's east side; guest toilet 5BD4 (1200 × 1800, WC and basin, door 5B60). North band:
+    kitchen 5BD0 (3000 × 3600) over the dining room, with door 5D0B to dining, service door
+    5B58 and window 5D13 on its west side; bedroom 2 5BD6 (3000 × 3600); a private lobby 5BD5
+    (1200 × 1800, `zone=Private`, door 5D03 from the hall) serving bedroom 2 (5B70), the family
+    bathroom 5C0A (2100 × 1800, door 5BA0; WC, basin, shower) and the main bedroom 5BD7
+    (3600 × 3000, door 5C02) to the north. Circulation 11.2 % (was 14.7 %). Tagged rectangles:
+    fixtures, worktop with sink and cooker, fridge, dining table, sofa, per bedroom a double
+    bed and a wardrobe. Use it as the regression baseline: after a change to the checks it
+    must still report "ALL CHECKS PASS".
+  - X = 80000, y + 13742, dwelling `TEST-06A`: copy of the earlier TEST-06 layout (corridor
+    version, circulation 14.7 %), kept for comparison. `TEST_FIXTURES_user_1934.dwg` (repo
+    root, not versioned) holds the hand-drawn compact sketch as it was before it was made exact.
 
 ## 10. Applied to the session layouts
 

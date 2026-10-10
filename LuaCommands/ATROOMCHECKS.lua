@@ -331,8 +331,11 @@ end
 -- A space can be defined by a line, a change of floor or level, a curtain, a
 -- glass wall or a heavy wall. Two rooms whose outlines share an edge (gap
 -- <= BOUNDARY_GAP, shared length >= BOUNDARY_MIN) with no ACA wall along it
--- are divided by a light boundary. Its type comes from a line / polyline drawn
--- along it and tagged by ATBOUNDARYTYPE; untagged it is "open".
+-- are divided by a light boundary; so are rooms modelled with ACA walls whose
+-- outlines face each other across a wall's thickness (<= OPENING_GAP) where a
+-- stretch of at least BOUNDARY_MIN has no wall (an opening in the wall line).
+-- Its type comes from a line / polyline drawn along it and tagged by
+-- ATBOUNDARYTYPE; untagged it is "open".
 -- Walkable types connect the rooms for access and zoning; glass and wall do
 -- not (glass still joins them visually).
 local BOUNDARY_GAP, BOUNDARY_MIN = 25, 600
@@ -378,10 +381,19 @@ local function chainDist(px, py, pts, closed)
     return best
 end
 
--- The longest stretch where two closed outlines run along each other within
--- BOUNDARY_GAP: { a = {x,y}, b = {x,y}, length } or nil.
-local function sharedEdge(pa, pb)
-    local best
+-- Room outlines drawn on the faces of ACA walls lie a wall's thickness apart.
+-- Across such a gap (up to OPENING_GAP) a stretch with no wall in it is an
+-- opening in the wall line: the rooms meet there without a door (a hall open
+-- to the living room where the wall stops). Wide gaps count only for rooms
+-- modelled with ACA walls, so plans drawn with plain lines are not read as
+-- open everywhere.
+local OPENING_GAP, SAMPLE_STEP = 400, 50
+
+-- Every stretch where two closed outlines run along each other, parallel and
+-- at most maxGap apart, over at least BOUNDARY_MIN:
+-- { a, b (on pa), ux, uy (along), nx, ny (toward pb), length, gap }.
+local function sharedStretches(pa, pb, maxGap)
+    local out = {}
     for i = 1, #pa do
         local a1, a2 = pa[i], pa[i % #pa + 1]
         local ux, uy = a2.x - a1.x, a2.y - a1.y
@@ -393,22 +405,26 @@ local function sharedEdge(pa, pb)
                 local vx, vy = b2.x - b1.x, b2.y - b1.y
                 local lb = math.sqrt(vx * vx + vy * vy)
                 if lb > 1 and math.abs(ux * vy - uy * vx) / lb < 1e-3 then
-                    local gap = math.abs((b1.x - a1.x) * uy - (b1.y - a1.y) * ux)
-                    if gap <= BOUNDARY_GAP then
+                    local sgap = (b1.x - a1.x) * (-uy) + (b1.y - a1.y) * ux
+                    local gap = math.abs(sgap)
+                    if gap <= maxGap then
                         local t1 = (b1.x - a1.x) * ux + (b1.y - a1.y) * uy
                         local t2 = (b2.x - a1.x) * ux + (b2.y - a1.y) * uy
                         if t1 > t2 then t1, t2 = t2, t1 end
                         local lo, hi = math.max(0, t1), math.min(la, t2)
-                        if hi - lo >= BOUNDARY_MIN and (not best or hi - lo > best.length) then
-                            best = { a = { x = a1.x + ux * lo, y = a1.y + uy * lo },
-                                     b = { x = a1.x + ux * hi, y = a1.y + uy * hi }, length = hi - lo }
+                        if hi - lo >= BOUNDARY_MIN then
+                            local sg = sgap >= 0 and 1 or -1
+                            out[#out + 1] = { a = { x = a1.x + ux * lo, y = a1.y + uy * lo },
+                                              b = { x = a1.x + ux * hi, y = a1.y + uy * hi },
+                                              ux = ux, uy = uy, nx = -uy * sg, ny = ux * sg,
+                                              length = hi - lo, gap = gap }
                         end
                     end
                 end
             end
         end
     end
-    return best
+    return out
 end
 
 -- Every light boundary between the given rooms:
@@ -420,12 +436,40 @@ local function lightBoundaries(rooms)
         if pts then pts = simplifyOutline(pts) end
         if pts and closed and #pts >= 3 then outlines[r] = pts end
     end
-    -- walls (and curtain walls) that could stand on a shared edge
-    local walls = {}
-    for _, t in ipairs({ "AEC_WALL", "AecDbCurtainWall" }) do
-        for _, h in ipairs(at.entities(t)) do
-            local pts = at.outline(h)
-            if pts and #pts >= 3 then walls[#walls + 1] = { h = h, pts = pts, glass = t ~= "AEC_WALL" } end
+    -- ACA walls as baselines with a reach (half the width when centred, the
+    -- full width otherwise: the side is not known), curtain walls as outlines
+    local walls, glass = {}, {}
+    for _, h in ipairs(at.entities("AEC_WALL")) do
+        local w = at.getAecProps(h)
+        if w and w.startPoint and w.endPoint then
+            local reach = (w.justify == "Center" and (w.width or 0) / 2 or (w.width or 0)) + 5
+            walls[#walls + 1] = { h = h, a = w.startPoint, b = w.endPoint, reach = reach }
+        end
+    end
+    for _, h in ipairs(at.entities("AecDbCurtainWall")) do
+        local pts = at.outline(h)
+        if pts and #pts >= 3 then glass[#glass + 1] = { h = h, pts = pts } end
+    end
+    local function coverAt(x, y)
+        for _, w in ipairs(walls) do
+            if distToSegment(x, y, w.a, w.b) <= w.reach then return w.h, "wall" end
+        end
+        for _, g in ipairs(glass) do
+            if pointInPts(x, y, g.pts) or chainDist(x, y, g.pts, true) <= BOUNDARY_GAP then return g.h, "glass" end
+        end
+        return nil
+    end
+    -- rooms modelled with ACA walls (a wall within 300 of the outline)
+    local walled = {}
+    for r, pts in pairs(outlines) do
+        for _, w in ipairs(walls) do
+            local near = chainDist(w.a.x, w.a.y, pts, true) <= 300 or chainDist(w.b.x, w.b.y, pts, true) <= 300
+            if not near then
+                for _, v in ipairs(pts) do
+                    if distToSegment(v.x, v.y, w.a, w.b) <= 300 then near = true; break end
+                end
+            end
+            if near then walled[r] = true; break end
         end
     end
     -- boundary markers tagged by ATBOUNDARYTYPE
@@ -442,28 +486,59 @@ local function lightBoundaries(rooms)
         for j = i + 1, #rooms do
             local r1, r2 = rooms[i], rooms[j]
             if outlines[r1] and outlines[r2] then
-                local e = sharedEdge(outlines[r1], outlines[r2])
-                if e then
-                    local mx, my = (e.a.x + e.b.x) / 2, (e.a.y + e.b.y) / 2
+                local maxGap = (walled[r1] or walled[r2]) and OPENING_GAP or BOUNDARY_GAP
+                local best, closedRec
+                for _, st in ipairs(sharedStretches(outlines[r1], outlines[r2], maxGap)) do
+                    -- sample the line midway between the two outlines
+                    local half = st.gap / 2
+                    local function pointAt(t)
+                        return { x = st.a.x + st.ux * t + st.nx * half, y = st.a.y + st.uy * t + st.ny * half }
+                    end
+                    local n = math.max(1, math.floor(st.length / SAMPLE_STEP))
+                    local runStart, runEnd
+                    local function closeRun()
+                        if runStart and (runEnd - runStart) >= BOUNDARY_MIN
+                            and (not best or runEnd - runStart > best.length) then
+                            best = { a = pointAt(runStart), b = pointAt(runEnd), length = runEnd - runStart, gap = st.gap }
+                        end
+                        runStart = nil
+                    end
+                    for k = 0, n do
+                        local t = st.length * k / n
+                        local q = pointAt(t)
+                        local h, kind = coverAt(q.x, q.y)
+                        if h then
+                            closeRun()
+                            if not closedRec and t >= st.length * 0.4 and t <= st.length * 0.6 then
+                                closedRec = { h = h, kind = kind, st = st }
+                            end
+                        else
+                            if not runStart then runStart = t end
+                            runEnd = t
+                        end
+                    end
+                    closeRun()
+                end
+                if best then
+                    -- an open stretch: its type from a marker drawn along it, else "open"
+                    local mx, my = (best.a.x + best.b.x) / 2, (best.a.y + best.b.y) / 2
                     local kind, marker = "open", nil
-                    for _, w in ipairs(walls) do
-                        if pointInPts(mx, my, w.pts) or chainDist(mx, my, w.pts, true) <= BOUNDARY_GAP then
-                            kind, marker = w.glass and "glass" or "wall", w.h
+                    for _, m in ipairs(markers) do
+                        if chainDist(mx, my, m.pts, m.closed) <= best.gap / 2 + BOUNDARY_GAP then
+                            kind, marker = m.type, m.h
                             break
                         end
                     end
-                    if kind == "open" then
-                        for _, m in ipairs(markers) do
-                            if chainDist(mx, my, m.pts, m.closed) <= BOUNDARY_GAP then
-                                kind, marker = m.type, m.h
-                                break
-                            end
-                        end
-                    end
-                    -- a real ACA wall between rooms drawn to its centre line is not a light boundary
-                    if not (kind == "wall" and marker and not at.getData(marker, "boundary")) then
-                        out[#out + 1] = { r1 = r1, r2 = r2, a = e.a, b = e.b, length = e.length,
-                                          type = kind, marker = marker, walkable = WALKABLE[kind] == true }
+                    out[#out + 1] = { r1 = r1, r2 = r2, a = best.a, b = best.b, length = best.length,
+                                      type = kind, marker = marker, walkable = WALKABLE[kind] == true }
+                elseif closedRec then
+                    -- closed all along: a glass wall, or a wall tagged as a boundary type
+                    local tag = at.getData(closedRec.h, "boundary")
+                    local kind = closedRec.kind == "glass" and "glass" or (tag and tostring(tag):lower())
+                    if kind then
+                        local st = closedRec.st
+                        out[#out + 1] = { r1 = r1, r2 = r2, a = st.a, b = st.b, length = st.length,
+                                          type = kind, marker = closedRec.h, walkable = WALKABLE[kind] == true }
                     end
                 end
             end
@@ -1075,13 +1150,24 @@ at.defineCommand("ATDOORSWINGCHECK", function(p)
         print("ATDOORSWINGCHECK: no rooms found (tag them with ATROOMTYPE).")
         return
     end
-    -- depth of each room from outside through the dwelling's connections
+    -- depth of each room from the main entrance (doors tagged Entrance),
+    -- inside the dwelling: a service door must not make the kitchen count as
+    -- "near the entrance". Without a tagged entrance: from any exterior door.
     local g = buildGraph(rooms, tol)
-    local depthOf, queue = { [OUTSIDE] = 0 }, { OUTSIDE }
+    local depthOf, queue = {}, {}
+    for _, e in ipairs(g.entrances) do
+        for _, r in ipairs(e.rooms) do
+            if not depthOf[r] then depthOf[r] = 1; queue[#queue + 1] = r end
+        end
+    end
+    local throughOutside = #queue == 0
+    if throughOutside then depthOf[OUTSIDE] = 0; queue = { OUTSIDE } end
     while #queue > 0 do
         local n = table.remove(queue, 1)
         for m in pairs(g.adj[n] or {}) do
-            if not depthOf[m] then depthOf[m] = depthOf[n] + 1; queue[#queue + 1] = m end
+            if not depthOf[m] and (throughOutside or m ~= OUTSIDE) then
+                depthOf[m] = depthOf[n] + 1; queue[#queue + 1] = m
+            end
         end
     end
     local obstacles = doorObstacles(p.obstacles)
