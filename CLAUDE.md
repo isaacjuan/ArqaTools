@@ -112,6 +112,8 @@ After editing a `LuaCommands\` file: copy to Documents and `ATLUARELOAD`.
 
 ## Design criteria (space planning work)
 
+**Resuming this work:** read `SESSION_HANDOFF.md` (state, test drawing, decisions, open items).
+
 `DESIGN_PRINCIPLES.md` is the project's design method; follow its order when designing or
 changing a dwelling:
 
