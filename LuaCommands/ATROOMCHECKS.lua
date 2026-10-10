@@ -572,8 +572,16 @@ local function buildGraph(rooms, tol)
     end
     local doors = at.entities("AEC_DOOR")
     for _, h in ipairs(at.entities("AecDbOpening")) do doors[#doors + 1] = h end
+    -- door marks (ATDOORMARK): any closed shape standing for a door in a sketch
+    for _, h in ipairs(at.findByData("doorMark")) do doors[#doors + 1] = h end
     for _, h in ipairs(doors) do
         local d = at.getAecProps(h)
+        if not (d and d.center) and at.getData(h, "doorMark") then
+            local pr = at.getProps(h)
+            if pr and pr.min and pr.max then
+                d = { center = { x = (pr.min.x + pr.max.x) / 2, y = (pr.min.y + pr.max.y) / 2 }, handle = h }
+            end
+        end
         if d and d.center then
             local touch = {}
             for _, r in ipairs(rooms) do
@@ -3211,7 +3219,10 @@ at.defineCommand("ATDWELLINGCHECK", function(p)
             end
         end
     end
-    if #doors == 0 then
+    if #doors == 0 and #at.findByData("doorMark") > 0 then
+        print("  note: door marks only (a sketch): connections are checked, door sizes are not.")
+        section("doors", 0)
+    elseif #doors == 0 then
         print("  PROBLEM: no doors found")
         section("doors", 1)
     else
@@ -3282,4 +3293,27 @@ end, "Tags ACA doors as Entrance, Interior or Bathroom (used by ATDOORCHECK)", {
     { name = "doors",    type = "selection", prompt = "Select doors", filter = "AEC_DOOR" },
     { name = "doorType", type = "keyword", prompt = "Door type", options = "Entrance Interior Bathroom",
       default = "Interior" },
+})
+
+-- ── ATDOORMARK ──────────────────────────────────────────────────────────────
+-- Sketch doors: tags closed shapes (a triangle, a small rectangle) as door
+-- marks. The room graph treats a mark like a door between the rooms it
+-- touches (access, zones, night routes); door sizes and swings are not
+-- checked for marks. Entrance marks the dwelling's entrance.
+at.defineCommand("ATDOORMARK", function(p)
+    local n = 0
+    for _, h in ipairs(p.marks) do
+        if p.doorType == "Remove" then
+            at.setData(h, "doorMark", nil); at.setData(h, "doorType", nil)
+        else
+            at.setData(h, "doorMark", true)
+            at.setData(h, "doorType", p.doorType == "Entrance" and "Entrance" or nil)
+        end
+        n = n + 1
+    end
+    print(string.format("ATDOORMARK: %d mark(s) %s.", n,
+        p.doorType == "Remove" and "untagged" or (p.doorType == "Entrance" and "tagged as entrance marks" or "tagged as door marks")))
+end, "Tags closed shapes in a sketch as door marks (Door or Entrance): the room graph uses them like doors", {
+    { name = "marks",    type = "selection", prompt = "Select door marks", filter = "LWPOLYLINE,CIRCLE" },
+    { name = "doorType", type = "keyword", prompt = "Mark type", options = "Door Entrance Remove", default = "Door" },
 })
