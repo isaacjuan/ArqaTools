@@ -213,6 +213,11 @@ element sizes, not space dimensions, and are not checked.
   - All of them run inside `ATDWELLINGCHECK`.
 - Room types `Dining` (counts with living, Art. 147), `Garage` (Art. 162 parking rules) and
   `Storage`: no room minimum.
+- **Guest toilet (interpretation, to confirm):** Art. 147 gives one bathroom figure (2.50 m²,
+  side 1.20 m) and no separate one for a WC-and-basin room. `ATROOMSIZECHECK` applies it fully
+  to bathrooms with a shower or bath; a bathroom without one that falls short is reported as a
+  "check" (confirm the figure does not bind a guest toilet), not a failure. The dwelling still
+  needs a complete bathroom (Art. 150), which must meet Art. 147.
 - Not automated: the 30 % openable part of windows (Art. 69), ventilation ducts (Art. 156),
   heights and guards (Art. 148, 154), stairs (Art. 161).
 - Test fixtures in `TEST_FIXTURES.dwg` (repo root, not versioned; formerly the unsaved
@@ -234,7 +239,7 @@ element sizes, not space dimensions, and are not checked.
     rectangles: single bed 5B16 long side against the north wall, desk 5B17 with chair 5B18
     against the south wall, freestanding door 5B19; passes `ATFURNITURECHECK`.
   - X = 80000, dwelling `TEST-06`: **the reference house, passes every check of
-    `ATDWELLINGCHECK`** (only the optional-laundry note remains). Two bedrooms, all clear
+    `ATDWELLINGCHECK`** (remaining notes: optional laundry, guest-toilet size to confirm). Two bedrooms, all clear
     dimensions on the 300 mm module, ACA walls 150 (centre-justified), 8 ACA doors all opening
     inward, 5 ACA windows. South band, facing the road (line 5BE7 at y = -6000, access point
     5BE8, service access point 5BE9, all marked for `TEST-06` only): kitchen 5BD0 (2700 × 4200,
@@ -244,8 +249,9 @@ element sizes, not space dimensions, and are not checked.
     the hall) with bedroom 2 5BD6 and main bedroom 5BD7 (3000 × 3600) entered at the middle of
     their long sides, and a family bathroom 5C0A (2100 × 1800, `zone=Private`, door 5C02 at
     the corridor's north end; WC, basin, shower) so the night route stays in the private zone.
-    The shared bathroom 5BD4 off the hall serves the day zone as a guest toilet (WC and basin,
-    no shower). Circulation 14.2 %. Tagged rectangles: WC and basin (guest toilet); worktop with
+    The shared bathroom 5BD4 off the hall serves the day zone as a guest toilet: 1200 × 1800
+    (2.16 m², the guest-toilet check above), door 5B60 on its long side near the south end,
+    basin on the west wall and WC on the north wall. Circulation 14.7 %. Tagged rectangles: WC and basin (guest toilet); worktop with
     sink and cooker, fridge; dining table; sofa; per bedroom a double bed (head on the outer
     wall) and a 1200 wardrobe on the corridor wall. Use it as the regression baseline: after a
     change to the checks it must still report "ALL CHECKS PASS".

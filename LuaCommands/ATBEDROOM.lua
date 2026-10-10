@@ -274,8 +274,42 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
         -- multiple (e.g. 2.50m -> 2.70m).
         local modSide = moduleCeil(rule.side * 1000, MODULE_DEFAULT) / 1000
         local modOk, modText = moduleCheck(p.room, MODULE_DEFAULT)
-        local areaOk = areaM2 >= reqArea
-        local sideOk = shortM and shortM >= rule.side
+        -- 1 mm / 0.001 m2 tolerance: a 1200 room meets a 1.20m minimum even
+        -- when the measured clear width is a hair under.
+        local areaOk = areaM2 + 0.001 >= reqArea
+        local sideOk = shortM and shortM + 0.001 >= rule.side
+        -- A bathroom without shower or bath (a guest toilet: WC and basin) is
+        -- not the dwelling's complete bathroom of Art. 150; whether Art. 147's
+        -- bathroom minimum binds it is an interpretation, so a shortfall is a
+        -- "check" to confirm, not a failure (project decision 2026-10-09).
+        if roomType == "Bathroom" and not (areaOk and sideOk) then
+            local washing = false
+            for _, t in ipairs({ "AEC_MVBLOCK_REF", "INSERT", "LWPOLYLINE" }) do
+                for _, h in ipairs(at.entitiesInside(p.room, t) or {}) do
+                    local ft = at.getData(h, "fixtureType")
+                    local name = ft
+                    if not name then
+                        local a = at.getAecProps(h, { "StyleName" })
+                        name = (a and a.StyleName) or (at.getProps(h) or {}).name
+                    end
+                    name = name and name:lower() or ""
+                    for _, k in ipairs({ "shower", "shwr", "ducha", "bathtub", "tub", "bañera", "banera", "tina" }) do
+                        if name:find(k, 1, true) then washing = true end
+                    end
+                end
+            end
+            if not washing then
+                print(string.format(
+                    "ATROOMSIZECHECK: room %s (guest toilet: bathroom without shower or bath, %d-bedroom dwelling): area %.2fm2, shorter side %s; "
+                        .. "check: below the Art. 147 bathroom figures (%.2fm2, %.2fm), which bind the complete bathroom; confirm they do not apply to a guest toilet. %s",
+                    p.room, beds, areaM2, shortM and string.format("%.2fm", shortM) or "unknown",
+                    reqArea, rule.side, QUITO_SOURCE))
+                local modOk2, modText2 = moduleCheck(p.room, MODULE_DEFAULT)
+                print(string.format("  300mm module: %s -> %s.", modText2 or "not checked",
+                    modOk2 == nil and "not checked" or (modOk2 and "on module" or "OFF MODULE")))
+                return
+            end
+        end
         print(string.format(
             "ATROOMSIZECHECK: room %s (%s, %d-bedroom dwelling): area %.2fm2 vs min %.2fm2 -> %s; "
                 .. "shorter side %s vs min %.2fm -> %s -> %s. %s",
@@ -288,7 +322,7 @@ at.defineCommand("ATROOMSIZECHECK", function(p)
         end
         print(string.format("  300mm module: %s -> %s; modular minimum side %.2fm%s.",
             modText or "not checked", modOk == nil and "not checked" or (modOk and "on module" or "OFF MODULE"),
-            modSide, (shortM and shortM + 1e-6 < modSide) and " -> BELOW" or ""))
+            modSide, (shortM and shortM + 0.001 < modSide) and " -> BELOW" or ""))
         return
     end
 
