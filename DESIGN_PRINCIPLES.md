@@ -58,6 +58,8 @@ drawing. Each zone's distance from the road is the area-weighted mean of its roo
 2. **The shared bathroom** belongs to the public zone, with discretion (out of direct view
    from living and entrance: design guidance, not checked), and is entered **from a hall or
    corridor only**, never from a useful space. An en-suite bathroom belongs to its bedroom.
+   When the private zone has its own bathroom, the shared one is a guest toilet: WC and basin,
+   no shower (the complete bathroom of Art. 150 is then the private one).
 3. The entrance opens into the public zone, never into the private hall.
 4. Public and service rooms may connect directly (kitchen to dining).
 5. Each zone hangs together through its own rooms and corridors; a split zone is a "check"

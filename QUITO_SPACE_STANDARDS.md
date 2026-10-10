@@ -244,7 +244,8 @@ element sizes, not space dimensions, and are not checked.
     the hall) with bedroom 2 5BD6 and main bedroom 5BD7 (3000 × 3600) entered at the middle of
     their long sides, and a family bathroom 5C0A (2100 × 1800, `zone=Private`, door 5C02 at
     the corridor's north end; WC, basin, shower) so the night route stays in the private zone.
-    The shared bathroom 5BD4 off the hall serves the day zone. Circulation 14.2 %. Tagged rectangles: WC, basin, shower; worktop with
+    The shared bathroom 5BD4 off the hall serves the day zone as a guest toilet (WC and basin,
+    no shower). Circulation 14.2 %. Tagged rectangles: WC and basin (guest toilet); worktop with
     sink and cooker, fridge; dining table; sofa; per bedroom a double bed (head on the outer
     wall) and a 1200 wardrobe on the corridor wall. Use it as the regression baseline: after a
     change to the checks it must still report "ALL CHECKS PASS".
