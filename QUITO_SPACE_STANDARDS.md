@@ -250,8 +250,9 @@ element sizes, not space dimensions, and are not checked.
 ## 10. Applied to the session layouts
 
 - The 2026-10-07 test bedroom (3.60 × 3.40 m, 12.24 m²) meets the Quito main-bedroom minimum
-  (9.00 m², side 2.50 m) with margin, but is **off the 300 mm module**: 3400 should be
-  3300 or 3600 (open: a design decision, not changed). On 2026-10-09 its door 4730 was raised
+  (9.00 m², side 2.50 m) with margin, but was **off the 300 mm module** (3400). On 2026-10-09
+  it was enlarged to 3600 × 3600 (12.96 m²): north wall 472E moved to y = 3600, side walls
+  extended, the associative space updated with `AECSPACEUPDATESELECTEDSPACES`. Its door 4730 was raised
   to 2100 (Art. 153 needs 2030) and its window 4738 widened to 1800 × 1500 (2.70 m² for the
   2.45 m² Art. 69 needs); the desk is gone and the furniture passes. The bathroom demo's door
   4297 was flipped to open inward.

@@ -125,7 +125,9 @@ changing a dwelling:
    bathroom from its own bedroom is the exception. **A bedroom never opens off the central
    hall:** private rooms are entered from the private zone's own hall (tag `zone=Private`) or
    their en-suite. The shared bathroom is public, discreet, entered from a hall only. The
-   entrance opens into the public zone. **Doors are never obstructed** (900 mm zone both sides)
+   entrance opens into the public zone. Privacy grows from the entrance inward, the private
+   zone joins the rest at one point, and the night route (bedroom to bathroom) crosses no
+   useful room (§2 rules 6 to 8). **Doors are never obstructed** (900 mm zone both sides)
 and **open inward**, into the room they serve (outward only when there is no space for the
 leaf, `ATDOORSWINGCHECK`).
    **Space economy:** as little circulation as possible; enter rectangular rooms through a

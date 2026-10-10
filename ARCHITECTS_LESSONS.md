@@ -439,6 +439,9 @@ Existing tools that some candidates extend: `ATZONECHECK`, `ATPASSAGECHECK`, `AT
 | C17 | **Room proportion** (Modulor, Usonian rooms, Neufert) | Habitable rooms: long side / short side <= 2.0 (check above), except rooms tagged `Gallery`. Complements §5 long-side entry. | Low-Med | Low |
 | C18 | **Small entry niche as portal** (Fallingwater, Jacobs) | If the entrance opens into a living room, accept it when a zone of at least 1.2 x 1.5 m inside the door is separated by a light boundary (floor, level, screen) and is not on a furniture access zone; report "check" instead of PROBLEM. Softens §4 for compact dwellings. | Med | Low |
 
+**Adopted 2026-10-09:** C1, C2 and C3, as `DESIGN_PRINCIPLES.md` §2 rules 6 to 8, checked by
+`ATZONECHECK`. C3 is graph-based (no 10 m length limit yet).
+
 ### B4. Recommended order
 
 1. **C1 intimacy gradient, C2 one joint, C3 night route:** all use the existing room graph and

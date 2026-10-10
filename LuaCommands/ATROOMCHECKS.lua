@@ -1212,7 +1212,16 @@ end, "Checks that doors open inward, into the room they serve (house rule; outwa
 --   3. the entrance opens into the public zone, not the private hall;
 --   4. public and service rooms may connect directly (kitchen - dining);
 --   5. each zone should hang together through its own rooms and corridors
---      (a split zone is reported as "check", not counted as a problem).
+--      (a split zone is reported as "check", not counted as a problem);
+-- Added 2026-10-09 from ARCHITECTS_LESSONS.md (C1 to C3):
+--   6. intimacy gradient: no room is reached from the entrance only through
+--      a more private one (rank: public hall 0, public / service room 1,
+--      private hall 2, bedroom 3, en-suite 4); a private room as near the
+--      entrance as a public one is a check;
+--   7. the private zone joins the rest at one point (2 = check, more = PROBLEM);
+--   8. night route: the best route from each bedroom to its en-suite, else a
+--      shared bathroom, passes no useful room (PROBLEM); crossing the public
+--      hall or going outdoors is a check.
 
 -- En-suite bathrooms: a bathroom whose only connection is one bedroom.
 local function ensuiteMap(rooms, g)
@@ -1334,6 +1343,187 @@ at.defineCommand("ATZONECHECK", function(p)
                 print(string.format("  check: the %s zone is split into %d separate groups; keep its rooms together.", z, groups))
             else
                 print(string.format("  ok: the %s zone hangs together.", z))
+            end
+        end
+    end
+
+    -- Privacy rank of a room: the further in, the more private (rules 6 to 8).
+    local function rank(r)
+        local z, rt = zone(r), roomType(r)
+        if CIRCULATION[rt] then
+            if z == "private" then return 2 end
+            if z == "service" then return 1 end
+            return 0
+        end
+        if ensuite[r] then return 4 end
+        if z == "private" then return 3 end
+        return 1
+    end
+    local function isBoundary(v) return type(v) == "string" and v:find(" boundary$") ~= nil end
+
+    -- rule 6: intimacy gradient (C1, Alexander 127, Loos, Klein)
+    if #g.entrances == 0 then
+        print("  check: no door tagged Entrance (ATDOORTYPE); the intimacy gradient is not verified.")
+    else
+        -- through[r]: the least privacy rank you must cross to reach r from the
+        -- entrance (minimax over routes inside the dwelling); worst[r]: that room.
+        -- depth[r]: rooms crossed from the entrance (a same-zone light boundary
+        -- costs nothing: it divides one space).
+        local through, worst, depth = {}, {}, {}
+        for _, e in ipairs(g.entrances) do
+            for _, r in ipairs(e.rooms) do through[r] = -1; depth[r] = 0 end
+        end
+        local changed = true
+        while changed do
+            changed = false
+            for n, nb in pairs(g.adj) do
+                if n ~= OUTSIDE and through[n] then
+                    local cand = math.max(through[n], rank(n))
+                    for m in pairs(nb) do
+                        if m ~= OUTSIDE then
+                            if through[m] == nil or cand < through[m] then
+                                through[m] = cand
+                                worst[m] = rank(n) >= through[n] and n or worst[n]
+                                changed = true
+                            end
+                            local step = (isBoundary(g.via[n .. ">" .. m]) and zone(n) == zone(m)) and 0 or 1
+                            if depth[m] == nil or depth[n] + step < depth[m] then
+                                depth[m] = depth[n] + step
+                                changed = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        local list = {}
+        for _, r in ipairs(rooms) do
+            if depth[r] then list[#list + 1] = { r = r, d = depth[r] } end
+        end
+        table.sort(list, function(a, b) return a.d < b.d or (a.d == b.d and a.r < b.r) end)
+        local parts = {}
+        for _, x in ipairs(list) do parts[#parts + 1] = string.format("%s %s", roomLabel(x.r), x.d) end
+        print("ATZONECHECK: depth from the entrance (rooms crossed): " .. table.concat(parts, ", "))
+
+        local bad = 0
+        for _, r in ipairs(rooms) do
+            if through[r] and through[r] > rank(r) then
+                bad = bad + 1
+                problems = problems + 1
+                print(string.format("  PROBLEM: %s is reached from the entrance only through %s, a more private space; the further in, the more private (intimacy gradient).",
+                    roomLabel(r), roomLabel(worst[r])))
+            end
+        end
+        -- the most private useful rooms should lie deeper than the public ones
+        local minPriv, maxPub
+        for _, r in ipairs(rooms) do
+            if depth[r] and not CIRCULATION[roomType(r)] then
+                if zone(r) == "private" and (not minPriv or depth[r] < depth[minPriv]) then minPriv = r end
+                if zone(r) == "public" and (not maxPub or depth[r] > depth[maxPub]) then maxPub = r end
+            end
+        end
+        if minPriv and maxPub and depth[minPriv] <= depth[maxPub] then
+            print(string.format("  check: private %s (depth %d) is as near the entrance as public %s (depth %d); put the private rooms deeper.",
+                roomLabel(minPriv), depth[minPriv], roomLabel(maxPub), depth[maxPub]))
+        elseif bad == 0 then
+            print("  ok: privacy grows from the entrance inward (intimacy gradient).")
+        end
+    end
+
+    -- rule 7: the private zone joins the rest at one point (C2, Kahn, Wright)
+    if byZone.private and #byZone.private > 0 then
+        local joints = {}
+        for _, r in ipairs(byZone.private) do
+            for m in pairs(g.adj[r] or {}) do
+                if m ~= OUTSIDE and zone(m) ~= "private" then
+                    joints[#joints + 1] = string.format("%s - %s via %s", roomLabel(r), roomLabel(m), tostring(g.via[r .. ">" .. m]))
+                end
+            end
+        end
+        table.sort(joints)
+        if #joints == 0 then
+            print("  check: the private zone has no connection to the rest of the dwelling.")
+        elseif #joints == 1 then
+            print("  ok: the private zone joins the rest at one point: " .. joints[1] .. ".")
+        elseif #joints == 2 then
+            print("  check: the private zone joins the rest at 2 points (" .. table.concat(joints, "; ") .. "); one is better, make sure the second is intended.")
+        else
+            problems = problems + 1
+            print(string.format("  PROBLEM: the private zone joins the rest at %d points (%s); gather it behind one joint, its own hall.",
+                #joints, table.concat(joints, "; ")))
+        end
+    end
+
+    -- rule 8: night route from each bedroom to its bathroom (C3, Klein)
+    -- Cost of crossing a space: private circulation 1, other circulation 10,
+    -- a useful room 100, outdoors 1000. The cheapest route shows the best the
+    -- plan offers.
+    local function crossCost(n)
+        if n == OUTSIDE then return 1000 end
+        if CIRCULATION[roomType(n)] then return zone(n) == "private" and 1 or 10 end
+        return 100
+    end
+    for _, b in ipairs(rooms) do
+        if BEDROOM_TYPES[roomType(b)] and zone(b) == "private" then
+            local targets = {}
+            for _, r in ipairs(rooms) do
+                if roomType(r) == "Bathroom" and ensuite[r] == b then targets[r] = true end
+            end
+            if not next(targets) then
+                for _, r in ipairs(rooms) do
+                    if roomType(r) == "Bathroom" and not ensuite[r] then targets[r] = true end
+                end
+            end
+            local dist, prev = { [b] = 0 }, {}
+            local again = true
+            while again do
+                again = false
+                local snapshot = {}
+                for n, d in pairs(dist) do snapshot[#snapshot + 1] = { n, d } end
+                for _, nd in ipairs(snapshot) do
+                    local n, d = nd[1], dist[nd[1]]
+                    if n == b or not targets[n] then
+                        local add = n == b and 0 or crossCost(n)
+                        for m in pairs(g.adj[n] or {}) do
+                            if m ~= b and (dist[m] == nil or d + add < dist[m]) then
+                                dist[m], prev[m] = d + add, n
+                                again = true
+                            end
+                        end
+                    end
+                end
+            end
+            local best
+            for t in pairs(targets) do
+                if dist[t] and (not best or dist[t] < dist[best]) then best = t end
+            end
+            if not best then
+                print(string.format("  check: no bathroom reachable from %s.", roomLabel(b)))
+            else
+                local path, worstN, worstC = {}, nil, 0
+                local n = prev[best]
+                while n and n ~= b do
+                    table.insert(path, 1, n)
+                    if crossCost(n) > worstC then worstN, worstC = n, crossCost(n) end
+                    n = prev[n]
+                end
+                local names = {}
+                for _, x in ipairs(path) do names[#names + 1] = x == OUTSIDE and "outside" or roomLabel(x) end
+                local route = #names > 0 and (" via " .. table.concat(names, ", ")) or " directly"
+                if worstC >= 1000 then
+                    print(string.format("  check: the night route from %s to %s goes outdoors%s; cover it or bring the bathroom inside.",
+                        roomLabel(b), roomLabel(best), route))
+                elseif worstC >= 100 then
+                    problems = problems + 1
+                    print(string.format("  PROBLEM: the night route from %s to %s passes through %s%s; day and night routes must not cross (Klein).",
+                        roomLabel(b), roomLabel(best), roomLabel(worstN), route))
+                elseif worstC >= 10 then
+                    print(string.format("  check: the night route from %s to %s crosses %s, outside the private zone%s; a bathroom off the private hall keeps the night zone closed.",
+                        roomLabel(b), roomLabel(best), roomLabel(worstN), route))
+                else
+                    print(string.format("  ok: the night route from %s to %s stays in the private zone%s.",
+                        roomLabel(b), roomLabel(best), route))
+                end
             end
         end
     end
