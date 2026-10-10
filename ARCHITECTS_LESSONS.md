@@ -440,7 +440,9 @@ Existing tools that some candidates extend: `ATZONECHECK`, `ATPASSAGECHECK`, `AT
 | C18 | **Small entry niche as portal** (Fallingwater, Jacobs) | If the entrance opens into a living room, accept it when a zone of at least 1.2 x 1.5 m inside the door is separated by a light boundary (floor, level, screen) and is not on a furniture access zone; report "check" instead of PROBLEM. Softens §4 for compact dwellings. | Med | Low |
 
 **Adopted 2026-10-09:** C1, C2 and C3, as `DESIGN_PRINCIPLES.md` §2 rules 6 to 8, checked by
-`ATZONECHECK`. C3 is graph-based (no 10 m length limit yet).
+`ATZONECHECK`. C1 was restated by zones rather than by a rank of rooms (project decision: "a
+living room is never behind a bedroom, they are different zones, zones do not mix"): the
+private zone is entered, never crossed. C3 is graph-based (no 10 m length limit yet).
 
 ### B4. Recommended order
 

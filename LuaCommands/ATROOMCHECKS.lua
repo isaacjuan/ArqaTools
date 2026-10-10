@@ -1214,10 +1214,9 @@ end, "Checks that doors open inward, into the room they serve (house rule; outwa
 --   5. each zone should hang together through its own rooms and corridors
 --      (a split zone is reported as "check", not counted as a problem);
 -- Added 2026-10-09 from ARCHITECTS_LESSONS.md (C1 to C3):
---   6. intimacy gradient: no room is reached from the entrance only through
---      a more private one (rank: public hall 0, public / service room 1,
---      private hall 2, bedroom 3, en-suite 4); a private room as near the
---      entrance as a public one is a check;
+--   6. zones do not mix: no public or service room is reached from the
+--      entrance only through the private zone (the private zone is entered,
+--      never crossed);
 --   7. the private zone joins the rest at one point (2 = check, more = PROBLEM);
 --   8. night route: the best route from each bedroom to its en-suite, else a
 --      shared bathroom, passes no useful room (PROBLEM); crossing the public
@@ -1347,86 +1346,50 @@ at.defineCommand("ATZONECHECK", function(p)
         end
     end
 
-    -- Privacy rank of a room: the further in, the more private (rules 6 to 8).
-    local function rank(r)
-        local z, rt = zone(r), roomType(r)
-        if CIRCULATION[rt] then
-            if z == "private" then return 2 end
-            if z == "service" then return 1 end
-            return 0
-        end
-        if ensuite[r] then return 4 end
-        if z == "private" then return 3 end
-        return 1
-    end
-    local function isBoundary(v) return type(v) == "string" and v:find(" boundary$") ~= nil end
-
-    -- rule 6: intimacy gradient (C1, Alexander 127, Loos, Klein)
+    -- rule 6: zones do not mix (C1, adapted): a public or service room is never
+    -- reached from the entrance only through the private zone (a living room
+    -- behind a bedroom, the shared bathroom behind the private hall). The
+    -- private zone is a dead end: you enter it, you do not pass through it.
+    -- (Private rooms entered from another zone are rule 1.)
     if #g.entrances == 0 then
-        print("  check: no door tagged Entrance (ATDOORTYPE); the intimacy gradient is not verified.")
+        print("  check: no door tagged Entrance (ATDOORTYPE); the zone sequence is not verified.")
     else
-        -- through[r]: the least privacy rank you must cross to reach r from the
-        -- entrance (minimax over routes inside the dwelling); worst[r]: that room.
-        -- depth[r]: rooms crossed from the entrance (a same-zone light boundary
-        -- costs nothing: it divides one space).
-        local through, worst, depth = {}, {}, {}
+        -- free[r]: r is reachable from the entrance without crossing a private
+        -- space; via[r]: a private space crossed on the way when it is not.
+        local free, start = {}, {}
         for _, e in ipairs(g.entrances) do
-            for _, r in ipairs(e.rooms) do through[r] = -1; depth[r] = 0 end
+            for _, r in ipairs(e.rooms) do start[r] = true end
         end
-        local changed = true
-        while changed do
-            changed = false
-            for n, nb in pairs(g.adj) do
-                if n ~= OUTSIDE and through[n] then
-                    local cand = math.max(through[n], rank(n))
-                    for m in pairs(nb) do
-                        if m ~= OUTSIDE then
-                            if through[m] == nil or cand < through[m] then
-                                through[m] = cand
-                                worst[m] = rank(n) >= through[n] and n or worst[n]
-                                changed = true
-                            end
-                            local step = (isBoundary(g.via[n .. ">" .. m]) and zone(n) == zone(m)) and 0 or 1
-                            if depth[m] == nil or depth[n] + step < depth[m] then
-                                depth[m] = depth[n] + step
-                                changed = true
-                            end
-                        end
-                    end
+        local queue = {}
+        for r in pairs(start) do
+            if zone(r) ~= "private" then free[r] = true; queue[#queue + 1] = r end
+        end
+        while #queue > 0 do
+            local n = table.remove(queue)
+            for m in pairs(g.adj[n] or {}) do
+                if m ~= OUTSIDE and not free[m] and zone(m) ~= "private" then
+                    free[m] = true; queue[#queue + 1] = m
                 end
             end
         end
-        local list = {}
+        local mixed = 0
         for _, r in ipairs(rooms) do
-            if depth[r] then list[#list + 1] = { r = r, d = depth[r] } end
-        end
-        table.sort(list, function(a, b) return a.d < b.d or (a.d == b.d and a.r < b.r) end)
-        local parts = {}
-        for _, x in ipairs(list) do parts[#parts + 1] = string.format("%s %s", roomLabel(x.r), x.d) end
-        print("ATZONECHECK: depth from the entrance (rooms crossed): " .. table.concat(parts, ", "))
-
-        local bad = 0
-        for _, r in ipairs(rooms) do
-            if through[r] and through[r] > rank(r) then
-                bad = bad + 1
-                problems = problems + 1
-                print(string.format("  PROBLEM: %s is reached from the entrance only through %s, a more private space; the further in, the more private (intimacy gradient).",
-                    roomLabel(r), roomLabel(worst[r])))
+            if zone(r) ~= "private" and not free[r] then
+                -- reachable at all? then only through the private zone
+                local through
+                for m in pairs(g.adj[r] or {}) do
+                    if m ~= OUTSIDE and zone(m) == "private" then through = m; break end
+                end
+                if through then
+                    mixed = mixed + 1
+                    problems = problems + 1
+                    print(string.format("  PROBLEM: %s (%s) is reached from the entrance only through the private zone (%s); zones do not mix: the private zone is entered, never crossed.",
+                        roomLabel(r), zone(r) or "no zone", roomLabel(through)))
+                end
             end
         end
-        -- the most private useful rooms should lie deeper than the public ones
-        local minPriv, maxPub
-        for _, r in ipairs(rooms) do
-            if depth[r] and not CIRCULATION[roomType(r)] then
-                if zone(r) == "private" and (not minPriv or depth[r] < depth[minPriv]) then minPriv = r end
-                if zone(r) == "public" and (not maxPub or depth[r] > depth[maxPub]) then maxPub = r end
-            end
-        end
-        if minPriv and maxPub and depth[minPriv] <= depth[maxPub] then
-            print(string.format("  check: private %s (depth %d) is as near the entrance as public %s (depth %d); put the private rooms deeper.",
-                roomLabel(minPriv), depth[minPriv], roomLabel(maxPub), depth[maxPub]))
-        elseif bad == 0 then
-            print("  ok: privacy grows from the entrance inward (intimacy gradient).")
+        if mixed == 0 then
+            print("  ok: zones do not mix: no public or service room lies behind the private zone.")
         end
     end
 

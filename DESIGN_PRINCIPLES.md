@@ -68,12 +68,11 @@ A room's `zone` tag (`ATROOMTYPE ... zone`) overrides the default; `Default` rem
 **Order and joints of the zones** (adopted 2026-10-09 from `ARCHITECTS_LESSONS.md` C1 to C3,
 also checked by `ATZONECHECK`):
 
-6. **Intimacy gradient** (Alexander, Loos, Klein): the further in from the entrance, the more
-   private. Ranks: public hall or portal 0, public or service room 1, private hall 2, bedroom
-   3, en-suite 4. A room reached from the entrance only through a more private one (a living
-   room behind a bedroom, the shared bathroom behind the private hall) is a PROBLEM. A private
-   room as near the entrance (rooms crossed; a same-zone light boundary costs nothing) as a
-   public one is a check.
+6. **Zones do not mix** (from Alexander's intimacy gradient, restated by zones): the private
+   zone is entered, never crossed. A public or service room reached from the entrance only
+   through the private zone (a living room behind a bedroom, the shared bathroom behind the
+   private hall) is a PROBLEM. Together with rule 1 (private rooms only from the private hall),
+   no route mixes the zones.
 7. **One joint** (Kahn's Fisher House, Wright's Usonian wing): the private zone joins the rest
    of the house at one point, its own hall's door. Two joints are a check (make sure the second
    is intended), more are a PROBLEM. Exterior doors do not count.
@@ -241,7 +240,7 @@ openings are element sizes, not space dimensions.
 | Principle | Tool | Status |
 |---|---|---|
 | §2 rules between zones | `ATZONECHECK` | done |
-| §2 intimacy gradient, one joint, night route (rules 6 to 8) | `ATZONECHECK` | done |
+| §2 zones do not mix, one joint, night route (rules 6 to 8) | `ATZONECHECK` | done |
 | §2 siting against road and access | `ATSITEMARK`, `ATSITECHECK` | done |
 | §3 light boundaries as connections | `ATBOUNDARYTYPE`, `ATBOUNDARYLIST`, room graph | done |
 | §4 transition, entrance, en-suite | `ATPASSAGECHECK` | done |
